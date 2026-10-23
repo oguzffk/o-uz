@@ -179,6 +179,9 @@ export default function App() {
         const options = (r.routes ?? [r]).map((rt, index) => ({ ...meta, ...rt, index }));
         setRoute(options[0]);
         setRouteOptions(navigating ? [] : options);
+        if (r.snappedToRoad && !navigating) {
+          showToast('Seçilen noktaya araçla tam ulaşılamıyor; en yakın, araçla gidilebilen yola rota çizildi.');
+        }
         if (!navigating) {
           mapRef.current?.fitToCoordinates(options.flatMap((o) => o.coordinates.map(toLatLng)), {
             edgePadding: { top: 160, right: 50, bottom: 260, left: 50 },

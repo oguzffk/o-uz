@@ -49,6 +49,29 @@ function buildRoute(trip, periodKey) {
   };
 }
 
+// Valhalla "rota yok" hataları: 442 yol bulunamadı, 170 bağlantısız bölgeler, 171 yakında uygun yol yok.
+const NO_ROUTE_CODES = new Set([442, 170, 171]);
+
+/**
+ * Arama sonuçları büyük alanların (havalimanı, AVM, park) ortasına düşebilir; Valhalla o noktayı
+ * dışarıdan girilemeyen bir iç yola bağlayınca rota çıkmaz. Böyle olursa noktaları önce en yakın
+ * halka açık yola (servis yolları hariç), olmazsa en yakın ana yola bağlayarak tekrar dener.
+ */
+async function routeWithFallback(valhalla, body) {
+  const attempts = [null, 'residential', 'tertiary'];
+  for (const [i, minRoadClass] of attempts.entries()) {
+    const locations = minRoadClass
+      ? body.locations.map((l) => ({ ...l, search_filter: { min_road_class: minRoadClass } }))
+      : body.locations;
+    try {
+      return { data: await valhalla.route({ ...body, locations }), snappedToRoad: Boolean(minRoadClass) };
+    } catch (err) {
+      const retryable = err instanceof ValhallaError && NO_ROUTE_CODES.has(err.details?.error_code);
+      if (!retryable || i === attempts.length - 1) throw err;
+    }
+  }
+}
+
 class HttpError extends Error {
   constructor(status, message) {
     super(message);
@@ -216,7 +239,7 @@ export function createApp({ valhalla, store, adminToken, nominatimUrl = 'https:/
       const wantAlternatives = Boolean(req.body.alternatives);
       // Ücretli yollardan kaçın: yasaklamaz, mümkünse kaçınır (Boğaz geçişlerinin çoğu ücretli).
       const avoidTolls = Boolean(req.body.avoidTolls);
-      const data = await valhalla.route({
+      const { data, snappedToRoad } = await routeWithFallback(valhalla, {
         locations: [origin, { ...to, type: 'break' }],
         costing,
         directions_options: { language: 'tr-TR', units: 'kilometers' },
@@ -231,7 +254,7 @@ export function createApp({ valhalla, store, adminToken, nominatimUrl = 'https:/
       const trips = [data.trip, ...(data.alternates ?? []).map((a) => a.trip)];
       // Yoğun saat tahminine göre en hızlıdan yavaşa sırala.
       const routes = trips.map((trip) => buildRoute(trip, traffic.key)).sort((a, b) => a.durationSec - b.durationSec);
-      res.json({ closuresVersion: store.version, costing, avoidTolls, traffic, ...routes[0], routes });
+      res.json({ closuresVersion: store.version, costing, avoidTolls, snappedToRoad, traffic, ...routes[0], routes });
     } catch (err) {
       next(err);
     }
@@ -278,9 +301,10 @@ export function createApp({ valhalla, store, adminToken, nominatimUrl = 'https:/
     const status = err.status ?? (err instanceof ValhallaError ? 502 : 500);
     if (status >= 500) console.error(err);
     let message = err.message;
-    // Valhalla 442: "No path could be found for input" — çoğunlukla kapalı yollar yüzünden.
-    if (err instanceof ValhallaError && err.details?.error_code === 442) {
-      message = 'Rota bulunamadı (kapalı yollar nedeniyle hedefe ulaşılamıyor olabilir)';
+    if (err instanceof ValhallaError && NO_ROUTE_CODES.has(err.details?.error_code)) {
+      message = store.effectiveClosures().length
+        ? 'Rota bulunamadı. Kapalı yollar hedefe giden yolu kesiyor olabilir.'
+        : 'Bu noktaya araçla gidilebilen bir yol bulunamadı. Hedefe yakın başka bir nokta seçin.';
     }
     res.status(status).json({ error: message });
   });

@@ -332,3 +332,50 @@ test('Türkçe talimatlarda "Caddesi caddesine" tekrarı düzeltilir', async () 
   assert.equal(f('15 Temmuz Şehitler Köprüsü caddesi üzerinden'), '15 Temmuz Şehitler Köprüsü üzerinden');
   assert.equal(f(null), null);
 });
+
+test('rota bulunamazsa hedef en yakın halka açık / ana yola bağlanarak tekrar denenir', async () => {
+  const { ValhallaError } = await import('../src/valhalla.js');
+  await withServer(async ({ req, valhalla }) => {
+    const ok = {
+      trip: {
+        summary: { length: 30, time: 1800 },
+        legs: [{ shape: SHAPE, maneuvers: [{ type: 1, instruction: 'Başla', length: 30, time: 1800, begin_shape_index: 0, end_shape_index: 1 }] }],
+      },
+    };
+    const noPath = () => new ValhallaError('No path could be found for input', 400, { error_code: 442 });
+    // Havalimanı gibi: düz istek başarısız, servis yolları hariç tutulunca başarılı.
+    valhalla.route = async (body) => {
+      valhalla.calls.push(body);
+      if (!body.locations[1].search_filter) throw noPath();
+      return ok;
+    };
+    const body = { from: { lat: 41.03, lon: 28.98 }, to: { lat: 41.27, lon: 28.75 } };
+    const r = await req('/api/route', { method: 'POST', body });
+    assert.equal(r.status, 200);
+    assert.equal(r.body.snappedToRoad, true);
+    assert.deepEqual(valhalla.calls.at(-1).locations[1].search_filter, { min_road_class: 'residential' });
+
+    // Hiçbir deneme tutmazsa: kapalı yol yokken kapalı yolları suçlamayan mesaj.
+    valhalla.route = async (b) => {
+      valhalla.calls.push(b);
+      throw noPath();
+    };
+    const fail = await req('/api/route', { method: 'POST', body });
+    assert.equal(fail.status, 400);
+    assert.match(fail.body.error, /araçla gidilebilen bir yol bulunamadı/);
+    assert.equal(valhalla.calls.at(-1).locations[1].search_filter.min_road_class, 'tertiary');
+
+    // Kapalı yol varsa mesaj onları da anar.
+    await req('/api/closures/toggle', { method: 'POST', token: 'secret', body: { lat: 41.031, lon: 28.9823 } });
+    const fail2 = await req('/api/route', { method: 'POST', body });
+    assert.match(fail2.body.error, /Kapalı yollar/);
+
+    // Normal başarılı rotada yedek kullanılmaz.
+    valhalla.route = async (b) => {
+      valhalla.calls.push(b);
+      return ok;
+    };
+    const normal = await req('/api/route', { method: 'POST', body });
+    assert.equal(normal.body.snappedToRoad, false);
+  });
+});

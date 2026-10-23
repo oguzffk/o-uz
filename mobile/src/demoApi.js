@@ -13,6 +13,8 @@ export const PUBLIC_VALHALLA_URL = 'https://valhalla1.openstreetmap.de';
 const NOMINATIM_URL = 'https://nominatim.openstreetmap.org';
 const STORAGE_KEY = 'demo-closures-v1';
 const MAX_SNAP_METERS = 40;
+// Valhalla "rota yok" hataları: 442 yol bulunamadı, 170 bağlantısız bölgeler, 171 yakında uygun yol yok.
+const NO_ROUTE_CODES = new Set([442, 170, 171]);
 
 // server/src/geo.js ile aynı yardımcılar (sunucu olmadan çalışabilmek için kopya).
 function decodePolyline(str, precision = 6) {
@@ -156,10 +158,35 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL) {
     const data = await res.json().catch(() => ({}));
     if (res.status === 429) throw new Error('Herkese açık rota sunucusu yoğun, birkaç saniye sonra tekrar deneyin.');
     if (!res.ok) {
-      if (data.error_code === 442) throw new Error('Rota bulunamadı (kapalı yollar nedeniyle hedefe ulaşılamıyor olabilir)');
-      throw new Error(data.error || `Rota sunucusu hatası (${res.status})`);
+      const err = new Error(data.error || `Rota sunucusu hatası (${res.status})`);
+      err.code = data.error_code;
+      throw err;
     }
     return data;
+  }
+
+  // Sunucudaki routeWithFallback ile aynı: arama sonucu büyük bir alanın (havalimanı, AVM)
+  // ortasına düşüp dışarıdan girilemeyen bir iç yola bağlanırsa, noktaları önce en yakın
+  // halka açık yola, olmazsa en yakın ana yola bağlayarak tekrar dener.
+  async function routeWithFallback(hasClosures, body) {
+    const attempts = [null, 'residential', 'tertiary'];
+    for (const [i, minRoadClass] of attempts.entries()) {
+      const locations = minRoadClass
+        ? body.locations.map((l) => ({ ...l, search_filter: { min_road_class: minRoadClass } }))
+        : body.locations;
+      try {
+        return { data: await valhalla('route', { ...body, locations }), snappedToRoad: Boolean(minRoadClass) };
+      } catch (err) {
+        if (!NO_ROUTE_CODES.has(err.code)) throw err;
+        if (i === attempts.length - 1) {
+          throw new Error(
+            hasClosures
+              ? 'Rota bulunamadı. Kapalı yollar hedefe giden yolu kesiyor olabilir.'
+              : 'Bu noktaya araçla gidilebilen bir yol bulunamadı. Hedefe yakın başka bir nokta seçin.',
+          );
+        }
+      }
+    }
   }
 
   // Dokunulan noktadaki yol parçasını (iki kavşak arası) bulur.
@@ -200,7 +227,7 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL) {
         origin.heading = Math.round(heading) % 360;
         origin.heading_tolerance = 60;
       }
-      const data = await valhalla('route', {
+      const { data, snappedToRoad } = await routeWithFallback(closures.length > 0, {
         locations: [origin, { lat: to.lat, lon: to.lon, type: 'break' }],
         costing,
         directions_options: { language: 'tr-TR', units: 'kilometers' },
@@ -213,7 +240,7 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL) {
       const trips = [data.trip, ...(data.alternates ?? []).map((a) => a.trip)];
       // Sunucudaki gibi: yoğun saat tahminine göre en hızlıdan yavaşa.
       const routes = trips.map((trip) => buildRoute(trip, traffic.key)).sort((a, b) => a.durationSec - b.durationSec);
-      return { closuresVersion: version, costing, avoidTolls, traffic, ...routes[0], routes };
+      return { closuresVersion: version, costing, avoidTolls, snappedToRoad, traffic, ...routes[0], routes };
     },
 
     async search(q) {

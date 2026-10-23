@@ -60,7 +60,17 @@ export default function App() {
   // Harita şu an kullanıcının konumunda mı? Seyirde bu "takip ediliyor" demek. Kullanıcı
   // haritayı kaydırınca ya da rota gösterilince false olur ve "Ortala" düğmesi çıkar.
   const [centered, setCentered] = useState(true);
-  const [manualOrigin, setManualOrigin] = useState(null);
+  // Nereden: null = Konumum (GPS); başka bir yer seçilirse { lat, lon, name, address }.
+  const [fromPlace, setFromPlace] = useState(null);
+  const [fromText, setFromText] = useState('');
+  const [activeField, setActiveField] = useState('to'); // arama hangi kutu için: 'from' | 'to'
+  // Kutudan çıkınca yazıyı geri yüklerken en güncel seçimi görmek için (blur, seçimden önce gelebilir).
+  const fromPlaceRef = useRef(null);
+  const selectFrom = (place) => {
+    fromPlaceRef.current = place;
+    setFromPlace(place);
+    setFromText(place ? place.name : '');
+  };
   const [destination, setDestination] = useState(null); // { lat, lon, name }
   const [route, setRoute] = useState(null); // seçili rota
   const [routeOptions, setRouteOptions] = useState([]); // önizlemede alternatifler dahil tüm rotalar
@@ -76,6 +86,8 @@ export default function App() {
   const [toast, setToast] = useState(null);
   const [bottomPanelHeight, setBottomPanelHeight] = useState(0);
   const [searchFocused, setSearchFocused] = useState(false);
+  // Kutuya dokunduktan sonra bir şey yazıldı mı? Yazılmadıysa öneri listesi (Konumum, son aramalar) gösterilir.
+  const [typed, setTyped] = useState(false);
   const [recents, setRecents] = useState([]); // son seçilen yerler (cihazda saklanır)
   // Temizle'de alt panel aşağı kayarak kaybolsun diye: 0 = yerinde, 1 = ekran dışında.
   const panelExit = useRef(new Animated.Value(0)).current;
@@ -182,9 +194,11 @@ export default function App() {
     setCentered(true);
   };
 
-  // Cihaz İstanbul dışındaysa (ör. emülatör) başlangıç haritadan seçilir.
+  // Başlangıç: seçilmiş bir yer varsa o, yoksa GPS konumu (İstanbul içindeyse).
   const gpsUsable = location && inIstanbul(location);
-  const origin = gpsUsable ? location : manualOrigin;
+  const origin = fromPlace ?? (gpsUsable ? location : null);
+  // Seyir GPS ile takip edildiği için yalnızca konumdan başlayan rotalarda mümkün.
+  const canNavigate = !fromPlace && gpsUsable;
 
   // --- Rota ---
   const routeRequest = useRef(0);
@@ -352,6 +366,10 @@ export default function App() {
   };
 
   const startNavigation = () => {
+    if (fromPlace) {
+      showToast('Seyir yalnızca konumunuzdan başlar. "Nereden"i Konumum yapın.', 'error');
+      return;
+    }
     if (!gpsUsable) {
       showToast('Seyir için İstanbul içinde GPS konumu gerekli. Rota önizlemesi kullanılabilir.', 'error');
       return;
@@ -391,6 +409,7 @@ export default function App() {
       setRouteOptions([]);
       setDestination(null);
       setQuery('');
+      selectFrom(null);
       panelExit.setValue(0);
       if (location) {
         mapRef.current?.animateCamera(
@@ -405,8 +424,9 @@ export default function App() {
   // --- Arama ---
   const searchSeq = useRef(0);
   const skipAutoSearch = useRef(false);
+  const activeText = activeField === 'from' ? fromText : query;
   const search = async ({ auto = false } = {}) => {
-    const q = query.trim();
+    const q = activeText.trim();
     if (q.length < 2) return;
     const seq = ++searchSeq.current;
     setSearching(true);
@@ -428,23 +448,59 @@ export default function App() {
       skipAutoSearch.current = false;
       return;
     }
-    if (query.trim().length < 3) {
+    // Yalnızca kullanıcı yazınca ara; kutuya dokunmak ya da kutu değiştirmek arama başlatmasın.
+    if (!typed || activeText.trim().length < 3) {
       setResults([]);
       return;
     }
     const t = setTimeout(() => search({ auto: true }), 700);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query]);
+  }, [activeText]);
 
-  const chooseDestination = (place) => {
-    addRecent(place);
+  // Listeden seçilen yer, o an hangi kutu düzenleniyorsa ona yazılır.
+  const choosePlace = (place) => {
     setResults([]);
     skipAutoSearch.current = true;
     Keyboard.dismiss();
+    if (activeField === 'from') {
+      if (place.myLocation) return chooseMyLocationAsStart();
+      addRecent(place);
+      selectFrom(place);
+      if (destination) requestRoute({ from: place });
+      return;
+    }
+    addRecent(place);
     setQuery(place.name);
     setDestination(place);
     requestRoute({ to: place });
+  };
+  
+  const chooseMyLocationAsStart = () => {
+    if (!gpsUsable) {
+      showToast('Konumunuz bulunamadı ya da İstanbul dışında; başlangıç olarak bir yer seçin.', 'error');
+      return;
+    }
+    selectFrom(null);
+    if (destination) requestRoute({ from: location });
+  };
+
+  // ⇅: başlangıç ve varışı yer değiştirir ("Konumum" da taşınabilir).
+  const swapPlaces = () => {
+    const myLocation = gpsUsable ? { lat: location.lat, lon: location.lon, name: 'Konumum', myLocation: true } : null;
+    const newFrom = destination;
+    const newTo = fromPlace ?? myLocation;
+    if (!newTo) {
+      showToast('Yer değiştirmek için önce başlangıç noktası gerekli.', 'error');
+      return;
+    }
+    const startIsMe = !newFrom || newFrom.myLocation;
+    selectFrom(startIsMe ? null : newFrom);
+    skipAutoSearch.current = true;
+    setQuery(newTo.name);
+    setDestination(newTo);
+    const from = startIsMe ? (gpsUsable ? location : null) : newFrom;
+    if (from) requestRoute({ from, to: newTo });
   };
 
   // --- Harita etkileşimi ---
@@ -514,8 +570,8 @@ export default function App() {
   const onMapLongPress = (e) => {
     if (navigating) return;
     const { latitude: lat, longitude: lon } = e.nativeEvent.coordinate;
-    if (!gpsUsable && !manualOrigin) {
-      setManualOrigin({ lat, lon });
+    if (!origin) {
+      selectFrom({ lat, lon, name: 'Haritada seçilen başlangıç' });
       showToast('Başlangıç seçildi. Şimdi varış noktasını basılı tutun.');
       return;
     }
@@ -553,7 +609,13 @@ export default function App() {
   };
 
   const next = progress?.next;
-  const showRecents = !navigating && searchFocused && query.trim().length < 3 && results.length === 0 && recents.length > 0;
+  // Kutuya dokunulup henüz yazılmadıysa: son aramalar (Nereden'de en üstte "Konumum").
+  const showRecents =
+    !navigating &&
+    searchFocused &&
+    (!typed || activeText.trim().length < 3) &&
+    results.length === 0 &&
+    (recents.length > 0 || activeField === 'from');
 
   return (
     <View style={styles.container}>
@@ -626,8 +688,8 @@ export default function App() {
             zIndex={3}
           />
         ))}
-        {manualOrigin && !gpsUsable && (
-          <Marker coordinate={toLatLng([manualOrigin.lat, manualOrigin.lon])} pinColor="green" title="Başlangıç" />
+        {fromPlace && (
+          <Marker coordinate={toLatLng([fromPlace.lat, fromPlace.lon])} pinColor="green" title={fromPlace.name} />
         )}
         {destination && <Marker coordinate={toLatLng([destination.lat, destination.lon])} title={destination.name} />}
         {puck && <NavPuck position={puck} bearing={bearing} />}
@@ -673,35 +735,87 @@ export default function App() {
           ) : (
             <>
               <SlideIn from={-12} style={styles.searchRow}>
-                <TextInput
-                  style={styles.search}
-                  value={query}
-                  onChangeText={setQuery}
-                  onSubmitEditing={() => search()}
-                  onFocus={() => setSearchFocused(true)}
-                  // Listeye dokunma kaybolmadan önce işlensin diye biraz gecikmeli.
-                  onBlur={() => setTimeout(() => setSearchFocused(false), 150)}
-                  placeholder="Nereye? (ör. Taksim)"
-                  returnKeyType="search"
-                />
-                <Pressable style={[styles.iconButton, styles.searchButton]} onPress={() => search()}>
-                  {searching ? <ActivityIndicator color="#fff" /> : <Text style={styles.searchButtonText}>Ara</Text>}
-                </Pressable>
+                <View style={styles.routeCard}>
+                  <View style={styles.fieldRow}>
+                    <View style={styles.fromDot} />
+                    <TextInput
+                      style={styles.fieldInput}
+                      value={fromText}
+                      onChangeText={(t) => {
+                        setTyped(true);
+                        setFromText(t);
+                      }}
+                      selectTextOnFocus
+                      onSubmitEditing={() => search()}
+                      onFocus={() => {
+                        setActiveField('from');
+                        setTyped(false);
+                        setResults([]);
+                        setSearchFocused(true);
+                      }}
+                      onBlur={() =>
+                        setTimeout(() => {
+                          setSearchFocused(false);
+                          // yarım kalan yazı silinsin, seçili başlangıcın adı geri gelsin
+                          setFromText(fromPlaceRef.current ? fromPlaceRef.current.name : '');
+                        }, 150)
+                      }
+                      placeholder={gpsUsable ? 'Konumum' : 'Nereden? (başlangıç seçin)'}
+                      placeholderTextColor={gpsUsable ? '#0a66d8' : '#8e8e93'}
+                      returnKeyType="search"
+                    />
+                  </View>
+                  <View style={styles.fieldDivider} />
+                  <View style={styles.fieldRow}>
+                    <View style={styles.toDot} />
+                    <TextInput
+                      style={styles.fieldInput}
+                      value={query}
+                      onChangeText={(t) => {
+                        setTyped(true);
+                        setQuery(t);
+                      }}
+                      selectTextOnFocus
+                      onSubmitEditing={() => search()}
+                      onFocus={() => {
+                        setActiveField('to');
+                        setTyped(false);
+                        setResults([]);
+                        setSearchFocused(true);
+                      }}
+                      // Listeye dokunma kaybolmadan önce işlensin diye biraz gecikmeli.
+                      onBlur={() => setTimeout(() => setSearchFocused(false), 150)}
+                      placeholder="Nereye? (ör. Taksim)"
+                      returnKeyType="search"
+                    />
+                  </View>
+                </View>
+                <View style={styles.cardButtons}>
+                  <Pressable style={[styles.iconButton, styles.swapButton]} onPress={swapPlaces} accessibilityLabel="Yer değiştir">
+                    <Text style={styles.swapText}>⇅</Text>
+                  </Pressable>
+                  <Pressable style={[styles.iconButton, styles.searchButton, styles.cardSearch]} onPress={() => search()}>
+                    {searching ? <ActivityIndicator color="#fff" /> : <Text style={styles.searchButtonText}>Ara</Text>}
+                  </Pressable>
+                </View>
               </SlideIn>
               {showRecents && (
                 <View style={styles.results}>
-                  <View style={styles.recentsHeader}>
-                    <Text style={styles.recentsTitle}>Son aramalar</Text>
-                    <Pressable onPress={() => storeRecents([])} hitSlop={10}>
-                      <Text style={styles.recentsClear}>Temizle</Text>
-                    </Pressable>
-                  </View>
+                  {activeField === 'from' && <MyLocationRow onPress={chooseMyLocationAsStart} />}
+                  {recents.length > 0 && (
+                    <View style={styles.recentsHeader}>
+                      <Text style={styles.recentsTitle}>Son aramalar</Text>
+                      <Pressable onPress={() => storeRecents([])} hitSlop={10}>
+                        <Text style={styles.recentsClear}>Temizle</Text>
+                      </Pressable>
+                    </View>
+                  )}
                   <FlatList
                     keyboardShouldPersistTaps="handled"
                     data={recents}
                     keyExtractor={(item, i) => `${item.lat},${item.lon},${i}`}
                     renderItem={({ item }) => (
-                      <Pressable style={[styles.result, styles.recentRow]} onPress={() => chooseDestination(item)}>
+                      <Pressable style={[styles.result, styles.recentRow]} onPress={() => choosePlace(item)}>
                         <ClockIcon />
                         <View style={{ flex: 1 }}>
                           <Text style={styles.resultName} numberOfLines={1}>
@@ -718,7 +832,7 @@ export default function App() {
                   />
                 </View>
               )}
-              {locStatus !== 'ok' && !manualOrigin && (
+              {locStatus !== 'ok' && !fromPlace && (
                 <View style={styles.notice}>
                   <Text style={styles.noticeText}>
                     {locStatus === 'denied'
@@ -729,7 +843,7 @@ export default function App() {
                   </Text>
                 </View>
               )}
-              {location && !gpsUsable && !manualOrigin && (
+              {location && !gpsUsable && !fromPlace && (
                 <View style={styles.notice}>
                   <Text style={styles.noticeText}>
                     Konumunuz İstanbul dışında. Denemek için önce başlangıç, sonra varış noktasını haritada basılı tutun.
@@ -742,8 +856,9 @@ export default function App() {
                   keyboardShouldPersistTaps="handled"
                   data={results}
                   keyExtractor={(item, i) => `${item.lat},${item.lon},${i}`}
+                  ListHeaderComponent={activeField === 'from' ? <MyLocationRow onPress={chooseMyLocationAsStart} /> : null}
                   renderItem={({ item }) => (
-                    <Pressable style={styles.result} onPress={() => chooseDestination(item)}>
+                    <Pressable style={styles.result} onPress={() => choosePlace(item)}>
                       <Text style={styles.resultName}>{item.name}</Text>
                       <Text style={styles.resultAddr} numberOfLines={1}>
                         {item.address}
@@ -822,6 +937,11 @@ export default function App() {
                       : 'Bu rota ücretli yol (köprü, tünel ya da otoyol) içeriyor.'}
                   </Text>
                 )}
+                {!navigating && fromPlace && (
+                  <Text style={styles.previewNote}>
+                    Rota önizlemesi: seyir yalnızca konumunuzdan başlar. Başlamak için "Nereden"i Konumum yapın.
+                  </Text>
+                )}
                 {!navigating && (
                   <View style={styles.tollRow}>
                     <Text style={styles.tollLabel}>Ücretli yollardan kaçın</Text>
@@ -858,9 +978,11 @@ export default function App() {
                       <Pressable style={[styles.button, styles.secondary]} onPress={clearTrip}>
                         <Text style={styles.secondaryText}>Temizle</Text>
                       </Pressable>
-                      <Pressable style={styles.button} onPress={startNavigation}>
-                        <Text style={styles.buttonText}>Başla</Text>
-                      </Pressable>
+                      {canNavigate && (
+                        <Pressable style={styles.button} onPress={startNavigation}>
+                          <Text style={styles.buttonText}>Başla</Text>
+                        </Pressable>
+                      )}
                     </>
                   )}
                 </View>
@@ -874,7 +996,7 @@ export default function App() {
 
       {/* Sağ kenardaki düğme paneli (arama sonuçları açıkken gizlenir). */}
       {!inPip && results.length === 0 && !showRecents && !editing && (
-        <View style={[styles.sidePanel, { top: navigating ? 170 : 150 }]}>
+        <View style={[styles.sidePanel, { top: navigating ? 170 : 200 }]}>
           <SideButton label="Ayarlar" onPress={() => setSettingsOpen(true)}>
             <Text style={styles.sideGlyph}>⚙︎</Text>
           </SideButton>
@@ -915,9 +1037,9 @@ export default function App() {
             pressed && styles.recenterPressed,
           ]}
           onPress={recenter}
+          accessibilityLabel="Ortala"
         >
           <RecenterIcon />
-          <Text style={styles.recenterText}>Ortala</Text>
         </Pressable>
       )}
 
@@ -993,17 +1115,25 @@ function ClockIcon() {
   );
 }
 
-// "Ortala" simgesi: gri halka, dört yönde kırmızı nişan çizgileri, ortada mavi konum noktası.
+// "Ortala" simgesi: Apple Haritalar'daki gibi sağ üste bakan mavi konum oku.
 function RecenterIcon() {
   return (
-    <View style={styles.recenterIcon}>
-      <View style={styles.recenterRing} />
-      <View style={[styles.recenterTick, styles.tickTop]} />
-      <View style={[styles.recenterTick, styles.tickBottom]} />
-      <View style={[styles.recenterTick, styles.tickSide, styles.tickLeft]} />
-      <View style={[styles.recenterTick, styles.tickSide, styles.tickRight]} />
-      <View style={styles.recenterDot} />
+    <View style={styles.locArrow}>
+      <View style={styles.locArrowHead} />
+      <View style={styles.locArrowNotch} />
     </View>
+  );
+}
+
+// "Nereden" listesinin başındaki "Konumum" seçeneği.
+function MyLocationRow({ onPress }) {
+  return (
+    <Pressable style={[styles.result, styles.recentRow]} onPress={onPress}>
+      <View style={styles.myLocIcon}>
+        <View style={styles.myLocIconDot} />
+      </View>
+      <Text style={[styles.resultName, { color: '#0a66d8' }]}>Konumum</Text>
+    </Pressable>
   );
 }
 
@@ -1158,28 +1288,52 @@ const styles = StyleSheet.create({
   recenter: {
     position: 'absolute',
     left: 14,
-    height: 52,
-    flexDirection: 'row',
+    width: 50,
+    height: 50,
     alignItems: 'center',
-    gap: 10,
-    paddingLeft: 10,
-    paddingRight: 18,
+    justifyContent: 'center',
     backgroundColor: '#fff',
-    borderRadius: 26,
-    borderWidth: 1.5,
-    borderColor: '#c7ced6',
+    borderRadius: 12,
     ...shadow,
   },
   recenterPressed: { backgroundColor: '#eef4fd' },
-  recenterText: { fontSize: 16, fontWeight: '800', color: '#0a66d8' },
-  recenterIcon: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center' },
-  recenterRing: { position: 'absolute', width: 26, height: 26, borderRadius: 13, borderWidth: 2.5, borderColor: '#8e9aa8' },
-  recenterTick: { position: 'absolute', width: 3, height: 7, borderRadius: 1.5, backgroundColor: '#d70015' },
-  tickTop: { top: 0 },
-  tickBottom: { bottom: 0 },
-  tickSide: { width: 7, height: 3 },
-  tickLeft: { left: 0 },
-  tickRight: { right: 0 },
-  recenterDot: { width: 13, height: 13, borderRadius: 6.5, backgroundColor: '#0a66d8', borderWidth: 2, borderColor: '#fff' },
+  // Konum oku: mavi üçgen + beyaz çentik, 45° döndürülerek sağ üste baktırılır.
+  locArrow: { width: 20, height: 22, transform: [{ rotate: '45deg' }], marginTop: 2, marginRight: 2 },
+  locArrowHead: {
+    width: 0,
+    height: 0,
+    borderLeftWidth: 10,
+    borderRightWidth: 10,
+    borderBottomWidth: 22,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderBottomColor: '#0a7aff',
+  },
+  locArrowNotch: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 10,
+    borderRightWidth: 10,
+    borderBottomWidth: 6,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderBottomColor: '#fff',
+  },
+  routeCard: { flex: 1, backgroundColor: '#fff', borderRadius: 14, paddingHorizontal: 12, ...shadow },
+  fieldRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  fieldInput: { flex: 1, minWidth: 0, paddingVertical: 11, fontSize: 16 },
+  fieldDivider: { height: StyleSheet.hairlineWidth, backgroundColor: '#d1d1d6', marginLeft: 22 },
+  fromDot: { width: 12, height: 12, borderRadius: 6, borderWidth: 3, borderColor: '#0a66d8', backgroundColor: '#fff' },
+  toDot: { width: 12, height: 12, borderRadius: 6, backgroundColor: '#d70015' },
+  cardButtons: { gap: 8 },
+  swapButton: { flex: 1, minHeight: 40 },
+  swapText: { fontSize: 22, color: '#3a3a3c', fontWeight: '600' },
+  cardSearch: { flex: 1, minHeight: 40 },
+  previewNote: { fontSize: 12, color: '#6e6e73', marginTop: 4 },
+  myLocIcon: { width: 18, height: 18, borderRadius: 9, backgroundColor: '#cfe0fb', alignItems: 'center', justifyContent: 'center' },
+  myLocIconDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#0a66d8', borderWidth: 1.5, borderColor: '#fff' },
   attribution: { position: 'absolute', right: 6, bottom: 6, fontSize: 10, color: '#3a3a3c', backgroundColor: 'rgba(255,255,255,0.7)', paddingHorizontal: 4 },
 });

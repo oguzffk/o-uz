@@ -85,3 +85,19 @@ export function offsetPoint([lat, lon], bearingDeg, meters) {
   const dLon = (meters * Math.sin(b)) / (R * Math.cos(toRad(lat)));
   return [lat + (dLat * 180) / Math.PI, lon + (dLon * 180) / Math.PI];
 }
+
+/** Oturtulmuş konumdan rota boyunca `meters` ilerideki nokta (yön hesabı için). */
+export function pointAhead(coords, snap, meters) {
+  let remaining = meters;
+  let from = snap.point;
+  for (let i = snap.index + 1; i < coords.length; i++) {
+    const seg = distanceMeters(from, coords[i]);
+    if (seg >= remaining) {
+      const t = seg === 0 ? 0 : remaining / seg;
+      return [from[0] + (coords[i][0] - from[0]) * t, from[1] + (coords[i][1] - from[1]) * t];
+    }
+    remaining -= seg;
+    from = coords[i];
+  }
+  return coords[coords.length - 1];
+}

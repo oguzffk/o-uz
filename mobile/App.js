@@ -20,10 +20,12 @@ import { createDemoApi } from './src/demoApi';
 import {
   ISTANBUL_REGION,
   bearingDegrees,
+  distanceMeters,
   formatDistance,
   formatDuration,
   inIstanbul,
   offsetPoint,
+  pointAhead,
   toLatLng,
 } from './src/geo';
 import { stopSpeech, useNavigation } from './src/useNavigation';
@@ -253,33 +255,47 @@ export default function App() {
     },
   });
 
-  // --- Takip kamerası (Google Haritalar'daki gibi) ---
-  // Seyirde harita konumu takip eder ve gidiş yönüne döner. Kullanıcı haritayı
-  // kaydırınca takip durur; "Ortala" düğmesi takibi geri açar.
+  // --- Takip kamerası ve yön oku (Google Haritalar'daki gibi) ---
+  // Seyirde konum yola oturtulmuş bir okla gösterilir; harita gidiş yönüne döner ve
+  // oku arkadan, hafif eğik açıyla takip eder. Kullanıcı haritayı kaydırınca takip
+  // durur; "Ortala" takibi geri açar.
+  //
+  // Yön telefonun GPS yönünden alınmıyor: o değer yavaşken çoğunlukla boş (0 = kuzey)
+  // geliyor ve harita yan dönüyordu. Rotadayken rotanın hemen önündeki kısmının yönü,
+  // rotadan çıkınca son iki konum arasındaki hareket yönü kullanılır.
   const [following, setFollowing] = useState(true);
   const lastBearing = useRef(0);
+  const lastFix = useRef(null);
+  const onRoute = Boolean(navigating && progress && progress.snap.distance < 30);
+  const puck = navigating && gpsUsable ? (onRoute ? progress.snap.point : [location.lat, location.lon]) : null;
+
+  let bearing = lastBearing.current;
+  if (navigating && gpsUsable) {
+    if (onRoute) {
+      bearing = bearingDegrees(progress.snap.point, pointAhead(route.coordinates, progress.snap, 25));
+    } else if (lastFix.current && distanceMeters(lastFix.current, [location.lat, location.lon]) > 8) {
+      bearing = bearingDegrees(lastFix.current, [location.lat, location.lon]);
+    }
+  }
+
   useEffect(() => {
-    if (!navigating || !following || !gpsUsable) return;
-    const here = [location.lat, location.lon];
-    const moving = location.speed != null && location.speed > 2; // ~7 km/sa üstü
-    // Hareket halindeyken GPS yönü güvenilir; dururken rotanın gittiği yöne bak.
-    let bearing = lastBearing.current;
-    if (moving && location.heading >= 0) {
-      bearing = location.heading;
-    } else if (route && progress) {
-      const i = Math.min(progress.snap.index, route.coordinates.length - 2);
-      if (i >= 0) bearing = bearingDegrees(route.coordinates[i], route.coordinates[i + 1]);
+    if (!navigating || !gpsUsable) {
+      lastFix.current = null;
+      return;
     }
     lastBearing.current = bearing;
-    // Hız arttıkça biraz uzaklaş; konum ekranın alt kısmında kalsın diye merkez biraz ileride.
-    const speed = location.speed ?? 0;
-    const zoom = speed > 17 ? 16.5 : speed > 8 ? 17.2 : 17.8;
-    const [lat, lon] = offsetPoint(here, bearing, speed > 17 ? 90 : 45);
+    const here = [location.lat, location.lon];
+    if (!lastFix.current || distanceMeters(lastFix.current, here) > 8) lastFix.current = here;
+    if (!following) return;
+    // Hız arttıkça biraz uzaklaş; ok ekranın alt kısmında kalsın diye merkez biraz ileride.
+    const speed = location.speed > 0 ? location.speed : 0;
+    const zoom = speed > 17 ? 16.6 : speed > 8 ? 17.3 : 17.9;
+    const [lat, lon] = offsetPoint(puck, bearing, speed > 17 ? 110 : 55);
     mapRef.current?.animateCamera(
-      { center: { latitude: lat, longitude: lon }, heading: bearing, pitch: 50, zoom },
+      { center: { latitude: lat, longitude: lon }, heading: bearing, pitch: 55, zoom },
       { duration: 900 },
     );
-    // progress her konumda değişir; ayrı bağımlılık gerekmiyor.
+    // bearing ve puck konumdan türetiliyor; konum değişimi yeterli tetikleyici.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navigating, following, gpsUsable, location, route]);
 
@@ -475,7 +491,8 @@ export default function App() {
         // Altlık: telefonun kendi haritası (Android'de Google, iOS'ta Apple). OSM'nin ücretsiz
         // karo sunucusu uygulamalardan gelen istekleri engellediği için onu kullanmıyoruz.
         mapType="standard"
-        showsUserLocation
+        // Seyirde mavi nokta yerine aşağıdaki yön oku gösterilir.
+        showsUserLocation={!navigating}
         showsMyLocationButton={false}
         showsCompass={false}
         toolbarEnabled={false}
@@ -539,6 +556,7 @@ export default function App() {
           <Marker coordinate={toLatLng([manualOrigin.lat, manualOrigin.lon])} pinColor="green" title="Başlangıç" />
         )}
         {destination && <Marker coordinate={toLatLng([destination.lat, destination.lon])} title={destination.name} />}
+        {puck && <NavPuck position={puck} bearing={bearing} />}
       </MapView>
 
       {/* Küçük pencere (PiP): yalnızca kısa yön bandı. */}
@@ -817,6 +835,35 @@ function SideButton({ label, onPress, active, highlight, last, children }) {
   );
 }
 
+// Seyirdeki yön oku. Harita düzlemine yatık (flat) olduğu için harita döndükçe
+// birlikte döner; kamera gidiş yönüne baktığında ok hep yukarıyı gösterir.
+function NavPuck({ position, bearing }) {
+  // Android özel işaretçiyi bir kez resme çevirir; ilk çizimde görünüm hazır olmayabilir,
+  // bu yüzden kısa süre güncellemeye izin verip sonra (performans için) kapatıyoruz.
+  const [tracks, setTracks] = useState(true);
+  useEffect(() => {
+    const t = setTimeout(() => setTracks(false), 600);
+    return () => clearTimeout(t);
+  }, []);
+  return (
+    <Marker
+      coordinate={toLatLng(position)}
+      anchor={{ x: 0.5, y: 0.5 }}
+      flat
+      rotation={bearing}
+      tracksViewChanges={tracks}
+      zIndex={10}
+    >
+      <View style={styles.navPuck}>
+        <View style={styles.navArrowWrap}>
+          <View style={styles.navArrow} />
+          <View style={styles.navArrowNotch} />
+        </View>
+      </View>
+    </Marker>
+  );
+}
+
 // Seyir sürerken ekranın kendiliğinden kapanmasını engeller.
 function KeepScreenOn() {
   useKeepAwake('navigation');
@@ -903,6 +950,32 @@ const styles = StyleSheet.create({
   noEntryOn: { backgroundColor: '#d70015' },
   noEntryBar: { width: 12, height: 3, borderRadius: 1, backgroundColor: '#d70015' },
   noEntryBarOn: { backgroundColor: '#fff' },
+  navPuck: { width: 46, height: 46, borderRadius: 23, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#cfd8e3', ...shadow },
+  // Mavi üçgenin tabanına beyaz küçük bir üçgen bindirilerek çentikli ok (chevron) elde edilir.
+  navArrowWrap: { width: 24, height: 26, marginBottom: 3 },
+  navArrow: {
+    width: 0,
+    height: 0,
+    borderLeftWidth: 12,
+    borderRightWidth: 12,
+    borderBottomWidth: 26,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderBottomColor: '#0a66d8',
+  },
+  navArrowNotch: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 12,
+    borderRightWidth: 12,
+    borderBottomWidth: 9,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderBottomColor: '#fff',
+  },
   myLocationDot: { width: 16, height: 16, borderRadius: 8, backgroundColor: '#0a66d8', borderWidth: 3, borderColor: '#cfe0fb' },
   attribution: { position: 'absolute', right: 6, bottom: 6, fontSize: 10, color: '#3a3a3c', backgroundColor: 'rgba(255,255,255,0.7)', paddingHorizontal: 4 },
 });

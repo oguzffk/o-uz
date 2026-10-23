@@ -178,3 +178,34 @@ test('gruplar dosyaya yazılır ve yeniden yüklenir', () => {
   assert.equal(b.list().length, 0);
   assert.equal(b.effectiveClosures().length, 0);
 });
+
+test('tüm yolları tek seferde aç: tekiller silinir, gruplar kalır ama açılır', async () => {
+  await withServer(async ({ req, valhalla }) => {
+    valhalla.locateEdge = async ({ lat, lon }) => ({
+      shapeEncoded: `seg-${lat}-${lon}`,
+      coordinates: [[lat, lon], [lat + 0.001, lon]],
+      wayId: 1,
+      names: ['Test Cd.'],
+      distanceMeters: 2,
+    });
+    const tap = (lon) => req('/api/closures/toggle', { method: 'POST', token: 'secret', body: { lat: 40.97, lon } });
+    await tap(29.01);
+    await tap(29.02);
+    await req('/api/zones', { method: 'POST', token: 'secret', body: { name: 'Grup' } });
+    await tap(29.03);
+    let state = await req('/api/closures');
+    assert.equal(state.body.closures.length, 3);
+
+    const noAuth = await req('/api/closures/open-all', { method: 'POST' });
+    assert.equal(noAuth.status, 401);
+
+    const r = await req('/api/closures/open-all', { method: 'POST', token: 'secret' });
+    assert.deepEqual([r.body.removed, r.body.zonesOpened], [1, 1]);
+    state = await req('/api/closures');
+    assert.equal(state.body.closures.length, 0);
+    assert.equal(state.body.zones.length, 1);
+    assert.equal(state.body.zones[0].active, false);
+    await req('/api/route', { method: 'POST', body: { from: { lat: 41.03, lon: 28.98 }, to: { lat: 41.04, lon: 28.99 } } });
+    assert.equal(valhalla.calls.at(-1).exclude_polygons, undefined);
+  });
+});

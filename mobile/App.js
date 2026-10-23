@@ -616,6 +616,13 @@ export default function App() {
         visible={zonesOpen}
         zones={closures.zones}
         unsavedCount={unsavedCount}
+        closedCount={closures.closures.length}
+        onOpenAll={() =>
+          adminAction(async () => {
+            const r = await api.openAll();
+            if (!r.removed && !r.zonesOpened) throw new Error('Zaten kapalı yol yok.');
+          }, 'Tüm yollar trafiğe açıldı.')
+        }
         onClose={() => setZonesOpen(false)}
         onShow={showZone}
         onSave={(name) => adminAction(() => api.saveZone(name), `"${name}" kaydedildi ve trafiğe kapatıldı.`)}

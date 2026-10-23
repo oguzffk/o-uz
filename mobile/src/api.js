@@ -38,5 +38,6 @@ export function createApi(baseUrl, adminToken) {
     saveZone: (name) => request('/api/zones', { method: 'POST', body: { name }, admin: true }),
     setZoneActive: (id, active) => request(`/api/zones/${id}`, { method: 'PATCH', body: { active }, admin: true }),
     deleteZone: (id) => request(`/api/zones/${id}`, { method: 'DELETE', admin: true }),
+    openAll: () => request('/api/closures/open-all', { method: 'POST', admin: true }),
   };
 }

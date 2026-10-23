@@ -5,7 +5,7 @@ import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleShee
  * Kayıtlı kapatma grupları: haritada kapatılan yolları bir isimle kaydetme ve
  * kayıtlı bir grubu tek dokunuşla trafiğe kapatma / açma.
  */
-export default function ZonesSheet({ visible, zones, unsavedCount, onClose, onSave, onToggle, onDelete, onShow }) {
+export default function ZonesSheet({ visible, zones, unsavedCount, closedCount, onClose, onSave, onToggle, onDelete, onShow, onOpenAll }) {
   const [name, setName] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [busyId, setBusyId] = useState(null);
@@ -57,6 +57,34 @@ export default function ZonesSheet({ visible, zones, unsavedCount, onClose, onSa
               <Text style={styles.saveText}>Kaydet</Text>
             </Pressable>
           </View>
+
+          {closedCount > 0 &&
+            (confirmDelete === 'all' ? (
+              <View style={styles.openAllConfirm}>
+                <Text style={styles.openAllQuestion}>
+                  {closedCount} kapalı yol parçasının hepsi trafiğe açılsın mı? Kayıtlı gruplar silinmez.
+                </Text>
+                <View style={styles.openAllActions}>
+                  <Pressable style={[styles.small, styles.ghost, { flex: 1 }]} onPress={() => setConfirmDelete(null)}>
+                    <Text style={styles.ghostText}>Vazgeç</Text>
+                  </Pressable>
+                  <Pressable
+                    style={[styles.small, styles.green, { flex: 1 }, busyId === 'all' && styles.disabled]}
+                    disabled={busyId === 'all'}
+                    onPress={() => run('all', async () => {
+                      await onOpenAll();
+                      setConfirmDelete(null);
+                    })}
+                  >
+                    <Text style={styles.smallText}>Evet, hepsini aç</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ) : (
+              <Pressable style={styles.openAll} onPress={() => setConfirmDelete('all')}>
+                <Text style={styles.openAllText}>Tüm yolları trafiğe aç ({closedCount})</Text>
+              </Pressable>
+            ))}
 
           <ScrollView style={styles.list} contentContainerStyle={{ gap: 10 }}>
             {zones.length === 0 && <Text style={styles.empty}>Henüz kayıtlı grup yok.</Text>}
@@ -125,6 +153,11 @@ const styles = StyleSheet.create({
   saveText: { color: '#fff', fontWeight: '700', fontSize: 15 },
   disabled: { opacity: 0.45 },
   list: { marginTop: 16 },
+  openAll: { marginTop: 14, borderWidth: 1.5, borderColor: '#0b8a3e', borderRadius: 10, paddingVertical: 11, alignItems: 'center' },
+  openAllText: { color: '#0b8a3e', fontWeight: '700', fontSize: 15 },
+  openAllConfirm: { marginTop: 14, backgroundColor: '#e3f5ea', borderRadius: 10, padding: 12, gap: 10 },
+  openAllQuestion: { fontSize: 14, color: '#1d1d1f' },
+  openAllActions: { flexDirection: 'row', gap: 8 },
   empty: { color: '#6e6e73', fontSize: 14 },
   zone: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#f6f6f8', borderRadius: 12, padding: 12 },
   zoneName: { fontSize: 16, fontWeight: '700' },

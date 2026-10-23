@@ -257,6 +257,17 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL) {
       return { zone: state.zones.find((z) => z.id === id), version: state.version };
     },
 
+    // Tüm yolları aç: kaydedilmemiş kapatmalar silinir, gruplar kalır ama pasif olur.
+    async openAll() {
+      const current = await load();
+      const removed = current.closures.length;
+      const zonesOpened = current.zones.filter((z) => z.active).length;
+      if (removed || zonesOpened) {
+        await update((st) => ({ ...st, closures: [], zones: st.zones.map((z) => ({ ...z, active: false })) }));
+      }
+      return { removed, zonesOpened, version: state.version };
+    },
+
     async deleteZone(id) {
       await update((st) => ({ ...st, zones: st.zones.filter((z) => z.id !== id) }));
       return { version: state.version };

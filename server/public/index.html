@@ -21,6 +21,10 @@
     #status { padding: 8px 16px; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--line); min-height: 33px; }
     #status.err { color: var(--red); }
     .panel { overflow: auto; flex: 1; min-height: 0; }
+    .openall { padding: 10px 16px; border-bottom: 1px solid var(--line); display: flex; gap: 6px; }
+    .openall button { flex: 1; border: 1px solid #0b8a3e; color: #0b8a3e; background: #fff; border-radius: 6px; padding: 7px; font: inherit; font-weight: 600; cursor: pointer; }
+    .openall button.confirm { background: #0b8a3e; color: #fff; }
+    .openall button:disabled { opacity: 0.4; cursor: default; }
     section { border-bottom: 1px solid var(--line); }
     h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 0; padding: 12px 16px 6px; }
     .save { display: flex; gap: 6px; padding: 4px 16px 12px; }
@@ -57,6 +61,9 @@
       </div>
     </header>
     <div id="status">Haritada bir sokağa tıklayın.</div>
+    <div class="openall" id="openall-box">
+      <button id="openall-btn" type="button">Tüm yolları trafiğe aç</button>
+    </div>
     <div class="panel">
       <section>
         <h2>Kayıtlı gruplar</h2>
@@ -135,6 +142,39 @@
       }
       renderZones(zones);
       renderList(closures.filter((c) => !c.zoneId));
+      closedTotal = closures.length;
+      renderOpenAll();
+    }
+
+    // "Tüm yolları trafiğe aç": önce onay ister; gruplar silinmez, yalnızca açılır.
+    let closedTotal = 0;
+    let confirmOpenAll = false;
+    function renderOpenAll() {
+      const box = document.getElementById('openall-box');
+      box.innerHTML = '';
+      const btn = (text, cls, fn, disabled = false) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = text;
+        if (cls) b.className = cls;
+        b.disabled = disabled;
+        b.addEventListener('click', fn);
+        box.appendChild(b);
+      };
+      if (confirmOpenAll && closedTotal) {
+        btn('Vazgeç', '', () => { confirmOpenAll = false; renderOpenAll(); });
+        btn(`Evet, ${closedTotal} parçayı aç`, 'confirm', openAll);
+      } else {
+        btn(closedTotal ? `Tüm yolları trafiğe aç (${closedTotal})` : 'Kapalı yol yok', '', () => { confirmOpenAll = true; renderOpenAll(); }, !closedTotal);
+      }
+    }
+
+    async function openAll() {
+      confirmOpenAll = false;
+      try {
+        const r = await api('/api/closures/open-all', { method: 'POST' });
+        setStatus(`Tüm yollar trafiğe açıldı (${r.removed} tekil kapatma kaldırıldı, ${r.zonesOpened} grup açıldı).`);
+      } catch (err) { setStatus(err.message, true); renderOpenAll(); }
     }
 
     let confirmDelete = null;

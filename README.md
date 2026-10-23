@@ -132,6 +132,7 @@ Telefon İstanbul dışındaysa (ör. emülatör) ilk basılı tutma **başlang�
 | `POST /api/zones` `{name}` 🔒 | Kaydedilmemiş kapatmaları isimli bir grup olarak kaydeder (grup trafiğe kapalı başlar) |
 | `PATCH /api/zones/:id` `{active}` 🔒 | `true`: grubu trafiğe kapatır, `false`: açar |
 | `DELETE /api/zones/:id` 🔒 | Grubu siler |
+| `POST /api/closures/open-all` 🔒 | Tüm yolları trafiğe açar: kaydedilmemiş kapatmalar silinir, gruplar silinmez ama açılır |
 | `GET /api/search?q=` | İstanbul ile sınırlı adres arama (Nominatim) |
 
 🔒 = `x-admin-token` başlığı gerekir.

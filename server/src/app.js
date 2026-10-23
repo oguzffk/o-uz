@@ -106,6 +106,11 @@ export function createApp({ valhalla, store, adminToken, nominatimUrl = 'https:/
     }
   });
 
+  // Tüm yolları tek seferde trafiğe açar (gruplar silinmez, yalnızca açılır).
+  app.post('/api/closures/open-all', requireAdmin, (req, res) => {
+    res.json({ ...store.openAll(), version: store.version });
+  });
+
   app.delete('/api/closures/:id', requireAdmin, (req, res) => {
     const closure = store.remove(req.params.id);
     if (!closure) return res.status(404).json({ error: 'Kapatma bulunamadı' });

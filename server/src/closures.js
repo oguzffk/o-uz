@@ -148,6 +148,24 @@ export class ClosureStore extends EventEmitter {
     return zone;
   }
 
+  /**
+   * Bütün yolları trafiğe açar: kaydedilmemiş kapatmalar silinir, kayıtlı gruplar
+   * silinmez ama hepsi pasif yapılır. Tek bir sürüm artışıyla yapılır.
+   */
+  openAll() {
+    const removed = this.closures.size;
+    let zonesOpened = 0;
+    this.closures.clear();
+    for (const z of this.zones.values()) {
+      if (!z.active) continue;
+      z.active = false;
+      z.updatedAt = new Date().toISOString();
+      zonesOpened += 1;
+    }
+    if (removed || zonesOpened) this.#changed('opened-all', { removed, zonesOpened });
+    return { removed, zonesOpened };
+  }
+
   // --- Rota motoruna giden birleşik liste ---
 
   /** Şu an trafiğe kapalı tüm segmentler; gruptan gelenler zoneId/zoneName taşır. */

@@ -5,12 +5,16 @@ import { EventEmitter } from 'node:events';
 import { lineLengthMeters, midpointAlong, tinySquareRing } from './geo.js';
 
 /**
- * Kapalı yol segmentleri. Her kayıt Valhalla'daki bir kenarın (iki kavşak
- * arasındaki sokak parçası) geometrisini tutar; rota isteğinde bu geometrinin
- * orta noktasına konan minik bir poligon exclude_polygons ile gönderilir.
+ * Kapalı yol segmentleri ve kayıtlı kapatma grupları.
  *
- * Kayıtlar JSON dosyasında saklanır (prototip için yeterli). Her değişiklikte
- * `version` artar ve "change" olayı yayılır; istemciler buna göre yeniler.
+ * - Tekil kapatma: yöneticinin haritada dokunarak kapattığı bir kenar (iki kavşak
+ *   arası sokak parçası).
+ * - Kayıtlı grup: isim verilmiş bir segment listesi ("Maraton güzergâhı" gibi).
+ *   Tek hamlede trafiğe kapatılır (active) ya da açılır.
+ *
+ * Rotadan çıkarılan yollar = tekil kapatmalar ∪ aktif grupların segmentleri.
+ * Her segmentin orta noktasına konan minik poligon exclude_polygons ile Valhalla'ya
+ * gönderilir. Her değişiklikte `version` artar ve "change" olayı yayılır.
  */
 export class ClosureStore extends EventEmitter {
   constructor(filePath) {
@@ -18,6 +22,7 @@ export class ClosureStore extends EventEmitter {
     this.filePath = filePath;
     this.version = 0;
     this.closures = new Map();
+    this.zones = new Map();
     this.#load();
   }
 
@@ -26,6 +31,7 @@ export class ClosureStore extends EventEmitter {
       const data = JSON.parse(readFileSync(this.filePath, 'utf8'));
       this.version = data.version ?? 0;
       for (const c of data.closures ?? []) this.closures.set(c.id, c);
+      for (const z of data.zones ?? []) this.zones.set(z.id, z);
     } catch (err) {
       if (err.code !== 'ENOENT') throw err;
     }
@@ -34,20 +40,23 @@ export class ClosureStore extends EventEmitter {
   #save() {
     mkdirSync(dirname(this.filePath), { recursive: true });
     const tmp = `${this.filePath}.${randomUUID()}.tmp`;
-    writeFileSync(tmp, JSON.stringify({ version: this.version, closures: this.list() }, null, 2));
+    const data = { version: this.version, closures: this.list(), zones: this.listZones() };
+    writeFileSync(tmp, JSON.stringify(data, null, 2));
     renameSync(tmp, this.filePath);
   }
 
-  #changed(type, closure) {
+  #changed(type, payload) {
     this.version += 1;
     this.#save();
-    this.emit('change', { type, closure, version: this.version });
+    this.emit('change', { type, ...payload, version: this.version });
   }
 
   /** Aynı kenar iki yönde de aynı geometriye sahip olduğu için kimlik geometriden türetilir. */
   static idForShape(shapeEncoded) {
     return createHash('sha1').update(shapeEncoded).digest('hex').slice(0, 16);
   }
+
+  // --- Tekil kapatmalar ---
 
   list() {
     return [...this.closures.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
@@ -72,7 +81,7 @@ export class ClosureStore extends EventEmitter {
       createdAt: new Date().toISOString(),
     };
     this.closures.set(id, closure);
-    this.#changed('closed', closure);
+    this.#changed('closed', { closure });
     return closure;
   }
 
@@ -80,12 +89,80 @@ export class ClosureStore extends EventEmitter {
     const closure = this.closures.get(id);
     if (!closure) return null;
     this.closures.delete(id);
-    this.#changed('opened', closure);
+    this.#changed('opened', { closure });
     return closure;
+  }
+
+  // --- Kayıtlı gruplar ---
+
+  listZones() {
+    return [...this.zones.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }
+
+  getZone(id) {
+    return this.zones.get(id);
+  }
+
+  /** Bu segment şu an trafiğe kapalı olan bir gruba mı ait? */
+  activeZoneOf(segmentId) {
+    return this.listZones().find((z) => z.active && z.segments.some((s) => s.id === segmentId)) ?? null;
+  }
+
+  /**
+   * Şu anki tekil kapatmalardan (veya verilen kimliklerden) isimli bir grup oluşturur.
+   * Segmentler gruba taşınır; grup kapalı (active) olarak başlar, yani hiçbir yol açılmaz.
+   */
+  createZone(name, closureIds) {
+    const ids = closureIds?.length ? closureIds : [...this.closures.keys()];
+    const segments = ids.map((id) => this.closures.get(id)).filter(Boolean);
+    if (!segments.length) return null;
+    const zone = {
+      id: randomUUID().slice(0, 8),
+      name,
+      active: true,
+      segments: segments.map(({ reason, ...s }) => s),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    for (const s of segments) this.closures.delete(s.id);
+    this.zones.set(zone.id, zone);
+    this.#changed('zone-created', { zone });
+    return zone;
+  }
+
+  updateZone(id, { active, name }) {
+    const zone = this.zones.get(id);
+    if (!zone) return null;
+    if (typeof active === 'boolean') zone.active = active;
+    if (name) zone.name = name;
+    zone.updatedAt = new Date().toISOString();
+    this.#changed('zone-updated', { zone });
+    return zone;
+  }
+
+  deleteZone(id) {
+    const zone = this.zones.get(id);
+    if (!zone) return null;
+    this.zones.delete(id);
+    this.#changed('zone-deleted', { zone });
+    return zone;
+  }
+
+  // --- Rota motoruna giden birleşik liste ---
+
+  /** Şu an trafiğe kapalı tüm segmentler; gruptan gelenler zoneId/zoneName taşır. */
+  effectiveClosures() {
+    const byId = new Map();
+    for (const z of this.listZones()) {
+      if (!z.active) continue;
+      for (const s of z.segments) if (!byId.has(s.id)) byId.set(s.id, { ...s, zoneId: z.id, zoneName: z.name });
+    }
+    for (const c of this.list()) if (!byId.has(c.id)) byId.set(c.id, { ...c, zoneId: null, zoneName: null });
+    return [...byId.values()];
   }
 
   /** Valhalla rota isteğine eklenecek exclude_polygons listesi. */
   excludePolygons() {
-    return this.list().map((c) => tinySquareRing(c.midpoint));
+    return this.effectiveClosures().map((c) => tinySquareRing(c.midpoint));
   }
 }

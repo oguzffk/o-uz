@@ -35,5 +35,8 @@ export function createApi(baseUrl, adminToken) {
     search: (q) => request(`/api/search?q=${encodeURIComponent(q)}`),
     checkAdmin: () => request('/api/admin/check', { method: 'POST', admin: true }),
     toggleClosure: ({ lat, lon }) => request('/api/closures/toggle', { method: 'POST', body: { lat, lon }, admin: true }),
+    saveZone: (name) => request('/api/zones', { method: 'POST', body: { name }, admin: true }),
+    setZoneActive: (id, active) => request(`/api/zones/${id}`, { method: 'PATCH', body: { active }, admin: true }),
+    deleteZone: (id) => request(`/api/zones/${id}`, { method: 'DELETE', admin: true }),
   };
 }

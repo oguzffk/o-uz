@@ -19,6 +19,7 @@ import { createDemoApi } from './src/demoApi';
 import { ISTANBUL_REGION, formatDistance, formatDuration, inIstanbul, toLatLng } from './src/geo';
 import { stopSpeech, useNavigation } from './src/useNavigation';
 import SettingsSheet from './src/SettingsSheet';
+import ZonesSheet from './src/ZonesSheet';
 
 const SETTINGS_KEY = 'nav-settings-v1';
 const CLOSURE_POLL_MS = 5000;
@@ -41,7 +42,8 @@ export default function App() {
   const [manualOrigin, setManualOrigin] = useState(null);
   const [destination, setDestination] = useState(null); // { lat, lon, name }
   const [route, setRoute] = useState(null);
-  const [closures, setClosures] = useState({ version: -1, closures: [] });
+  const [closures, setClosures] = useState({ version: -1, closures: [], zones: [] });
+  const [zonesOpen, setZonesOpen] = useState(false);
   const [navigating, setNavigating] = useState(false);
 
   const [query, setQuery] = useState('');
@@ -135,6 +137,7 @@ export default function App() {
   const latest = useRef({});
   latest.current = { route, requestRoute };
   const reroutedForVersion = useRef(null);
+  const syncClosures = useRef(null); // yönetici işlemlerinden sonra beklemeden yenilemek için
   useEffect(() => {
     let stopped = false;
     const tick = async () => {
@@ -153,6 +156,7 @@ export default function App() {
         // Sunucu geçici olarak erişilemezse sessizce tekrar denenir.
       }
     };
+    syncClosures.current = tick;
     tick();
     const id = setInterval(tick, CLOSURE_POLL_MS);
     return () => {
@@ -238,17 +242,33 @@ export default function App() {
     const { latitude: lat, longitude: lon } = e.nativeEvent.coordinate;
     try {
       const r = await api.toggleClosure({ lat, lon });
-      setClosures((prev) => ({
-        version: r.version,
-        closures:
-          r.action === 'closed'
-            ? [...prev.closures, r.closure]
-            : prev.closures.filter((c) => c.id !== r.closure.id),
-      }));
+      syncClosures.current?.();
       showToast(`${r.action === 'closed' ? '⛔ Kapatıldı' : '✅ Açıldı'}: ${r.closure.name}`);
     } catch (err) {
       showToast(err.message, 'error');
     }
+  };
+
+  // --- Kayıtlı gruplar ---
+  const adminAction = async (fn, message) => {
+    try {
+      await fn();
+      await syncClosures.current?.();
+      if (message) showToast(message);
+      return true;
+    } catch (err) {
+      showToast(err.message, 'error');
+      return false;
+    }
+  };
+  const unsavedCount = closures.closures.filter((c) => !c.zoneId).length;
+
+  const showZone = (zone) => {
+    setZonesOpen(false);
+    mapRef.current?.fitToCoordinates(zone.segments.flatMap((s) => s.coordinates.map(toLatLng)), {
+      edgePadding: { top: 160, right: 60, bottom: 200, left: 60 },
+      animated: true,
+    });
   };
 
   const onMapLongPress = (e) => {
@@ -313,6 +333,21 @@ export default function App() {
             zIndex={2}
           />
         ))}
+        {/* Yöneticiye, şu an trafiğe açık olan kayıtlı grupları kesik çizgiyle göster. */}
+        {adminMode &&
+          closures.zones
+            .filter((z) => !z.active)
+            .flatMap((z) => z.segments.map((s) => ({ ...s, key: `${z.id}:${s.id}` })))
+            .map((s) => (
+              <Polyline
+                key={s.key}
+                coordinates={s.coordinates.map(toLatLng)}
+                strokeColor="#d70015"
+                strokeWidth={4}
+                lineDashPattern={[6, 8]}
+                zIndex={2}
+              />
+            ))}
         {manualOrigin && !gpsUsable && (
           <Marker coordinate={toLatLng([manualOrigin.lat, manualOrigin.lon])} pinColor="green" title="Başlangıç" />
         )}
@@ -362,8 +397,15 @@ export default function App() {
           </>
         )}
         {adminMode && (
-          <View style={styles.adminPill}>
-            <Text style={styles.adminPillText}>YÖNETİCİ MODU · {closures.closures.length} kapalı segment</Text>
+          <View style={styles.adminRow}>
+            <View style={styles.adminPill}>
+              <Text style={styles.adminPillText}>YÖNETİCİ · {closures.closures.length} kapalı parça</Text>
+            </View>
+            <Pressable style={styles.zonesButton} onPress={() => setZonesOpen(true)}>
+              <Text style={styles.zonesButtonText}>
+                Kayıtlı gruplar{closures.zones.length ? ` (${closures.zones.length})` : ''}
+              </Text>
+            </Pressable>
           </View>
         )}
         {demo && !navigating && (
@@ -421,6 +463,19 @@ export default function App() {
 
       <Text style={styles.attribution}>© OpenStreetMap katkıcıları</Text>
 
+      <ZonesSheet
+        visible={zonesOpen}
+        zones={closures.zones}
+        unsavedCount={unsavedCount}
+        onClose={() => setZonesOpen(false)}
+        onShow={showZone}
+        onSave={(name) => adminAction(() => api.saveZone(name), `"${name}" kaydedildi ve trafiğe kapatıldı.`)}
+        onToggle={(z) =>
+          adminAction(() => api.setZoneActive(z.id, !z.active), `"${z.name}" ${z.active ? 'trafiğe açıldı' : 'trafiğe kapatıldı'}.`)
+        }
+        onDelete={(z) => adminAction(() => api.deleteZone(z.id), `"${z.name}" silindi.`)}
+      />
+
       <SettingsSheet
         visible={settingsOpen}
         settings={settings}
@@ -455,7 +510,10 @@ const styles = StyleSheet.create({
   banner: { backgroundColor: '#0b5c3b', borderRadius: 14, padding: 16, ...shadow },
   bannerDistance: { color: '#fff', fontSize: 30, fontWeight: '800' },
   bannerText: { color: '#fff', fontSize: 18, marginTop: 4 },
-  adminPill: { alignSelf: 'center', backgroundColor: '#d70015', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 },
+  adminRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
+  adminPill: { backgroundColor: '#d70015', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 },
+  zonesButton: { backgroundColor: '#fff', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6, ...shadow },
+  zonesButtonText: { color: '#1d1d1f', fontWeight: '700', fontSize: 12 },
   adminPillText: { color: '#fff', fontWeight: '700', fontSize: 12 },
   demoPill: { alignSelf: 'center', backgroundColor: 'rgba(255,255,255,0.92)', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
   demoPillText: { color: '#6e6e73', fontSize: 11 },

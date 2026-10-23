@@ -4,6 +4,7 @@ Telefon odaklı, İstanbul'a özel bir navigasyon uygulaması:
 
 - **Gerçek sokak ağı:** OpenStreetMap'ten yalnızca İstanbul'un yol verisi çıkarılır, rotaları **Valhalla** hesaplar.
 - **Yol kapatma:** Yönetici haritada herhangi bir sokağa dokunarak o segmenti kapatır / tekrar açar. Kapalı yollar **tüm kullanıcıların** rotalarından anında çıkarılır; seyirdeki telefonlar da birkaç saniye içinde yeni rotaya geçer.
+- **Kayıtlı gruplar:** Kapatılan yollar bir isimle kaydedilir ("Maraton güzergâhı" gibi). Sonra menüden tek dokunuşla o grubun tamamı trafiğe kapatılır ya da açılır.
 - **Mobil uygulama:** Expo (React Native) — arama, rota önizleme, sesli Türkçe yönlendirme, rotadan çıkınca yeniden hesaplama.
 
 ```
@@ -78,6 +79,8 @@ Tarayıcıda **http://localhost:3000/admin/** açın, yönetici anahtarını gir
 - **Yol kapat / aç:** Bir sokağa tıklayın → iki kavşak arasındaki o segment kırmızı olur ve kapanır. Kırmızı çizgiye tekrar tıklamak (veya listedeki **Aç**) yolu açar.
 - **Rota dene:** İki nokta seçip rotanın kapalı yolların etrafından dolaştığını görün.
 
+- **Kayıtlı gruplar:** Yolları kapattıktan sonra bir isim yazıp **Kaydet**'e basın. Grup listede görünür; **Trafiğe aç / Trafiğe kapat** ile tüm yollar tek seferde açılıp kapanır. Trafiğe açık grupların yolları haritada kesik kırmızı çizgiyle gösterilir.
+
 Panel değişiklikleri canlı izler; başka bir yöneticinin kapattığı yol da anında görünür.
 
 ### 4) Mobil uygulama
@@ -96,6 +99,7 @@ Telefonda Expo Go ile QR kodu okutun, ⚙︎ **Ayarlar → Rota sunucusu → Ken
 | Seyre başla | **Başla** — kamera sizi takip eder, talimatlar Türkçe okunur |
 | Ulaşım türü | Ayarlar → Araç / Motor / Bisiklet / Yaya |
 | Yönetici modu | Ayarlar → anahtarı girin, **Yönetici modu**nu açın → sokağa **dokunun** = kapat/aç |
+| Grup kaydet / aç / kapat | Yönetici modunda üstteki **Kayıtlı gruplar** düğmesi |
 
 Telefon İstanbul dışındaysa (ör. emülatör) ilk basılı tutma **başlangıç**, ikincisi **varış** noktasını seçer; böylece rota önizlemesini her yerden deneyebilirsiniz.
 
@@ -104,10 +108,13 @@ Telefon İstanbul dışındaysa (ör. emülatör) ilk basılı tutma **başlang�
 | Uç nokta | Açıklama |
 | --- | --- |
 | `POST /api/route` `{from:{lat,lon}, to:{lat,lon}, costing?, heading?}` | Kapalı yolları dışlayan rota; Türkçe manevralar, `closuresVersion` |
-| `GET /api/closures` | `{version, closures[]}` — her değişiklikte `version` artar |
+| `GET /api/closures` | `{version, closures[], zones[]}` — `closures` şu an trafiğe kapalı tüm parçalar (gruptakiler `zoneName` taşır); her değişiklikte `version` artar |
 | `GET /api/closures/stream` | Değişiklikler için Server-Sent Events |
 | `POST /api/closures/toggle` `{lat,lon}` 🔒 | Dokunulan noktadaki segmenti kapatır, kapalıysa açar |
-| `DELETE /api/closures/:id` 🔒 | Kapatmayı kaldırır |
+| `DELETE /api/closures/:id` 🔒 | Kaydedilmemiş bir kapatmayı kaldırır |
+| `POST /api/zones` `{name}` 🔒 | Kaydedilmemiş kapatmaları isimli bir grup olarak kaydeder (grup trafiğe kapalı başlar) |
+| `PATCH /api/zones/:id` `{active}` 🔒 | `true`: grubu trafiğe kapatır, `false`: açar |
+| `DELETE /api/zones/:id` 🔒 | Grubu siler |
 | `GET /api/search?q=` | İstanbul ile sınırlı adres arama (Nominatim) |
 
 🔒 = `x-admin-token` başlığı gerekir.
@@ -120,7 +127,8 @@ cd server && npm test
 
 ## Prototipin sınırları ve sonraki adımlar
 
-- **Kapatma birimi** iki kavşak arası segmenttir. Uzun bir caddeyi kapatmak için birkaç segmente dokunmak gerekir. Sonraki adım: "tüm caddeyi kapat" (aynı OSM `way_id`'ye sahip segmentler) ve süreli kapatmalar.
+- **Kapatma birimi** iki kavşak arası segmenttir. Uzun bir caddeyi kapatmak için birkaç segmente dokunmak gerekir. Sonraki adım: "tüm caddeyi kapat" (aynı OSM `way_id`'ye sahip segmentler) ve süreli / zamanlanmış kapatmalar (ör. grubu her pazar 08:00–14:00 kapat).
+- **Kayıtlı bir grup** şimdilik düzenlenemez; değiştirmek için silip yeniden kaydedin.
 - **Kapatma sayısı:** Valhalla'nın varsayılan `max_exclude_polygons_length` (10 km) sınırıyla yaklaşık 2.500 eşzamanlı kapalı segment desteklenir; daha fazlası için Valhalla yapılandırmasında bu sınır artırılmalı.
 - **Kapatmalar** `server/data/closures.json` dosyasında tutulur; çok sunuculu kurulumda PostgreSQL/Redis'e taşınmalı.
 - **Yönetici kimlik doğrulaması** tek bir paylaşılan anahtardır; gerçek kullanımda kullanıcı hesapları + rol yönetimi gerekir.

@@ -79,7 +79,7 @@ function idForShape(shape) {
 }
 
 export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL) {
-  let state = null; // { version, closures }
+  let state = null; // { version, closures (kaydedilmemiş), zones } — sunucudaki ClosureStore'un küçük kopyası
 
   async function load() {
     if (state) return state;
@@ -89,6 +89,25 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL) {
       state = null;
     }
     state ??= { version: 0, closures: [] };
+    state.zones ??= [];
+    return state;
+  }
+
+  // Trafiğe kapalı tüm segmentler: kaydedilmemişler + aktif grupların segmentleri.
+  function effective(st) {
+    const byId = new Map();
+    for (const z of st.zones) {
+      if (!z.active) continue;
+      for (const seg of z.segments) if (!byId.has(seg.id)) byId.set(seg.id, { ...seg, zoneId: z.id, zoneName: z.name });
+    }
+    for (const c of st.closures) if (!byId.has(c.id)) byId.set(c.id, { ...c, zoneId: null, zoneName: null });
+    return [...byId.values()];
+  }
+
+  async function update(fn) {
+    const current = await load();
+    const next = fn(current);
+    await save({ ...next, version: current.version + 1 });
     return state;
   }
 
@@ -120,10 +139,15 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL) {
   return {
     isDemo: true,
 
-    closures: load,
+    async closures() {
+      const st = await load();
+      return { version: st.version, closures: effective(st), zones: st.zones };
+    },
 
     async route({ from, to, costing = 'auto', heading }) {
-      const { version, closures } = await load();
+      const st = await load();
+      const { version } = st;
+      const closures = effective(st);
       const origin = { lat: from.lat, lon: from.lon, type: 'break' };
       if (Number.isFinite(heading) && heading >= 0) {
         origin.heading = Math.round(heading) % 360;
@@ -193,9 +217,11 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL) {
       const shape = edge.edge_info.shape;
       const id = idForShape(shape);
       const current = await load();
+      const zone = current.zones.find((z) => z.active && z.segments.some((seg) => seg.id === id));
       const existing = current.closures.find((c) => c.id === id);
+      if (zone && !existing) throw new Error(`Bu yol "${zone.name}" grubuyla kapalı. Açmak için grubu trafiğe açın.`);
       if (existing) {
-        await save({ version: current.version + 1, closures: current.closures.filter((c) => c.id !== id) });
+        await update((st) => ({ ...st, closures: st.closures.filter((c) => c.id !== id) }));
         return { action: 'opened', closure: existing, version: state.version };
       }
       const coordinates = decodePolyline(shape);
@@ -208,8 +234,31 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL) {
         lengthMeters: Math.round(lineLength(coordinates)),
         createdAt: new Date().toISOString(),
       };
-      await save({ version: current.version + 1, closures: [...current.closures, closure] });
+      await update((st) => ({ ...st, closures: [...st.closures, closure] }));
       return { action: 'closed', closure, version: state.version };
+    },
+
+    async saveZone(name) {
+      const current = await load();
+      if (!name?.trim()) throw new Error('Grup için bir isim girin');
+      if (!current.closures.length) throw new Error('Kaydedilecek kapalı yol yok. Önce haritada yolları kapatın.');
+      const now = new Date().toISOString();
+      const zone = { id: Date.now().toString(36), name: name.trim().slice(0, 80), active: true, segments: current.closures, createdAt: now, updatedAt: now };
+      await update((st) => ({ ...st, closures: [], zones: [...st.zones, zone] }));
+      return { zone, version: state.version };
+    },
+
+    async setZoneActive(id, active) {
+      await update((st) => ({
+        ...st,
+        zones: st.zones.map((z) => (z.id === id ? { ...z, active, updatedAt: new Date().toISOString() } : z)),
+      }));
+      return { zone: state.zones.find((z) => z.id === id), version: state.version };
+    },
+
+    async deleteZone(id) {
+      await update((st) => ({ ...st, zones: st.zones.filter((z) => z.id !== id) }));
+      return { version: state.version };
     },
   };
 }

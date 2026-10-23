@@ -110,3 +110,71 @@ test('kapatmalar dosyaya yazılır ve yeniden yüklenir', async () => {
   assert.equal(b.version, 1);
   assert.equal(b.get(c.id).name, 'İsimsiz yol');
 });
+
+test('kayıtlı grup: kaydet → trafiğe aç → tekrar kapat → sil', async () => {
+  await withServer(async ({ req, valhalla }) => {
+    // Her dokunuş farklı bir segment döndürsün.
+    valhalla.locateEdge = async ({ lat, lon }) => ({
+      shapeEncoded: `seg-${lat}-${lon}`,
+      coordinates: [[lat, lon], [lat + 0.001, lon]],
+      wayId: 1,
+      names: ['Bağdat Cd.'],
+      distanceMeters: 2,
+    });
+    const route = async () => {
+      await req('/api/route', { method: 'POST', body: { from: { lat: 41.03, lon: 28.98 }, to: { lat: 41.04, lon: 28.99 } } });
+      return valhalla.calls.at(-1).exclude_polygons?.length ?? 0;
+    };
+
+    const empty = await req('/api/zones', { method: 'POST', token: 'secret', body: { name: 'Boş' } });
+    assert.equal(empty.status, 400);
+
+    for (const lon of [29.01, 29.02, 29.03]) {
+      await req('/api/closures/toggle', { method: 'POST', token: 'secret', body: { lat: 40.97, lon } });
+    }
+    const created = await req('/api/zones', { method: 'POST', token: 'secret', body: { name: 'Maraton güzergâhı' } });
+    assert.equal(created.status, 201);
+    assert.equal(created.body.zone.segments.length, 3);
+    assert.equal(created.body.zone.active, true);
+
+    let state = await req('/api/closures');
+    assert.equal(state.body.closures.length, 3, 'grup kapalıyken segmentler rotadan çıkar');
+    assert.ok(state.body.closures.every((c) => c.zoneName === 'Maraton güzergâhı'));
+    assert.equal(await route(), 3);
+
+    // Grubun bir segmentine tek tek dokunmak onu açmaz; grup üzerinden yönetilir.
+    const tap = await req('/api/closures/toggle', { method: 'POST', token: 'secret', body: { lat: 40.97, lon: 29.01 } });
+    assert.equal(tap.status, 409);
+
+    const id = created.body.zone.id;
+    const opened = await req(`/api/zones/${id}`, { method: 'PATCH', token: 'secret', body: { active: false } });
+    assert.equal(opened.body.zone.active, false);
+    state = await req('/api/closures');
+    assert.equal(state.body.closures.length, 0);
+    assert.equal(state.body.zones.length, 1);
+    assert.equal(await route(), 0);
+
+    await req(`/api/zones/${id}`, { method: 'PATCH', token: 'secret', body: { active: true } });
+    assert.equal(await route(), 3);
+
+    const noAuth = await req(`/api/zones/${id}`, { method: 'DELETE' });
+    assert.equal(noAuth.status, 401);
+    await req(`/api/zones/${id}`, { method: 'DELETE', token: 'secret' });
+    state = await req('/api/closures');
+    assert.equal(state.body.zones.length, 0);
+    assert.equal(await route(), 0);
+  });
+});
+
+test('gruplar dosyaya yazılır ve yeniden yüklenir', () => {
+  const file = join(mkdtempSync(join(tmpdir(), 'nav-')), 'closures.json');
+  const a = new ClosureStore(file);
+  a.add({ shapeEncoded: SHAPE, coordinates: decodePolyline(SHAPE), wayId: 1, names: ['Test Sk.'] });
+  const zone = a.createZone('Pazar yeri');
+  a.updateZone(zone.id, { active: false });
+  const b = new ClosureStore(file);
+  assert.equal(b.getZone(zone.id).name, 'Pazar yeri');
+  assert.equal(b.getZone(zone.id).active, false);
+  assert.equal(b.list().length, 0);
+  assert.equal(b.effectiveClosures().length, 0);
+});

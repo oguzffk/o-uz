@@ -38,7 +38,7 @@ export function createApp({ valhalla, store, adminToken, nominatimUrl = 'https:/
   app.use((req, res, next) => {
     res.set('access-control-allow-origin', '*');
     res.set('access-control-allow-headers', 'content-type, x-admin-token');
-    res.set('access-control-allow-methods', 'GET, POST, DELETE, OPTIONS');
+    res.set('access-control-allow-methods', 'GET, POST, PATCH, DELETE, OPTIONS');
     if (req.method === 'OPTIONS') return res.sendStatus(204);
     next();
   });
@@ -60,8 +60,10 @@ export function createApp({ valhalla, store, adminToken, nominatimUrl = 'https:/
     res.json({ ok: true, valhalla: valhallaStatus, closuresVersion: store.version });
   });
 
+  // closures: şu an trafiğe kapalı tüm segmentler (tekil + aktif gruplar).
+  // zones: kayıtlı gruplar, kapalı olsun olmasın segmentleriyle birlikte.
   app.get('/api/closures', (req, res) => {
-    res.json({ version: store.version, closures: store.list() });
+    res.json({ version: store.version, closures: store.effectiveClosures(), zones: store.listZones() });
   });
 
   // Yönetici sayfası için canlı değişiklik akışı (Server-Sent Events).
@@ -89,6 +91,10 @@ export function createApp({ valhalla, store, adminToken, nominatimUrl = 'https:/
         throw new HttpError(404, 'Dokunulan yere yakın bir araç yolu bulunamadı');
       }
       const id = ClosureStore.idForShape(edge.shapeEncoded);
+      const zone = store.activeZoneOf(id);
+      if (zone && !store.get(id)) {
+        throw new HttpError(409, `Bu yol "${zone.name}" grubuyla kapalı. Açmak için grubu trafiğe açın.`);
+      }
       if (store.get(id)) {
         res.json({ action: 'opened', closure: store.remove(id), version: store.version });
       } else {
@@ -104,6 +110,46 @@ export function createApp({ valhalla, store, adminToken, nominatimUrl = 'https:/
     const closure = store.remove(req.params.id);
     if (!closure) return res.status(404).json({ error: 'Kapatma bulunamadı' });
     res.json({ action: 'opened', closure, version: store.version });
+  });
+
+  // --- Kayıtlı kapatma grupları ---
+  const parseZoneName = (value) => {
+    const name = String(value ?? '').trim().slice(0, 80);
+    if (!name) throw new HttpError(400, 'Grup için bir isim girin');
+    return name;
+  };
+
+  // Şu anki tekil kapatmaları (ya da closureIds ile seçilenleri) isimli bir grup olarak kaydeder.
+  app.post('/api/zones', requireAdmin, (req, res, next) => {
+    try {
+      const name = parseZoneName(req.body.name);
+      const ids = Array.isArray(req.body.closureIds) ? req.body.closureIds.map(String) : undefined;
+      const zone = store.createZone(name, ids);
+      if (!zone) throw new HttpError(400, 'Kaydedilecek kapalı yol yok. Önce haritada yolları kapatın.');
+      res.status(201).json({ zone, version: store.version });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // { active: true } grubu trafiğe kapatır, { active: false } açar; { name } yeniden adlandırır.
+  app.patch('/api/zones/:id', requireAdmin, (req, res, next) => {
+    try {
+      const patch = {};
+      if (req.body.active !== undefined) patch.active = Boolean(req.body.active);
+      if (req.body.name !== undefined) patch.name = parseZoneName(req.body.name);
+      const zone = store.updateZone(req.params.id, patch);
+      if (!zone) throw new HttpError(404, 'Grup bulunamadı');
+      res.json({ zone, version: store.version });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.delete('/api/zones/:id', requireAdmin, (req, res) => {
+    const zone = store.deleteZone(req.params.id);
+    if (!zone) return res.status(404).json({ error: 'Grup bulunamadı' });
+    res.json({ zone, version: store.version });
   });
 
   // Rota: kapalı segmentler her istekte exclude_polygons olarak Valhalla'ya gider.

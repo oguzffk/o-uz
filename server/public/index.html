@@ -20,7 +20,20 @@
     .modes button.on { background: var(--fg); color: #fff; border-color: var(--fg); }
     #status { padding: 8px 16px; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--line); min-height: 33px; }
     #status.err { color: var(--red); }
-    ul { list-style: none; margin: 0; padding: 0; overflow: auto; flex: 1; }
+    .panel { overflow: auto; flex: 1; min-height: 0; }
+    section { border-bottom: 1px solid var(--line); }
+    h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 0; padding: 12px 16px 6px; }
+    .save { display: flex; gap: 6px; padding: 4px 16px 12px; }
+    .save button, .zone-actions button { border: 0; border-radius: 6px; padding: 7px 12px; font: inherit; font-weight: 600; cursor: pointer; background: var(--blue); color: #fff; white-space: nowrap; }
+    .save button:disabled { opacity: 0.45; cursor: default; }
+    .zone-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+    .zone-actions button.open { background: #0b8a3e; }
+    .zone-actions button.close { background: var(--red); }
+    .zone-actions button.ghost { background: #f5f5f7; color: var(--fg); border: 1px solid var(--line); }
+    .badge { display: inline-block; font-size: 11px; font-weight: 700; border-radius: 999px; padding: 1px 7px; margin-right: 6px; }
+    .badge.closed { background: #fde7e9; color: var(--red); }
+    .badge.open { background: #e3f5ea; color: #0b8a3e; }
+    ul { list-style: none; margin: 0; padding: 0; }
     li { padding: 10px 16px; border-bottom: 1px solid var(--line); display: flex; gap: 8px; align-items: center; cursor: pointer; }
     li:hover { background: #f5f5f7; }
     li .meta { flex: 1; min-width: 0; }
@@ -44,7 +57,20 @@
       </div>
     </header>
     <div id="status">Haritada bir sokağa tıklayın.</div>
-    <ul id="list"></ul>
+    <div class="panel">
+      <section>
+        <h2>Kayıtlı gruplar</h2>
+        <form class="save" id="save-form">
+          <input id="zone-name" placeholder="Ör. Maraton güzergâhı" maxlength="80" autocomplete="off" />
+          <button id="save-btn" type="submit" disabled>Kaydet</button>
+        </form>
+        <ul id="zones"></ul>
+      </section>
+      <section>
+        <h2>Kaydedilmemiş kapatmalar</h2>
+        <ul id="list"></ul>
+      </section>
+    </div>
   </aside>
   <div id="map"></div>
 
@@ -77,30 +103,118 @@
     const routeLayer = L.layerGroup().addTo(map);
     const lines = new Map();
 
+    const zoneLines = new Map();
+
     async function loadClosures() {
-      const { closures } = await api('/api/closures');
+      const { closures, zones } = await api('/api/closures');
       closureLayer.clearLayers();
       lines.clear();
+      zoneLines.clear();
+      // Trafiğe açık gruplar haritada kesik çizgiyle gösterilir.
+      for (const z of zones) {
+        const group = L.featureGroup().addTo(closureLayer);
+        if (!z.active) {
+          for (const s of z.segments) {
+            L.polyline(s.coordinates, { color: '#d70015', weight: 4, opacity: 0.6, dashArray: '4 8', interactive: false }).addTo(group);
+          }
+        }
+        zoneLines.set(z.id, group);
+      }
       for (const c of closures) {
         const line = L.polyline(c.coordinates, { color: '#d70015', weight: 7, opacity: 0.85 })
-          .bindTooltip(`${c.name} — kapalı`)
-          .addTo(closureLayer);
-        // Kapalı çizgiye tıklamak da yolu açar.
+          .bindTooltip(c.zoneName ? `${c.name} — "${c.zoneName}" grubuyla kapalı` : `${c.name} — kapalı`)
+          .addTo(c.zoneId ? zoneLines.get(c.zoneId) : closureLayer);
+        // Kaydedilmemiş kapalı çizgiye tıklamak yolu açar; gruptakiler listeden yönetilir.
         line.on('click', (e) => {
           if (mode !== 'close') return;
           L.DomEvent.stopPropagation(e);
-          reopen(c.id);
+          if (c.zoneId) setStatus(`Bu yol "${c.zoneName}" grubuna ait. Grubu listeden trafiğe açın.`, true);
+          else reopen(c.id);
         });
         lines.set(c.id, line);
       }
-      renderList(closures);
+      renderZones(zones);
+      renderList(closures.filter((c) => !c.zoneId));
     }
 
+    let confirmDelete = null;
+    function renderZones(zones) {
+      const list = document.getElementById('zones');
+      list.innerHTML = '';
+      if (!zones.length) {
+        list.innerHTML = '<div class="empty">Henüz kayıtlı grup yok. Haritada yolları kapatın, bir isim yazıp kaydedin.</div>';
+        return;
+      }
+      for (const z of zones) {
+        const li = document.createElement('li');
+        li.innerHTML = `<div class="meta"><div class="name"></div><div class="sub"></div></div><div class="zone-actions"></div>`;
+        li.querySelector('.name').textContent = z.name;
+        const badge = document.createElement('span');
+        badge.className = `badge ${z.active ? 'closed' : 'open'}`;
+        badge.textContent = z.active ? 'Kapalı' : 'Açık';
+        const meters = z.segments.reduce((sum, s) => sum + s.lengthMeters, 0);
+        li.querySelector('.sub').textContent = `${z.segments.length} yol parçası · ${(meters / 1000).toFixed(1).replace('.', ',')} km`;
+        li.querySelector('.sub').prepend(badge);
+        const actions = li.querySelector('.zone-actions');
+        const button = (text, cls, fn) => {
+          const b = document.createElement('button');
+          b.textContent = text;
+          b.className = cls;
+          b.addEventListener('click', (e) => { e.stopPropagation(); fn(); });
+          actions.appendChild(b);
+        };
+        if (confirmDelete === z.id) {
+          button('Vazgeç', 'ghost', () => { confirmDelete = null; renderZones(zones); });
+          button('Evet, sil', 'close', () => deleteZone(z));
+        } else {
+          button(z.active ? 'Trafiğe aç' : 'Trafiğe kapat', z.active ? 'open' : 'close', () => setZone(z, !z.active));
+          button('Sil', 'ghost', () => { confirmDelete = z.id; renderZones(zones); });
+        }
+        li.addEventListener('click', () => {
+          const bounds = L.latLngBounds(z.segments.flatMap((s) => s.coordinates));
+          map.fitBounds(bounds, { maxZoom: 17, padding: [30, 30] });
+        });
+        list.appendChild(li);
+      }
+    }
+
+    async function setZone(z, active) {
+      try {
+        await api(`/api/zones/${z.id}`, { method: 'PATCH', body: JSON.stringify({ active }) });
+        setStatus(`"${z.name}" ${active ? 'trafiğe kapatıldı' : 'trafiğe açıldı'}. Tüm kullanıcıların rotaları güncellenir.`);
+      } catch (err) { setStatus(err.message, true); }
+    }
+
+    async function deleteZone(z) {
+      confirmDelete = null;
+      try {
+        await api(`/api/zones/${z.id}`, { method: 'DELETE' });
+        setStatus(`"${z.name}" grubu silindi.`);
+      } catch (err) { setStatus(err.message, true); }
+    }
+
+    const zoneName = document.getElementById('zone-name');
+    const saveBtn = document.getElementById('save-btn');
+    let unsavedCount = 0;
+    const updateSaveBtn = () => { saveBtn.disabled = !zoneName.value.trim() || unsavedCount === 0; };
+    zoneName.addEventListener('input', updateSaveBtn);
+    document.getElementById('save-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      try {
+        const r = await api('/api/zones', { method: 'POST', body: JSON.stringify({ name: zoneName.value.trim() }) });
+        zoneName.value = '';
+        updateSaveBtn();
+        setStatus(`"${r.zone.name}" kaydedildi (${r.zone.segments.length} yol parçası, şu an trafiğe kapalı).`);
+      } catch (err) { setStatus(err.message, true); }
+    });
+
     function renderList(closures) {
+      unsavedCount = closures.length;
+      updateSaveBtn();
       const list = document.getElementById('list');
       list.innerHTML = '';
       if (!closures.length) {
-        list.innerHTML = '<div class="empty">Kapalı yol yok.</div>';
+        list.innerHTML = '<div class="empty">Yok. Haritada bir sokağa tıklayarak kapatın.</div>';
         return;
       }
       for (const c of [...closures].reverse()) {

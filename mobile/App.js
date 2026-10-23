@@ -381,6 +381,15 @@ export default function App() {
     requestRoute({ to: place });
   };
 
+  const toggleAdmin = () => {
+    if (adminMode) return setAdminMode(false);
+    if (!demo && !settings.adminToken) {
+      setSettingsOpen(true);
+      return showToast('Önce Ayarlar\'dan yönetici anahtarını girin.');
+    }
+    onAdminModeChange(true, settings);
+  };
+
   const onAdminModeChange = async (enabled, draft) => {
     if (!enabled) return setAdminMode(false);
     try {
@@ -470,33 +479,6 @@ export default function App() {
               <Pressable style={[styles.iconButton, styles.searchButton]} onPress={() => search()}>
                 {searching ? <ActivityIndicator color="#fff" /> : <Text style={styles.searchButtonText}>Ara</Text>}
               </Pressable>
-              <Pressable style={styles.iconButton} onPress={() => setSettingsOpen(true)}>
-                <Text style={styles.iconText}>⚙︎</Text>
-              </Pressable>
-            </View>
-            <View style={styles.chipRow}>
-              <Pressable
-                style={[styles.chip, adminMode && styles.chipOn]}
-                onPress={() => {
-                  if (adminMode) return setAdminMode(false);
-                  if (!demo && !settings.adminToken) {
-                    setSettingsOpen(true);
-                    return showToast('Önce Ayarlar\'dan yönetici anahtarını girin.');
-                  }
-                  onAdminModeChange(true, settings);
-                }}
-              >
-                <Text style={[styles.chipText, adminMode && styles.chipTextOn]}>
-                  {adminMode ? 'Yol kapatma: AÇIK' : 'Yol kapatma modu'}
-                </Text>
-              </Pressable>
-              {adminMode && (
-                <Pressable style={styles.chip} onPress={() => setZonesOpen(true)}>
-                  <Text style={styles.chipText}>
-                    Kayıtlı gruplar{closures.zones.length ? ` (${closures.zones.length})` : ''}
-                  </Text>
-                </Pressable>
-              )}
             </View>
             {locStatus !== 'ok' && !manualOrigin && (
               <View style={styles.notice}>
@@ -601,17 +583,31 @@ export default function App() {
 
       {navigating && <KeepScreenOn />}
 
-      {navigating ? (
-        !following && (
-          <Pressable style={[styles.recenter, { bottom: 200 }]} onPress={() => setFollowing(true)}>
+      {/* Sağ kenardaki düğme paneli (arama sonuçları açıkken gizlenir). */}
+      {results.length === 0 && (
+        <View style={[styles.sidePanel, { top: navigating ? 190 : 150 }]}>
+          <SideButton label="Ayarlar" onPress={() => setSettingsOpen(true)}>
+            <Text style={styles.sideGlyph}>⚙︎</Text>
+          </SideButton>
+          <SideButton label={adminMode ? 'Kapatma\nAÇIK' : 'Yol\nkapat'} active={adminMode} onPress={toggleAdmin}>
+            <View style={[styles.noEntry, adminMode && styles.noEntryOn]}>
+              <View style={[styles.noEntryBar, adminMode && styles.noEntryBarOn]} />
+            </View>
+          </SideButton>
+          {adminMode && (
+            <SideButton label={`Gruplar${closures.zones.length ? ` (${closures.zones.length})` : ''}`} onPress={() => setZonesOpen(true)}>
+              <Text style={styles.sideGlyph}>☰</Text>
+            </SideButton>
+          )}
+          <SideButton
+            label={navigating ? 'Ortala' : 'Konumum'}
+            highlight={navigating && !following}
+            onPress={navigating ? () => setFollowing(true) : goToMyLocation}
+            last
+          >
             <View style={styles.myLocationDot} />
-            <Text style={styles.recenterText}>Ortala</Text>
-          </Pressable>
-        )
-      ) : (
-        <Pressable style={[styles.myLocation, { bottom: route || busy ? 200 : 40 }]} onPress={goToMyLocation}>
-          <View style={styles.myLocationDot} />
-        </Pressable>
+          </SideButton>
+        </View>
       )}
 
       <Text style={styles.attribution}>© OpenStreetMap katkıcıları</Text>
@@ -641,6 +637,19 @@ export default function App() {
   );
 }
 
+// Sağ paneldeki tek bir düğme: üstte simge, altta kısa etiket.
+function SideButton({ label, onPress, active, highlight, last, children }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [styles.sideButton, !last && styles.sideDivider, active && styles.sideActive, pressed && styles.sidePressed]}
+    >
+      {children}
+      <Text style={[styles.sideLabel, active && styles.sideLabelActive, highlight && styles.sideLabelHighlight]}>{label}</Text>
+    </Pressable>
+  );
+}
+
 // Seyir sürerken ekranın kendiliğinden kapanmasını engeller.
 function KeepScreenOn() {
   useKeepAwake('navigation');
@@ -661,7 +670,6 @@ const styles = StyleSheet.create({
   searchRow: { flexDirection: 'row', gap: 8 },
   search: { flex: 1, backgroundColor: '#fff', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 16, ...shadow },
   iconButton: { width: 48, backgroundColor: '#fff', borderRadius: 12, alignItems: 'center', justifyContent: 'center', ...shadow },
-  iconText: { fontSize: 22 },
   results: { backgroundColor: '#fff', borderRadius: 12, maxHeight: 320, ...shadow },
   result: { paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: '#d1d1d6' },
   resultName: { fontSize: 16, fontWeight: '600' },
@@ -676,7 +684,7 @@ const styles = StyleSheet.create({
   adminPillText: { color: '#fff', fontWeight: '700', fontSize: 12 },
   demoPill: { alignSelf: 'center', backgroundColor: 'rgba(255,255,255,0.92)', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
   demoPillText: { color: '#6e6e73', fontSize: 11 },
-  toast: { alignSelf: 'center', backgroundColor: 'rgba(29,29,31,0.92)', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, maxWidth: '100%' },
+  toast: { alignSelf: 'flex-start', marginRight: 76, backgroundColor: 'rgba(29,29,31,0.92)', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, maxWidth: '100%' },
   toastError: { backgroundColor: 'rgba(215,0,21,0.95)' },
   toastText: { color: '#fff', fontSize: 14 },
   bottom: { position: 'absolute', left: 12, right: 12, bottom: 34, backgroundColor: '#fff', borderRadius: 16, padding: 16, ...shadow },
@@ -691,16 +699,21 @@ const styles = StyleSheet.create({
   stop: { backgroundColor: '#d70015' },
   searchButton: { width: 56, backgroundColor: '#0a66d8' },
   searchButtonText: { color: '#fff', fontWeight: '700', fontSize: 15 },
-  chipRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
-  chip: { backgroundColor: '#fff', borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8, ...shadow },
-  chipOn: { backgroundColor: '#d70015' },
-  chipText: { fontSize: 13, fontWeight: '700', color: '#1d1d1f' },
-  chipTextOn: { color: '#fff' },
-  notice: { backgroundColor: '#fff8e1', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, ...shadow },
+  notice: { backgroundColor: '#fff8e1', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, marginRight: 76, ...shadow },
   noticeText: { fontSize: 13, color: '#5c4400' },
-  myLocation: { position: 'absolute', right: 14, width: 48, height: 48, borderRadius: 24, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', ...shadow },
-  recenter: { position: 'absolute', left: 14, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#fff', borderRadius: 24, paddingHorizontal: 16, height: 48, ...shadow },
-  recenterText: { fontSize: 16, fontWeight: '700', color: '#0a66d8' },
+  sidePanel: { position: 'absolute', right: 12, width: 64, backgroundColor: '#fff', borderRadius: 14, overflow: 'hidden', ...shadow },
+  sideButton: { alignItems: 'center', justifyContent: 'center', paddingVertical: 9, gap: 4, minHeight: 60 },
+  sideDivider: { borderBottomWidth: StyleSheet.hairlineWidth, borderColor: '#d1d1d6' },
+  sideActive: { backgroundColor: '#fde7e9' },
+  sidePressed: { backgroundColor: '#f2f2f7' },
+  sideGlyph: { fontSize: 20, color: '#1d1d1f', lineHeight: 24 },
+  sideLabel: { fontSize: 10, fontWeight: '600', color: '#3a3a3c', textAlign: 'center' },
+  sideLabelActive: { color: '#d70015', fontWeight: '800' },
+  sideLabelHighlight: { color: '#0a66d8', fontWeight: '800' },
+  noEntry: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: '#d70015', alignItems: 'center', justifyContent: 'center' },
+  noEntryOn: { backgroundColor: '#d70015' },
+  noEntryBar: { width: 12, height: 3, borderRadius: 1, backgroundColor: '#d70015' },
+  noEntryBarOn: { backgroundColor: '#fff' },
   myLocationDot: { width: 16, height: 16, borderRadius: 8, backgroundColor: '#0a66d8', borderWidth: 3, borderColor: '#cfe0fb' },
   attribution: { position: 'absolute', right: 6, bottom: 6, fontSize: 10, color: '#3a3a3c', backgroundColor: 'rgba(255,255,255,0.7)', paddingHorizontal: 4 },
 });

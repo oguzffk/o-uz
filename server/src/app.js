@@ -2,6 +2,7 @@ import express from 'express';
 import { fileURLToPath } from 'node:url';
 import { ValhallaError } from './valhalla.js';
 import { decodePolyline } from './geo.js';
+import { adjustedTime, trafficPeriod } from './traffic.js';
 import { ClosureStore } from './closures.js';
 
 // İstanbul il sınırını kabaca kapsayan kutu (indirme betiğiyle aynı).
@@ -21,6 +22,29 @@ function parsePoint(p, label) {
     throw new HttpError(400, `${label} İstanbul sınırları dışında`);
   }
   return { lat, lon };
+}
+
+/** Valhalla trip'ini uygulamanın rota biçimine çevirir; süreler yoğun saate göre ayarlanır. */
+function buildRoute(trip, periodKey) {
+  const leg = trip.legs[0];
+  const maneuvers = leg.maneuvers.map((m) => ({
+    type: m.type,
+    instruction: m.instruction,
+    verbalPre: m.verbal_pre_transition_instruction ?? m.instruction,
+    verbalAlert: m.verbal_transition_alert_instruction ?? null,
+    streetNames: m.street_names ?? [],
+    distanceKm: m.length,
+    durationSec: Math.round(adjustedTime(m.length, m.time, periodKey)),
+    beginShapeIndex: m.begin_shape_index,
+    endShapeIndex: m.end_shape_index,
+  }));
+  return {
+    distanceKm: trip.summary.length,
+    durationSec: maneuvers.reduce((sum, m) => sum + m.durationSec, 0),
+    freeFlowDurationSec: Math.round(trip.summary.time),
+    coordinates: decodePolyline(leg.shape),
+    maneuvers,
+  };
 }
 
 class HttpError extends Error {
@@ -187,32 +211,22 @@ export function createApp({ valhalla, store, adminToken, nominatimUrl = 'https:/
       }
 
       const exclude = store.excludePolygons();
+      const wantAlternatives = Boolean(req.body.alternatives);
       const data = await valhalla.route({
         locations: [origin, { ...to, type: 'break' }],
         costing,
         directions_options: { language: 'tr-TR', units: 'kilometers' },
+        // Alternatifler de exclude_polygons'a uyar: hiçbiri kapalı yoldan geçmez.
+        ...(wantAlternatives ? { alternates: 2 } : {}),
         ...(exclude.length ? { exclude_polygons: exclude } : {}),
       });
 
-      const leg = data.trip.legs[0];
-      res.json({
-        closuresVersion: store.version,
-        costing,
-        distanceKm: data.trip.summary.length,
-        durationSec: Math.round(data.trip.summary.time),
-        coordinates: decodePolyline(leg.shape),
-        maneuvers: leg.maneuvers.map((m) => ({
-          type: m.type,
-          instruction: m.instruction,
-          verbalPre: m.verbal_pre_transition_instruction ?? m.instruction,
-          verbalAlert: m.verbal_transition_alert_instruction ?? null,
-          streetNames: m.street_names ?? [],
-          distanceKm: m.length,
-          durationSec: Math.round(m.time),
-          beginShapeIndex: m.begin_shape_index,
-          endShapeIndex: m.end_shape_index,
-        })),
-      });
+      const departAt = req.body.departAt ? new Date(req.body.departAt) : new Date();
+      const traffic = trafficPeriod(Number.isNaN(departAt.getTime()) ? new Date() : departAt);
+      const trips = [data.trip, ...(data.alternates ?? []).map((a) => a.trip)];
+      // Yoğun saat tahminine göre en hızlıdan yavaşa sırala.
+      const routes = trips.map((trip) => buildRoute(trip, traffic.key)).sort((a, b) => a.durationSec - b.durationSec);
+      res.json({ closuresVersion: store.version, costing, traffic, ...routes[0], routes });
     } catch (err) {
       next(err);
     }

@@ -248,3 +248,51 @@ test('grup düzenleme: yol ekle, çıkar, yeniden adlandır', async () => {
     assert.equal(noAuth.status, 401);
   });
 });
+
+test('yoğun saat dönemleri İstanbul saatine göre', async () => {
+  const { trafficPeriod, adjustedTime } = await import('../src/traffic.js');
+  // 2026-10-26 Pazartesi. UTC saatleri: İstanbul = UTC+3.
+  assert.equal(trafficPeriod(new Date('2026-10-26T05:30:00Z')).key, 'peak'); // 08:30
+  assert.equal(trafficPeriod(new Date('2026-10-26T15:00:00Z')).key, 'peak'); // 18:00
+  assert.equal(trafficPeriod(new Date('2026-10-26T10:00:00Z')).key, 'busy'); // 13:00
+  assert.equal(trafficPeriod(new Date('2026-10-26T23:00:00Z')).key, 'night'); // 02:00 Salı
+  assert.equal(trafficPeriod(new Date('2026-10-25T15:00:00Z')).key, 'busy'); // Pazar 18:00
+  assert.equal(trafficPeriod(new Date('2026-10-25T05:30:00Z')).key, 'normal'); // Pazar 08:30
+  // Hızlı yol yoğun saatte sokaktan daha çok yavaşlar; gece değişmez.
+  assert.equal(adjustedTime(10, 600, 'peak'), 1200); // 60 km/sa → ×2
+  assert.equal(adjustedTime(1, 180, 'peak'), 180 * 1.3); // 20 km/sa → ×1.3
+  assert.equal(adjustedTime(10, 600, 'night'), 600);
+});
+
+test('alternatif rotalar: istenirse gelir, yoğun saat süresine göre sıralanır, kapatmalar hepsine uygulanır', async () => {
+  await withServer(async ({ req, valhalla }) => {
+    const trip = (km, sec, shape = SHAPE) => ({
+      summary: { length: km, time: sec },
+      legs: [{ shape, maneuvers: [{ type: 1, instruction: 'Başla', length: km, time: sec, begin_shape_index: 0, end_shape_index: 1 }] }],
+    });
+    valhalla.route = async (body) => {
+      valhalla.calls.push(body);
+      // Ana rota otoyol (hızlı ama yoğun saatte çok yavaşlar), alternatif ara yol.
+      return { trip: trip(10, 600), ...(body.alternates ? { alternates: [{ trip: trip(6, 720) }] } : {}) };
+    };
+    await req('/api/closures/toggle', { method: 'POST', token: 'secret', body: { lat: 41.031, lon: 28.9823 } });
+    const body = { from: { lat: 41.03, lon: 28.98 }, to: { lat: 41.04, lon: 28.99 } };
+
+    const single = await req('/api/route', { method: 'POST', body });
+    assert.equal(valhalla.calls.at(-1).alternates, undefined);
+    assert.equal(single.body.routes.length, 1);
+
+    const night = await req('/api/route', { method: 'POST', body: { ...body, alternatives: true, departAt: '2026-10-26T23:00:00Z' } });
+    assert.equal(valhalla.calls.at(-1).alternates, 2);
+    assert.equal(valhalla.calls.at(-1).exclude_polygons.length, 1);
+    assert.equal(night.body.traffic.key, 'night');
+    assert.deepEqual(night.body.routes.map((r) => r.distanceKm), [10, 6]); // gece otoyol daha hızlı
+
+    const peak = await req('/api/route', { method: 'POST', body: { ...body, alternatives: true, departAt: '2026-10-26T15:00:00Z' } });
+    assert.equal(peak.body.traffic.key, 'peak');
+    assert.deepEqual(peak.body.routes.map((r) => r.distanceKm), [6, 10]); // yoğun saatte ara yol öne geçer
+    assert.equal(peak.body.distanceKm, 6);
+    assert.equal(peak.body.routes[1].durationSec, 1200);
+    assert.equal(peak.body.routes[1].freeFlowDurationSec, 600);
+  });
+});

@@ -124,7 +124,7 @@ Telefon İstanbul dışındaysa (ör. emülatör) ilk basılı tutma **başlang�
 
 | Uç nokta | Açıklama |
 | --- | --- |
-| `POST /api/route` `{from:{lat,lon}, to:{lat,lon}, costing?, heading?}` | Kapalı yolları dışlayan rota; Türkçe manevralar, `closuresVersion` |
+| `POST /api/route` `{from:{lat,lon}, to:{lat,lon}, costing?, heading?, alternatives?}` | Kapalı yolları dışlayan rota; `alternatives: true` ile en fazla 2 alternatif (hepsi kapalı yollardan kaçar). Süreler İstanbul saatine göre yoğun saat tahminiyle uzatılır (`traffic`, `freeFlowDurationSec`); rotalar bu süreye göre sıralanır |
 | `GET /api/closures` | `{version, closures[], zones[]}` — `closures` şu an trafiğe kapalı tüm parçalar (gruptakiler `zoneName` taşır); her değişiklikte `version` artar |
 | `GET /api/closures/stream` | Değişiklikler için Server-Sent Events |
 | `POST /api/closures/toggle` `{lat,lon}` 🔒 | Dokunulan noktadaki segmenti kapatır, kapalıysa açar |
@@ -151,7 +151,7 @@ cd server && npm test
 - **Kapatmalar** `server/data/closures.json` dosyasında tutulur; çok sunuculu kurulumda PostgreSQL/Redis'e taşınmalı.
 - **Yönetici kimlik doğrulaması** tek bir paylaşılan anahtardır; gerçek kullanımda kullanıcı hesapları + rol yönetimi gerekir.
 - **Harita karoları ve arama** OpenStreetMap'in ücretsiz sunucularından gelir (`tile.openstreetmap.org`, Nominatim). Bunlar yoğun kullanım için değildir; yayına çıkmadan önce kendi karo sunucunuzu / ticari bir sağlayıcıyı ve kendi geocoder'ınızı kullanın.
-- **Trafik verisi yok:** Süreler yol tipine göre tahmin edilir.
+- **Canlı trafik verisi yok:** Süreler, İstanbul'un saate ve güne göre tipik yoğunluğuyla tahmin edilir (`server/src/traffic.js`: hafta içi 07–10 ve 17–20:30 yoğun saat; hızlı yollar en çok yavaşlar). Gerçek trafik için HERE/TomTom gibi bir kaynak eklenebilir.
 - Expo Go yerine kalıcı bir uygulama için `npx expo run:android|ios` veya EAS Build ile development build alın. Üretimde API HTTPS arkasında olmalı (iOS/Android düz HTTP'yi engeller).
 - OSM verisini güncellemek için betiği tekrar çalıştırın, ardından `force_rebuild=True` ile Valhalla'yı bir kez yeniden başlatın.
 

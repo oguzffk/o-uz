@@ -31,7 +31,8 @@ export function createApi(baseUrl, adminToken) {
 
   return {
     closures: () => request('/api/closures'),
-    route: ({ from, to, costing, heading }) => request('/api/route', { method: 'POST', body: { from, to, costing, heading } }),
+    route: ({ from, to, costing, heading, alternatives }) =>
+      request('/api/route', { method: 'POST', body: { from, to, costing, heading, alternatives } }),
     search: (q) => request(`/api/search?q=${encodeURIComponent(q)}`),
     checkAdmin: () => request('/api/admin/check', { method: 'POST', admin: true }),
     toggleClosure: ({ lat, lon }) => request('/api/closures/toggle', { method: 'POST', body: { lat, lon }, admin: true }),

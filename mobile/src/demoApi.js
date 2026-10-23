@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ISTANBUL_BBOX, distanceMeters } from './geo';
+import { adjustedTime, trafficPeriod } from './traffic';
 
 /**
  * Demo modu: kendi sunucumuz yerine OpenStreetMap topluluğunun herkese açık
@@ -76,6 +77,29 @@ function idForShape(shape) {
     h = Math.imul(h, 0x01000193);
   }
   return (h >>> 0).toString(16).padStart(8, '0') + shape.length.toString(16);
+}
+
+// server/src/app.js'teki buildRoute ile aynı biçim.
+function buildRoute(trip, periodKey) {
+  const leg = trip.legs[0];
+  const maneuvers = leg.maneuvers.map((m) => ({
+    type: m.type,
+    instruction: m.instruction,
+    verbalPre: m.verbal_pre_transition_instruction ?? m.instruction,
+    verbalAlert: m.verbal_transition_alert_instruction ?? null,
+    streetNames: m.street_names ?? [],
+    distanceKm: m.length,
+    durationSec: Math.round(adjustedTime(m.length, m.time, periodKey)),
+    beginShapeIndex: m.begin_shape_index,
+    endShapeIndex: m.end_shape_index,
+  }));
+  return {
+    distanceKm: trip.summary.length,
+    durationSec: maneuvers.reduce((sum, m) => sum + m.durationSec, 0),
+    freeFlowDurationSec: Math.round(trip.summary.time),
+    coordinates: decodePolyline(leg.shape),
+    maneuvers,
+  };
 }
 
 export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL) {
@@ -164,7 +188,7 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL) {
       return { version: st.version, closures: effective(st), zones: st.zones };
     },
 
-    async route({ from, to, costing: requested, heading }) {
+    async route({ from, to, costing: requested, heading, alternatives = false }) {
       const costing = requested === 'motorcycle' ? 'motorcycle' : 'auto';
       const st = await load();
       const { version } = st;
@@ -178,27 +202,15 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL) {
         locations: [origin, { lat: to.lat, lon: to.lon, type: 'break' }],
         costing,
         directions_options: { language: 'tr-TR', units: 'kilometers' },
+        // Alternatifler de exclude_polygons'a uyar: hiçbiri kapalı yoldan geçmez.
+        ...(alternatives ? { alternates: 2 } : {}),
         ...(closures.length ? { exclude_polygons: closures.map((c) => tinySquareRing(c.midpoint)) } : {}),
       });
-      const leg = data.trip.legs[0];
-      return {
-        closuresVersion: version,
-        costing,
-        distanceKm: data.trip.summary.length,
-        durationSec: Math.round(data.trip.summary.time),
-        coordinates: decodePolyline(leg.shape),
-        maneuvers: leg.maneuvers.map((m) => ({
-          type: m.type,
-          instruction: m.instruction,
-          verbalPre: m.verbal_pre_transition_instruction ?? m.instruction,
-          verbalAlert: m.verbal_transition_alert_instruction ?? null,
-          streetNames: m.street_names ?? [],
-          distanceKm: m.length,
-          durationSec: Math.round(m.time),
-          beginShapeIndex: m.begin_shape_index,
-          endShapeIndex: m.end_shape_index,
-        })),
-      };
+      const traffic = trafficPeriod();
+      const trips = [data.trip, ...(data.alternates ?? []).map((a) => a.trip)];
+      // Sunucudaki gibi: yoğun saat tahminine göre en hızlıdan yavaşa.
+      const routes = trips.map((trip) => buildRoute(trip, traffic.key)).sort((a, b) => a.durationSec - b.durationSec);
+      return { closuresVersion: version, costing, traffic, ...routes[0], routes };
     },
 
     async search(q) {

@@ -49,7 +49,8 @@ export default function App() {
   const [location, setLocation] = useState(null); // { lat, lon, heading }
   const [manualOrigin, setManualOrigin] = useState(null);
   const [destination, setDestination] = useState(null); // { lat, lon, name }
-  const [route, setRoute] = useState(null);
+  const [route, setRoute] = useState(null); // seçili rota
+  const [routeOptions, setRouteOptions] = useState([]); // önizlemede alternatifler dahil tüm rotalar
   const [closures, setClosures] = useState({ version: -1, closures: [], zones: [] });
   const [zonesOpen, setZonesOpen] = useState(false);
   const [editing, setEditing] = useState(null); // düzenlenen grup: { id, name }
@@ -161,11 +162,15 @@ export default function App() {
       setBusy(true);
       try {
         const heading = navigating && from === location ? location.heading : undefined;
-        const r = await api.route({ from, to, costing: settings.costing, heading });
+        // Seyir sırasında (yeniden rota) tek rota yeter; önizlemede alternatifler de istenir.
+        const r = await api.route({ from, to, costing: settings.costing, heading, alternatives: !navigating });
         if (reqId !== routeRequest.current) return; // daha yeni bir istek var
-        setRoute(r);
+        const meta = { closuresVersion: r.closuresVersion, costing: r.costing, traffic: r.traffic };
+        const options = (r.routes ?? [r]).map((rt, index) => ({ ...meta, ...rt, index }));
+        setRoute(options[0]);
+        setRouteOptions(navigating ? [] : options);
         if (!navigating) {
-          mapRef.current?.fitToCoordinates(r.coordinates.map(toLatLng), {
+          mapRef.current?.fitToCoordinates(options.flatMap((o) => o.coordinates.map(toLatLng)), {
             edgePadding: { top: 160, right: 50, bottom: 260, left: 50 },
             animated: true,
           });
@@ -272,9 +277,10 @@ export default function App() {
       showToast('Seyir için İstanbul içinde GPS konumu gerekli. Rota önizlemesi kullanılabilir.', 'error');
       return;
     }
+    // Önizlemede seçilen rota (alternatif olsa bile) olduğu gibi kullanılır.
     setFollowing(true);
     setNavigating(true);
-    requestRoute({ from: location, quiet: true });
+    setRouteOptions([]);
   };
 
   const stopNavigation = () => {
@@ -285,6 +291,7 @@ export default function App() {
   const clearTrip = () => {
     stopNavigation();
     setRoute(null);
+    setRouteOptions([]);
     setDestination(null);
     setQuery('');
   };
@@ -451,6 +458,20 @@ export default function App() {
         onPanDrag={stopFollowingOnGesture}
         onRegionChangeComplete={(_, details) => details?.isGesture && stopFollowingOnGesture()}
       >
+        {/* Seçili olmayan alternatifler gri; dokununca seçilir. */}
+        {routeOptions
+          .filter((o) => o.index !== route?.index)
+          .map((o) => (
+            <Polyline
+              key={`alt:${o.index}`}
+              coordinates={o.coordinates.map(toLatLng)}
+              strokeColor="#8e9aa8"
+              strokeWidth={7}
+              zIndex={0}
+              tappable
+              onPress={() => setRoute(o)}
+            />
+          ))}
         {route && (
           <Polyline coordinates={route.coordinates.map(toLatLng)} strokeColor="#0a66d8" strokeWidth={7} zIndex={1} />
         )}
@@ -615,6 +636,27 @@ export default function App() {
                   {busy ? '  ·  güncelleniyor…' : ''}
                 </Text>
               </View>
+              {route.traffic && route.traffic.key !== 'night' && (
+                <Text style={styles.trafficNote}>
+                  {route.traffic.label} tahmini dahil · boş yolda {formatDuration(route.freeFlowDurationSec)}
+                </Text>
+              )}
+              {!navigating && routeOptions.length > 1 && (
+                <View style={styles.options}>
+                  {routeOptions.map((o) => {
+                    const selected = o.index === route.index;
+                    return (
+                      <Pressable key={o.index} style={[styles.option, selected && styles.optionSelected]} onPress={() => setRoute(o)}>
+                        <Text style={[styles.optionTime, selected && styles.optionTimeSelected]}>{formatDuration(o.durationSec)}</Text>
+                        <Text style={styles.optionSub}>
+                          {formatDistance(o.distanceKm * 1000)}
+                          {o.index === 0 ? ' · En hızlı' : ''}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              )}
               <View style={styles.actions}>
                 {navigating ? (
                   <Pressable style={[styles.button, styles.stop]} onPress={stopNavigation}>
@@ -755,6 +797,13 @@ const styles = StyleSheet.create({
   summaryMain: { fontSize: 26, fontWeight: '800', color: '#0b8a3e' },
   summarySub: { fontSize: 16, color: '#3a3a3c' },
   actions: { flexDirection: 'row', gap: 10, marginTop: 12 },
+  trafficNote: { fontSize: 12, color: '#b35f00', marginTop: 4 },
+  options: { flexDirection: 'row', gap: 8, marginTop: 10 },
+  option: { flex: 1, borderWidth: 1.5, borderColor: '#d1d1d6', borderRadius: 10, paddingVertical: 8, paddingHorizontal: 10 },
+  optionSelected: { borderColor: '#0a66d8', backgroundColor: '#eef4fd' },
+  optionTime: { fontSize: 16, fontWeight: '800', color: '#3a3a3c' },
+  optionTimeSelected: { color: '#0a66d8' },
+  optionSub: { fontSize: 11, color: '#6e6e73', marginTop: 1 },
   button: { flex: 1, backgroundColor: '#0a66d8', borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
   buttonText: { color: '#fff', fontSize: 17, fontWeight: '700' },
   secondary: { backgroundColor: '#f2f2f7' },

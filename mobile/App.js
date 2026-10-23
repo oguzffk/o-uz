@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   FlatList,
   Keyboard,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -11,7 +10,7 @@ import {
   View,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import MapView, { Marker, Polyline, UrlTile } from 'react-native-maps';
+import MapView, { Marker, Polyline } from 'react-native-maps';
 import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createApi, defaultApiUrl } from './src/api';
@@ -306,21 +305,15 @@ export default function App() {
         ref={mapRef}
         style={StyleSheet.absoluteFill}
         initialRegion={ISTANBUL_REGION}
-        // Android'de Google altlığı yerine doğrudan OSM karoları gösterilir; böylece
-        // haritada görülen yollar rota motorunun kullandığı veriyle aynı olur.
-        mapType={Platform.OS === 'android' ? 'none' : 'standard'}
+        // Altlık: telefonun kendi haritası (Android'de Google, iOS'ta Apple). OSM'nin ücretsiz
+        // karo sunucusu uygulamalardan gelen istekleri engellediği için onu kullanmıyoruz.
+        mapType="standard"
         showsUserLocation
         showsCompass={false}
         toolbarEnabled={false}
         onPress={onMapPress}
         onLongPress={onMapLongPress}
       >
-        <UrlTile
-          urlTemplate="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
-          maximumZ={19}
-          shouldReplaceMapContent
-          tileSize={256}
-        />
         {route && (
           <Polyline coordinates={route.coordinates.map(toLatLng)} strokeColor="#0a66d8" strokeWidth={7} zIndex={1} />
         )}

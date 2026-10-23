@@ -133,7 +133,7 @@
           .addTo(c.zoneId ? zoneLines.get(c.zoneId) : closureLayer);
         // Kaydedilmemiş kapalı çizgiye tıklamak yolu açar; gruptakiler listeden yönetilir.
         line.on('click', (e) => {
-          if (mode !== 'close') return;
+          if (mode !== 'close' || editingZoneId) return; // düzenlemede tıklama haritaya geçsin
           L.DomEvent.stopPropagation(e);
           if (c.zoneId) setStatus(`Bu yol "${c.zoneName}" grubuna ait. Grubu listeden trafiğe açın.`, true);
           else reopen(c.id);
@@ -179,6 +179,9 @@
 
     let confirmDelete = null;
     function renderZones(zones) {
+      lastZones = zones;
+      if (editingZoneId && !zones.some((z) => z.id === editingZoneId)) editingZoneId = null;
+      drawEditing();
       const list = document.getElementById('zones');
       list.innerHTML = '';
       if (!zones.length) {
@@ -208,6 +211,7 @@
           button('Evet, sil', 'close', () => deleteZone(z));
         } else {
           button(z.active ? 'Trafiğe aç' : 'Trafiğe kapat', z.active ? 'open' : 'close', () => setZone(z, !z.active));
+          button(editingZoneId === z.id ? 'Bitti' : 'Düzenle', 'ghost', () => toggleEditing(z));
           button('Sil', 'ghost', () => { confirmDelete = z.id; renderZones(zones); });
         }
         li.addEventListener('click', () => {
@@ -215,6 +219,29 @@
           map.fitBounds(bounds, { maxZoom: 17, padding: [30, 30] });
         });
         list.appendChild(li);
+      }
+    }
+
+    // Grup düzenleme: açıkken haritaya tıklamak yolu gruba ekler / gruptan çıkarır.
+    let editingZoneId = null;
+    let lastZones = [];
+    function toggleEditing(z) {
+      editingZoneId = editingZoneId === z.id ? null : z.id;
+      if (editingZoneId) {
+        setStatus(`"${z.name}" düzenleniyor: yola tıklayın = gruba ekle, gruptaki yola tıklayın = çıkar. Bitirmek için "Bitti".`);
+      } else {
+        setStatus('Düzenleme bitti.');
+      }
+      renderZones(lastZones);
+      drawEditing();
+    }
+    const editLayer = L.layerGroup().addTo(map);
+    function drawEditing() {
+      editLayer.clearLayers();
+      const z = lastZones.find((x) => x.id === editingZoneId);
+      if (!z) return;
+      for (const seg of z.segments) {
+        L.polyline(seg.coordinates, { color: '#f08c00', weight: 8, opacity: 0.9, interactive: false }).addTo(editLayer);
       }
     }
 
@@ -309,6 +336,13 @@
         return;
       }
       if (!tokenInput.value.trim()) return setStatus('Önce yönetici anahtarını girin.', true);
+      if (editingZoneId) {
+        try {
+          const r = await api(`/api/zones/${editingZoneId}/toggle-segment`, { method: 'POST', body: JSON.stringify({ lat, lon: lng }) });
+          setStatus(`${r.action === 'added' ? 'Gruba eklendi' : 'Gruptan çıkarıldı'}: ${r.segment.name} ("${r.zone.name}", ${r.zone.segments.length} parça)`);
+        } catch (err) { setStatus(err.message, true); }
+        return;
+      }
       setStatus('Yol aranıyor…');
       try {
         const r = await api('/api/closures/toggle', { method: 'POST', body: JSON.stringify({ lat, lon: lng }) });

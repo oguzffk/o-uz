@@ -66,20 +66,24 @@ export class ClosureStore extends EventEmitter {
     return this.closures.get(id);
   }
 
-  add(edge, { reason = '' } = {}) {
-    const id = ClosureStore.idForShape(edge.shapeEncoded);
-    const existing = this.closures.get(id);
-    if (existing) return existing;
-    const closure = {
-      id,
+  /** Valhalla kenarından saklanacak segment kaydı. */
+  static segmentFromEdge(edge) {
+    return {
+      id: ClosureStore.idForShape(edge.shapeEncoded),
       wayId: edge.wayId,
       name: edge.names.join(' / ') || 'İsimsiz yol',
-      reason,
       coordinates: edge.coordinates,
       midpoint: midpointAlong(edge.coordinates),
       lengthMeters: Math.round(lineLengthMeters(edge.coordinates)),
       createdAt: new Date().toISOString(),
     };
+  }
+
+  add(edge, { reason = '' } = {}) {
+    const id = ClosureStore.idForShape(edge.shapeEncoded);
+    const existing = this.closures.get(id);
+    if (existing) return existing;
+    const closure = { ...ClosureStore.segmentFromEdge(edge), reason };
     this.closures.set(id, closure);
     this.#changed('closed', { closure });
     return closure;
@@ -138,6 +142,28 @@ export class ClosureStore extends EventEmitter {
     zone.updatedAt = new Date().toISOString();
     this.#changed('zone-updated', { zone });
     return zone;
+  }
+
+  /** Düzenleme: segment gruptaysa çıkarır, değilse ekler. */
+  toggleZoneSegment(zoneId, edge) {
+    const zone = this.zones.get(zoneId);
+    if (!zone) return null;
+    const segment = ClosureStore.segmentFromEdge(edge);
+    const index = zone.segments.findIndex((s) => s.id === segment.id);
+    let action;
+    if (index >= 0) {
+      segment.name = zone.segments[index].name;
+      zone.segments.splice(index, 1);
+      action = 'removed';
+    } else {
+      zone.segments.push(segment);
+      // Aynı yol kaydedilmemiş bir kapatma olarak da duruyorsa artık grubun parçası.
+      this.closures.delete(segment.id);
+      action = 'added';
+    }
+    zone.updatedAt = new Date().toISOString();
+    this.#changed('zone-updated', { zone });
+    return { action, zone, segment };
   }
 
   deleteZone(id) {

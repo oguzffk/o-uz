@@ -151,6 +151,21 @@ export function createApp({ valhalla, store, adminToken, nominatimUrl = 'https:/
     }
   });
 
+  // Grup düzenleme: dokunulan yol gruptaysa çıkarılır, değilse eklenir.
+  app.post('/api/zones/:id/toggle-segment', requireAdmin, async (req, res, next) => {
+    try {
+      if (!store.getZone(req.params.id)) throw new HttpError(404, 'Grup bulunamadı');
+      const point = parsePoint(req.body, 'Nokta');
+      const edge = await valhalla.locateEdge(point);
+      if (!edge || edge.distanceMeters > MAX_SNAP_METERS) {
+        throw new HttpError(404, 'Dokunulan yere yakın bir araç yolu bulunamadı');
+      }
+      res.json({ ...store.toggleZoneSegment(req.params.id, edge), version: store.version });
+    } catch (err) {
+      next(err);
+    }
+  });
+
   app.delete('/api/zones/:id', requireAdmin, (req, res) => {
     const zone = store.deleteZone(req.params.id);
     if (!zone) return res.status(404).json({ error: 'Grup bulunamadı' });

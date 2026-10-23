@@ -39,5 +39,8 @@ export function createApi(baseUrl, adminToken) {
     setZoneActive: (id, active) => request(`/api/zones/${id}`, { method: 'PATCH', body: { active }, admin: true }),
     deleteZone: (id) => request(`/api/zones/${id}`, { method: 'DELETE', admin: true }),
     openAll: () => request('/api/closures/open-all', { method: 'POST', admin: true }),
+    toggleZoneSegment: (id, { lat, lon }) =>
+      request(`/api/zones/${id}/toggle-segment`, { method: 'POST', body: { lat, lon }, admin: true }),
+    renameZone: (id, name) => request(`/api/zones/${id}`, { method: 'PATCH', body: { name }, admin: true }),
   };
 }

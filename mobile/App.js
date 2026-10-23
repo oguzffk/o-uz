@@ -52,6 +52,7 @@ export default function App() {
   const [route, setRoute] = useState(null);
   const [closures, setClosures] = useState({ version: -1, closures: [], zones: [] });
   const [zonesOpen, setZonesOpen] = useState(false);
+  const [editing, setEditing] = useState(null); // düzenlenen grup: { id, name }
   const [navigating, setNavigating] = useState(false);
 
   const [query, setQuery] = useState('');
@@ -334,6 +335,7 @@ export default function App() {
 
   // --- Harita etkileşimi ---
   const onMapPress = async (e) => {
+    if (editing) return editZoneAt(e.nativeEvent.coordinate);
     if (!adminMode) return;
     const { latitude: lat, longitude: lon } = e.nativeEvent.coordinate;
     try {
@@ -358,6 +360,32 @@ export default function App() {
     }
   };
   const unsavedCount = closures.closures.filter((c) => !c.zoneId).length;
+
+  // Grup düzenleme modu: haritada dokunulan yol gruba eklenir ya da gruptan çıkarılır.
+  const editingZone = editing ? closures.zones.find((z) => z.id === editing.id) : null;
+  const startEditing = (zone) => {
+    setZonesOpen(false);
+    setEditing({ id: zone.id, name: zone.name });
+    if (zone.segments.length) showZone(zone);
+    showToast('Gruba eklemek ya da çıkarmak için yollara dokunun.');
+  };
+  const editZoneAt = async ({ latitude: lat, longitude: lon }) => {
+    try {
+      const r = await api.toggleZoneSegment(editing.id, { lat, lon });
+      await syncClosures.current?.();
+      showToast(r.action === 'added' ? `Gruba eklendi: ${r.segment.name}` : `Gruptan çıkarıldı: ${r.segment.name}`);
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  };
+  const finishEditing = async () => {
+    const name = editing.name.trim();
+    if (editingZone && name && name !== editingZone.name) {
+      await adminAction(() => api.renameZone(editing.id, name));
+    }
+    setEditing(null);
+    setZonesOpen(true);
+  };
 
   const showZone = (zone) => {
     setZonesOpen(false);
@@ -450,6 +478,16 @@ export default function App() {
                 zIndex={2}
               />
             ))}
+        {/* Düzenlenen grubun yolları turuncu. */}
+        {editingZone?.segments.map((seg) => (
+          <Polyline
+            key={`edit:${seg.id}`}
+            coordinates={seg.coordinates.map(toLatLng)}
+            strokeColor="#f08c00"
+            strokeWidth={9}
+            zIndex={3}
+          />
+        ))}
         {manualOrigin && !gpsUsable && (
           <Marker coordinate={toLatLng([manualOrigin.lat, manualOrigin.lon])} pinColor="green" title="Başlangıç" />
         )}
@@ -458,7 +496,24 @@ export default function App() {
 
       {/* Üst kısım: seyirde manevra bandı, değilse arama kutusu */}
       <View style={styles.top} pointerEvents="box-none">
-        {navigating && next ? (
+        {editing ? (
+          <View style={styles.editCard}>
+            <Text style={styles.editLabel}>GRUBU DÜZENLE · {editingZone?.segments.length ?? 0} yol parçası</Text>
+            <View style={styles.editRow}>
+              <TextInput
+                style={styles.editInput}
+                value={editing.name}
+                onChangeText={(name) => setEditing((e) => ({ ...e, name }))}
+                maxLength={80}
+                placeholder="Grup adı"
+              />
+              <Pressable style={styles.editDone} onPress={finishEditing}>
+                <Text style={styles.editDoneText}>Bitti</Text>
+              </Pressable>
+            </View>
+            <Text style={styles.editHint}>Yola dokun: gruba ekle · Turuncu yola dokun: gruptan çıkar</Text>
+          </View>
+        ) : navigating && next ? (
           <View style={styles.banner}>
             <Text style={styles.bannerDistance}>{formatDistance(progress.distanceToNext)}</Text>
             <Text style={styles.bannerText} numberOfLines={2}>
@@ -584,7 +639,7 @@ export default function App() {
       {navigating && <KeepScreenOn />}
 
       {/* Sağ kenardaki düğme paneli (arama sonuçları açıkken gizlenir). */}
-      {results.length === 0 && (
+      {results.length === 0 && !editing && (
         <View style={[styles.sidePanel, { top: navigating ? 170 : 150 }]}>
           <SideButton label="Ayarlar" onPress={() => setSettingsOpen(true)}>
             <Text style={styles.sideGlyph}>⚙︎</Text>
@@ -630,6 +685,7 @@ export default function App() {
           adminAction(() => api.setZoneActive(z.id, !z.active), `"${z.name}" ${z.active ? 'trafiğe açıldı' : 'trafiğe kapatıldı'}.`)
         }
         onDelete={(z) => adminAction(() => api.deleteZone(z.id), `"${z.name}" silindi.`)}
+        onEdit={startEditing}
       />
 
       <SettingsSheet
@@ -708,6 +764,13 @@ const styles = StyleSheet.create({
   searchButtonText: { color: '#fff', fontWeight: '700', fontSize: 15 },
   notice: { backgroundColor: '#fff8e1', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, marginRight: 76, ...shadow },
   noticeText: { fontSize: 13, color: '#5c4400' },
+  editCard: { backgroundColor: '#fff', borderRadius: 14, padding: 12, gap: 8, borderWidth: 2, borderColor: '#f08c00', ...shadow },
+  editLabel: { fontSize: 11, fontWeight: '800', color: '#b35f00', letterSpacing: 0.5 },
+  editRow: { flexDirection: 'row', gap: 8 },
+  editInput: { flex: 1, minWidth: 0, borderWidth: 1, borderColor: '#d1d1d6', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, fontSize: 16 },
+  editDone: { backgroundColor: '#f08c00', borderRadius: 10, paddingHorizontal: 18, justifyContent: 'center' },
+  editDoneText: { color: '#fff', fontWeight: '800', fontSize: 15 },
+  editHint: { fontSize: 12, color: '#6e6e73' },
   sidePanel: { position: 'absolute', right: 12, width: 64, backgroundColor: '#fff', borderRadius: 14, overflow: 'hidden', ...shadow },
   sideButton: { alignItems: 'center', justifyContent: 'center', paddingVertical: 9, gap: 4, minHeight: 60 },
   sideDivider: { borderBottomWidth: StyleSheet.hairlineWidth, borderColor: '#d1d1d6' },

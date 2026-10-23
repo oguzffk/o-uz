@@ -209,3 +209,42 @@ test('tüm yolları tek seferde aç: tekiller silinir, gruplar kalır ama açıl
     assert.equal(valhalla.calls.at(-1).exclude_polygons, undefined);
   });
 });
+
+test('grup düzenleme: yol ekle, çıkar, yeniden adlandır', async () => {
+  await withServer(async ({ req, valhalla }) => {
+    valhalla.locateEdge = async ({ lat, lon }) => ({
+      shapeEncoded: `seg-${lat}-${lon}`,
+      coordinates: [[lat, lon], [lat + 0.001, lon]],
+      wayId: 1,
+      names: ['Pazar Sk.'],
+      distanceMeters: 2,
+    });
+    await req('/api/closures/toggle', { method: 'POST', token: 'secret', body: { lat: 40.97, lon: 29.01 } });
+    const { body } = await req('/api/zones', { method: 'POST', token: 'secret', body: { name: 'Pazar' } });
+    const id = body.zone.id;
+    const edit = (lon) => req(`/api/zones/${id}/toggle-segment`, { method: 'POST', token: 'secret', body: { lat: 40.97, lon } });
+
+    const added = await edit(29.02);
+    assert.equal(added.body.action, 'added');
+    assert.equal(added.body.zone.segments.length, 2);
+
+    // Kaydedilmemiş bir kapatma gruba eklenirse tekil listeden çıkar.
+    await req('/api/closures/toggle', { method: 'POST', token: 'secret', body: { lat: 40.97, lon: 29.03 } });
+    await edit(29.03);
+    let state = await req('/api/closures');
+    assert.equal(state.body.closures.length, 3);
+    assert.ok(state.body.closures.every((c) => c.zoneId === id));
+
+    const removed = await edit(29.01);
+    assert.equal(removed.body.action, 'removed');
+    assert.equal(removed.body.zone.segments.length, 2);
+
+    const renamed = await req(`/api/zones/${id}`, { method: 'PATCH', token: 'secret', body: { name: 'Bağcılar pazarı' } });
+    assert.equal(renamed.body.zone.name, 'Bağcılar pazarı');
+
+    const missing = await req('/api/zones/yok/toggle-segment', { method: 'POST', token: 'secret', body: { lat: 40.97, lon: 29.01 } });
+    assert.equal(missing.status, 404);
+    const noAuth = await req(`/api/zones/${id}/toggle-segment`, { method: 'POST', body: { lat: 40.97, lon: 29.01 } });
+    assert.equal(noAuth.status, 401);
+  });
+});

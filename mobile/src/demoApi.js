@@ -136,6 +136,26 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL) {
     return data;
   }
 
+  // Dokunulan noktadaki yol parçasını (iki kavşak arası) bulur.
+  async function locateSegment(lat, lon) {
+    const [result] = await valhalla('locate', { locations: [{ lat, lon }], costing: 'auto', verbose: true });
+    const edge = result?.edges?.[0];
+    if (!edge?.edge_info?.shape || (edge.distance ?? 0) > MAX_SNAP_METERS) {
+      throw new Error('Dokunulan yere yakın bir araç yolu bulunamadı');
+    }
+    const shape = edge.edge_info.shape;
+    const coordinates = decodePolyline(shape);
+    return {
+      id: idForShape(shape),
+      wayId: edge.edge_info.way_id,
+      name: (edge.edge_info.names ?? []).join(' / ') || 'İsimsiz yol',
+      coordinates,
+      midpoint: midpointAlong(coordinates),
+      lengthMeters: Math.round(lineLength(coordinates)),
+      createdAt: new Date().toISOString(),
+    };
+  }
+
   return {
     isDemo: true,
 
@@ -210,13 +230,8 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL) {
     checkAdmin: async () => ({ ok: true }),
 
     async toggleClosure({ lat, lon }) {
-      const [result] = await valhalla('locate', { locations: [{ lat, lon }], costing: 'auto', verbose: true });
-      const edge = result?.edges?.[0];
-      if (!edge?.edge_info?.shape || (edge.distance ?? 0) > MAX_SNAP_METERS) {
-        throw new Error('Dokunulan yere yakın bir araç yolu bulunamadı');
-      }
-      const shape = edge.edge_info.shape;
-      const id = idForShape(shape);
+      const closure = await locateSegment(lat, lon);
+      const { id } = closure;
       const current = await load();
       const zone = current.zones.find((z) => z.active && z.segments.some((seg) => seg.id === id));
       const existing = current.closures.find((c) => c.id === id);
@@ -225,16 +240,6 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL) {
         await update((st) => ({ ...st, closures: st.closures.filter((c) => c.id !== id) }));
         return { action: 'opened', closure: existing, version: state.version };
       }
-      const coordinates = decodePolyline(shape);
-      const closure = {
-        id,
-        wayId: edge.edge_info.way_id,
-        name: (edge.edge_info.names ?? []).join(' / ') || 'İsimsiz yol',
-        coordinates,
-        midpoint: midpointAlong(coordinates),
-        lengthMeters: Math.round(lineLength(coordinates)),
-        createdAt: new Date().toISOString(),
-      };
       await update((st) => ({ ...st, closures: [...st.closures, closure] }));
       return { action: 'closed', closure, version: state.version };
     },
@@ -266,6 +271,38 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL) {
         await update((st) => ({ ...st, closures: [], zones: st.zones.map((z) => ({ ...z, active: false })) }));
       }
       return { removed, zonesOpened, version: state.version };
+    },
+
+    // Grup düzenleme: dokunulan yol gruptaysa çıkarılır, değilse eklenir.
+    async toggleZoneSegment(zoneId, { lat, lon }) {
+      const segment = await locateSegment(lat, lon);
+      const current = await load();
+      const zone = current.zones.find((z) => z.id === zoneId);
+      if (!zone) throw new Error('Grup bulunamadı');
+      const inZone = zone.segments.some((seg) => seg.id === segment.id);
+      await update((st) => ({
+        ...st,
+        closures: st.closures.filter((c) => c.id !== segment.id),
+        zones: st.zones.map((z) =>
+          z.id !== zoneId
+            ? z
+            : {
+                ...z,
+                segments: inZone ? z.segments.filter((seg) => seg.id !== segment.id) : [...z.segments, segment],
+                updatedAt: new Date().toISOString(),
+              },
+        ),
+      }));
+      return { action: inZone ? 'removed' : 'added', segment, zone: state.zones.find((z) => z.id === zoneId), version: state.version };
+    },
+
+    async renameZone(id, name) {
+      if (!name?.trim()) throw new Error('Grup için bir isim girin');
+      await update((st) => ({
+        ...st,
+        zones: st.zones.map((z) => (z.id === id ? { ...z, name: name.trim().slice(0, 80) } : z)),
+      }));
+      return { zone: state.zones.find((z) => z.id === id), version: state.version };
     },
 
     async deleteZone(id) {

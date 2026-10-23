@@ -5,7 +5,7 @@ import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleShee
  * Kayıtlı kapatma grupları: haritada kapatılan yolları bir isimle kaydetme ve
  * kayıtlı bir grubu tek dokunuşla trafiğe kapatma / açma.
  */
-export default function ZonesSheet({ visible, zones, unsavedCount, closedCount, onClose, onSave, onToggle, onDelete, onShow, onOpenAll }) {
+export default function ZonesSheet({ visible, zones, unsavedCount, closedCount, onClose, onSave, onToggle, onDelete, onShow, onOpenAll, onEdit }) {
   const [name, setName] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [busyId, setBusyId] = useState(null);
@@ -125,6 +125,9 @@ export default function ZonesSheet({ visible, zones, unsavedCount, closedCount, 
                       >
                         <Text style={styles.smallText}>{z.active ? 'Trafiğe aç' : 'Trafiğe kapat'}</Text>
                       </Pressable>
+                      <Pressable style={[styles.small, styles.ghost]} onPress={() => onEdit(z)}>
+                        <Text style={styles.ghostText}>Düzenle</Text>
+                      </Pressable>
                       <Pressable style={[styles.small, styles.ghost]} onPress={() => setConfirmDelete(z.id)}>
                         <Text style={styles.ghostText}>Sil</Text>
                       </Pressable>
@@ -148,7 +151,7 @@ const styles = StyleSheet.create({
   done: { fontSize: 16, fontWeight: '600', color: '#0a66d8' },
   label: { color: '#6e6e73', fontSize: 13, marginTop: 14, marginBottom: 6 },
   saveRow: { flexDirection: 'row', gap: 8 },
-  input: { flex: 1, borderWidth: 1, borderColor: '#d1d1d6', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 16 },
+  input: { flex: 1, minWidth: 0, borderWidth: 1, borderColor: '#d1d1d6', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 16 },
   saveButton: { backgroundColor: '#0a66d8', borderRadius: 10, paddingHorizontal: 16, justifyContent: 'center' },
   saveText: { color: '#fff', fontWeight: '700', fontSize: 15 },
   disabled: { opacity: 0.45 },

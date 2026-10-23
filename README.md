@@ -116,7 +116,7 @@ Telefonda Expo Go ile QR kodu okutun, ⚙︎ **Ayarlar → Rota sunucusu → Ken
 | Seyre başla | **Başla** — kamera sizi takip eder, talimatlar Türkçe okunur |
 | Ulaşım türü | Ayarlar → Araç / Motor |
 | Yönetici modu | Ayarlar → anahtarı girin, **Yönetici modu**nu açın → sokağa **dokunun** = kapat/aç |
-| Grup kaydet / aç / kapat | Yönetici modunda üstteki **Kayıtlı gruplar** düğmesi |
+| Grup kaydet / aç / kapat / düzenle | Sağ panelde **Yol kapat** → **Gruplar**; **Düzenle** ile haritada yol ekleyip çıkarın, adını değiştirin |
 
 Telefon İstanbul dışındaysa (ör. emülatör) ilk basılı tutma **başlangıç**, ikincisi **varış** noktasını seçer; böylece rota önizlemesini her yerden deneyebilirsiniz.
 
@@ -131,6 +131,7 @@ Telefon İstanbul dışındaysa (ör. emülatör) ilk basılı tutma **başlang�
 | `DELETE /api/closures/:id` 🔒 | Kaydedilmemiş bir kapatmayı kaldırır |
 | `POST /api/zones` `{name}` 🔒 | Kaydedilmemiş kapatmaları isimli bir grup olarak kaydeder (grup trafiğe kapalı başlar) |
 | `PATCH /api/zones/:id` `{active}` 🔒 | `true`: grubu trafiğe kapatır, `false`: açar |
+| `POST /api/zones/:id/toggle-segment` `{lat,lon}` 🔒 | Grup düzenleme: dokunulan yol gruptaysa çıkarır, değilse ekler |
 | `DELETE /api/zones/:id` 🔒 | Grubu siler |
 | `POST /api/closures/open-all` 🔒 | Tüm yolları trafiğe açar: kaydedilmemiş kapatmalar silinir, gruplar silinmez ama açılır |
 | `GET /api/search?q=` | İstanbul ile sınırlı adres arama (Nominatim) |
@@ -146,7 +147,6 @@ cd server && npm test
 ## Prototipin sınırları ve sonraki adımlar
 
 - **Kapatma birimi** iki kavşak arası segmenttir. Uzun bir caddeyi kapatmak için birkaç segmente dokunmak gerekir. Sonraki adım: "tüm caddeyi kapat" (aynı OSM `way_id`'ye sahip segmentler) ve süreli / zamanlanmış kapatmalar (ör. grubu her pazar 08:00–14:00 kapat).
-- **Kayıtlı bir grup** şimdilik düzenlenemez; değiştirmek için silip yeniden kaydedin.
 - **Kapatma sayısı:** Valhalla'nın varsayılan `max_exclude_polygons_length` (10 km) sınırıyla yaklaşık 2.500 eşzamanlı kapalı segment desteklenir; daha fazlası için Valhalla yapılandırmasında bu sınır artırılmalı.
 - **Kapatmalar** `server/data/closures.json` dosyasında tutulur; çok sunuculu kurulumda PostgreSQL/Redis'e taşınmalı.
 - **Yönetici kimlik doğrulaması** tek bir paylaşılan anahtardır; gerçek kullanımda kullanıcı hesapları + rol yönetimi gerekir.

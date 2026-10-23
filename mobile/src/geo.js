@@ -1,0 +1,69 @@
+// Rota takibi için geometri yardımcıları. Koordinatlar [lat, lon] dizileridir.
+
+const R = 6371008.8;
+const toRad = (d) => (d * Math.PI) / 180;
+
+export const ISTANBUL_BBOX = { minLon: 27.95, minLat: 40.78, maxLon: 29.95, maxLat: 41.6 };
+export const ISTANBUL_REGION = { latitude: 41.0082, longitude: 28.9784, latitudeDelta: 0.12, longitudeDelta: 0.12 };
+
+export function inIstanbul({ lat, lon }) {
+  const b = ISTANBUL_BBOX;
+  return lat >= b.minLat && lat <= b.maxLat && lon >= b.minLon && lon <= b.maxLon;
+}
+
+export function distanceMeters([lat1, lon1], [lat2, lon2]) {
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+/**
+ * Noktanın [a, b] doğru parçasına izdüşümü. Kısa mesafelerde düzlem yaklaşımı
+ * (eş-dikdörtgen projeksiyon) yeterince doğru.
+ */
+function projectOnSegment(p, a, b) {
+  const k = Math.cos(toRad(p[0]));
+  const ax = a[1] * k, ay = a[0];
+  const bx = b[1] * k, by = b[0];
+  const px = p[1] * k, py = p[0];
+  const dx = bx - ax, dy = by - ay;
+  const len2 = dx * dx + dy * dy;
+  const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2));
+  const point = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+  return { point, t, distance: distanceMeters(p, point) };
+}
+
+/**
+ * Konumu rota çizgisine oturtur. `fromIndex` verilirse aramayı oradan başlatır
+ * (seyir sırasında geriye atlamayı önler).
+ */
+export function snapToRoute(p, coords, fromIndex = 0) {
+  let best = { index: fromIndex, point: coords[fromIndex] ?? p, distance: Infinity, t: 0 };
+  for (let i = Math.max(0, fromIndex); i < coords.length - 1; i++) {
+    const r = projectOnSegment(p, coords[i], coords[i + 1]);
+    if (r.distance < best.distance) best = { index: i, ...r };
+  }
+  return best;
+}
+
+/** Oturtulmuş konumdan rota üzerindeki `targetIndex` noktasına kalan mesafe. */
+export function distanceAlong(coords, snap, targetIndex) {
+  if (targetIndex <= snap.index) return 0;
+  let total = distanceMeters(snap.point, coords[snap.index + 1]);
+  for (let i = snap.index + 1; i < targetIndex; i++) total += distanceMeters(coords[i], coords[i + 1]);
+  return total;
+}
+
+export function formatDistance(meters) {
+  if (meters < 1000) return `${Math.max(10, Math.round(meters / 10) * 10)} m`;
+  return `${(meters / 1000).toFixed(meters < 10000 ? 1 : 0)} km`;
+}
+
+export function formatDuration(sec) {
+  const min = Math.round(sec / 60);
+  if (min < 60) return `${Math.max(1, min)} dk`;
+  return `${Math.floor(min / 60)} sa ${min % 60} dk`;
+}
+
+export const toLatLng = ([latitude, longitude]) => ({ latitude, longitude });

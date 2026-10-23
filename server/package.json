@@ -1,0 +1,20 @@
+{
+  "name": "istanbul-nav-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "İstanbul navigasyon API'si: Valhalla önünde rota + yol kapatma katmanı",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "leaflet": "^1.9.4"
+  }
+}

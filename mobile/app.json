@@ -1,0 +1,41 @@
+{
+  "expo": {
+    "name": "İstanbul Navigasyon",
+    "slug": "istanbul-navigasyon",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.example.istanbulnav",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Rota hesaplamak ve seyir sırasında yönlendirme yapmak için konumunuz kullanılır."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "package": "com.example.istanbulnav",
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Rota hesaplamak ve seyir sırasında yönlendirme yapmak için konumunuz kullanılır."
+        }
+      ]
+    ]
+  }
+}

@@ -1,0 +1,11 @@
+node_modules/
+.DS_Store
+
+# OSM indirmeleri ve Valhalla grafiği (büyük, yeniden üretilebilir)
+data/osm/
+valhalla/custom_files/*
+!valhalla/custom_files/.gitkeep
+
+# Çalışma zamanı verisi
+server/data/
+.env

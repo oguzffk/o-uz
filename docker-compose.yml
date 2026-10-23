@@ -1,0 +1,33 @@
+services:
+  # Rota motoru. valhalla/custom_files/istanbul.osm.pbf'den ilk açılışta grafik kurar,
+  # sonraki açılışlarda hazır grafiği kullanır.
+  valhalla:
+    image: ghcr.io/valhalla/valhalla-scripted:latest
+    ports:
+      - "8002:8002"
+    volumes:
+      - ./valhalla/custom_files:/custom_files
+    environment:
+      - serve_tiles=True
+      - use_tiles_ignore_pbf=True   # grafik varsa PBF'i yeniden işleme
+      - force_rebuild=False         # OSM verisini güncelleyince True yapıp bir kez çalıştırın
+      - build_elevation=False
+      - build_admins=False
+      - build_time_zones=False
+      - server_threads=2
+    restart: unless-stopped
+
+  # Mobil uygulamanın konuştuğu API + yönetici paneli (http://localhost:3000/admin/)
+  api:
+    build: ./server
+    ports:
+      - "3000:3000"
+    environment:
+      - VALHALLA_URL=http://valhalla:8002
+      - ADMIN_TOKEN=${ADMIN_TOKEN:-istanbul-admin}
+      - CLOSURES_FILE=/data/closures.json
+    volumes:
+      - ./server/data:/data
+    depends_on:
+      - valhalla
+    restart: unless-stopped

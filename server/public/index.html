@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>İstanbul Yol Yönetimi</title>
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
+  <style>
+    :root { --bg: #fff; --fg: #1d1d1f; --muted: #6e6e73; --line: #e5e5ea; --red: #d70015; --blue: #0a66d8; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--fg); background: var(--bg); }
+    body { display: grid; grid-template-columns: 340px 1fr; }
+    aside { border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+    header { padding: 14px 16px; border-bottom: 1px solid var(--line); }
+    h1 { font-size: 16px; margin: 0 0 8px; }
+    label { display: block; color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+    input { width: 100%; padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; font: inherit; }
+    .modes { display: flex; gap: 6px; margin-top: 10px; }
+    .modes button { flex: 1; padding: 7px; border: 1px solid var(--line); background: #f5f5f7; border-radius: 6px; font: inherit; cursor: pointer; }
+    .modes button.on { background: var(--fg); color: #fff; border-color: var(--fg); }
+    #status { padding: 8px 16px; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--line); min-height: 33px; }
+    #status.err { color: var(--red); }
+    ul { list-style: none; margin: 0; padding: 0; overflow: auto; flex: 1; }
+    li { padding: 10px 16px; border-bottom: 1px solid var(--line); display: flex; gap: 8px; align-items: center; cursor: pointer; }
+    li:hover { background: #f5f5f7; }
+    li .meta { flex: 1; min-width: 0; }
+    li .name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    li .sub { color: var(--muted); font-size: 12px; }
+    li button { border: 1px solid var(--line); background: #fff; border-radius: 6px; padding: 4px 10px; cursor: pointer; font: inherit; }
+    .empty { padding: 16px; color: var(--muted); }
+    #map { height: 100%; }
+    @media (max-width: 700px) { body { grid-template-columns: 1fr; grid-template-rows: auto 45vh; } aside { max-height: 55vh; } }
+  </style>
+</head>
+<body>
+  <aside>
+    <header>
+      <h1>İstanbul Yol Yönetimi</h1>
+      <label for="token">Yönetici anahtarı</label>
+      <input id="token" type="password" placeholder="ADMIN_TOKEN" autocomplete="off" />
+      <div class="modes">
+        <button id="mode-close" class="on">Yol kapat / aç</button>
+        <button id="mode-route">Rota dene</button>
+      </div>
+    </header>
+    <div id="status">Haritada bir sokağa tıklayın.</div>
+    <ul id="list"></ul>
+  </aside>
+  <div id="map"></div>
+
+  <script src="vendor/leaflet/leaflet.js"></script>
+  <script>
+    const api = (path, opts = {}) =>
+      fetch(path, {
+        ...opts,
+        headers: { 'content-type': 'application/json', 'x-admin-token': tokenInput.value.trim(), ...(opts.headers || {}) },
+      }).then(async (r) => {
+        const body = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(body.error || r.statusText);
+        return body;
+      });
+
+    const tokenInput = document.getElementById('token');
+    try { tokenInput.value = localStorage.getItem('adminToken') || ''; } catch {}
+    tokenInput.addEventListener('change', () => { try { localStorage.setItem('adminToken', tokenInput.value.trim()); } catch {} });
+
+    const statusEl = document.getElementById('status');
+    const setStatus = (msg, isErr = false) => { statusEl.textContent = msg; statusEl.className = isErr ? 'err' : ''; };
+
+    const map = L.map('map').setView([41.0082, 28.9784], 13);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap katkıcıları',
+    }).addTo(map);
+
+    const closureLayer = L.layerGroup().addTo(map);
+    const routeLayer = L.layerGroup().addTo(map);
+    const lines = new Map();
+
+    async function loadClosures() {
+      const { closures } = await api('/api/closures');
+      closureLayer.clearLayers();
+      lines.clear();
+      for (const c of closures) {
+        const line = L.polyline(c.coordinates, { color: '#d70015', weight: 7, opacity: 0.85 })
+          .bindTooltip(`${c.name} — kapalı`)
+          .addTo(closureLayer);
+        // Kapalı çizgiye tıklamak da yolu açar.
+        line.on('click', (e) => {
+          if (mode !== 'close') return;
+          L.DomEvent.stopPropagation(e);
+          reopen(c.id);
+        });
+        lines.set(c.id, line);
+      }
+      renderList(closures);
+    }
+
+    function renderList(closures) {
+      const list = document.getElementById('list');
+      list.innerHTML = '';
+      if (!closures.length) {
+        list.innerHTML = '<div class="empty">Kapalı yol yok.</div>';
+        return;
+      }
+      for (const c of [...closures].reverse()) {
+        const li = document.createElement('li');
+        li.innerHTML = `<div class="meta"><div class="name"></div><div class="sub"></div></div><button>Aç</button>`;
+        li.querySelector('.name').textContent = c.name;
+        li.querySelector('.sub').textContent = `${c.lengthMeters} m · ${new Date(c.createdAt).toLocaleString('tr-TR')}`;
+        li.addEventListener('click', () => map.fitBounds(lines.get(c.id).getBounds(), { maxZoom: 18 }));
+        li.querySelector('button').addEventListener('click', (e) => { e.stopPropagation(); reopen(c.id); });
+        list.appendChild(li);
+      }
+    }
+
+    async function reopen(id) {
+      try {
+        const r = await api(`/api/closures/${id}`, { method: 'DELETE' });
+        setStatus(`Açıldı: ${r.closure.name}`);
+      } catch (err) { setStatus(err.message, true); }
+    }
+
+    let mode = 'close';
+    let routePoints = [];
+    const modeBtns = { close: document.getElementById('mode-close'), route: document.getElementById('mode-route') };
+    for (const [m, btn] of Object.entries(modeBtns)) {
+      btn.addEventListener('click', () => {
+        mode = m;
+        for (const b of Object.values(modeBtns)) b.classList.toggle('on', b === btn);
+        routePoints = [];
+        routeLayer.clearLayers();
+        setStatus(m === 'close' ? 'Haritada bir sokağa tıklayın.' : 'Başlangıç noktasına tıklayın.');
+      });
+    }
+
+    async function drawRoute() {
+      const [from, to] = routePoints;
+      try {
+        const r = await api('/api/route', { method: 'POST', body: JSON.stringify({ from, to }) });
+        routeLayer.eachLayer((l) => { if (l instanceof L.Polyline) routeLayer.removeLayer(l); });
+        L.polyline(r.coordinates, { color: '#0a66d8', weight: 6, opacity: 0.8 }).addTo(routeLayer);
+        setStatus(`Rota: ${r.distanceKm.toFixed(2)} km · ${Math.round(r.durationSec / 60)} dk — yeni rota için tekrar tıklayın.`);
+      } catch (err) { setStatus(err.message, true); }
+    }
+
+    map.on('click', async (e) => {
+      const { lat, lng } = e.latlng;
+      if (mode === 'route') {
+        if (routePoints.length === 2) { routePoints = []; routeLayer.clearLayers(); }
+        routePoints.push({ lat, lon: lng });
+        L.circleMarker(e.latlng, { radius: 7, color: '#0a66d8', fillOpacity: 1 }).addTo(routeLayer);
+        if (routePoints.length === 1) setStatus('Varış noktasına tıklayın.');
+        else drawRoute();
+        return;
+      }
+      if (!tokenInput.value.trim()) return setStatus('Önce yönetici anahtarını girin.', true);
+      setStatus('Yol aranıyor…');
+      try {
+        const r = await api('/api/closures/toggle', { method: 'POST', body: JSON.stringify({ lat, lon: lng }) });
+        setStatus(`${r.action === 'closed' ? 'Kapatıldı' : 'Açıldı'}: ${r.closure.name} (${r.closure.lengthMeters} m)`);
+      } catch (err) { setStatus(err.message, true); }
+    });
+
+    // Başka yöneticilerin değişiklikleri de anında görünsün; açık rota testi yenilensin.
+    const events = new EventSource('/api/closures/stream');
+    events.onmessage = () => {
+      loadClosures().catch((err) => setStatus(err.message, true));
+      if (mode === 'route' && routePoints.length === 2) drawRoute();
+    };
+  </script>
+</body>
+</html>

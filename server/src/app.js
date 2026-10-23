@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { ValhallaError } from './valhalla.js';
 import { decodePolyline } from './geo.js';
 import { adjustedTime, trafficPeriod } from './traffic.js';
+import { fixStreetSuffixes } from './turkish.js';
 import { ClosureStore } from './closures.js';
 
 // İstanbul il sınırını kabaca kapsayan kutu (indirme betiğiyle aynı).
@@ -29,9 +30,9 @@ function buildRoute(trip, periodKey) {
   const leg = trip.legs[0];
   const maneuvers = leg.maneuvers.map((m) => ({
     type: m.type,
-    instruction: m.instruction,
-    verbalPre: m.verbal_pre_transition_instruction ?? m.instruction,
-    verbalAlert: m.verbal_transition_alert_instruction ?? null,
+    instruction: fixStreetSuffixes(m.instruction),
+    verbalPre: fixStreetSuffixes(m.verbal_pre_transition_instruction ?? m.instruction),
+    verbalAlert: fixStreetSuffixes(m.verbal_transition_alert_instruction ?? null),
     streetNames: m.street_names ?? [],
     distanceKm: m.length,
     durationSec: Math.round(adjustedTime(m.length, m.time, periodKey)),

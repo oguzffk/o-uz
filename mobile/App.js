@@ -369,7 +369,8 @@ export default function App() {
     const { latitude: lat, longitude: lon } = e.nativeEvent.coordinate;
     try {
       const r = await api.toggleClosure({ lat, lon });
-      syncClosures.current?.();
+      // Önce yenile: rota güncellenirse onun bildirimi bu bildirimin üstüne yazmasın.
+      await syncClosures.current?.();
       showToast(`${r.action === 'closed' ? '⛔ Kapatıldı' : '✅ Açıldı'}: ${r.closure.name}`);
     } catch (err) {
       showToast(err.message, 'error');

@@ -320,3 +320,15 @@ test('ücretli yollardan kaçın: Valhalla use_tolls=0 alır, rota ücretli yol 
     assert.equal(avoid.body.avoidTolls, true);
   });
 });
+
+test('Türkçe talimatlarda "Caddesi caddesine" tekrarı düzeltilir', async () => {
+  const { fixStreetSuffixes: f } = await import('../src/turkish.js');
+  assert.equal(f('Atatürk Caddesi caddesine doğru sola dönün.'), "Atatürk Caddesi'ne doğru sola dönün.");
+  assert.equal(f('Lale Sokak caddesinde kuzey yönüne doğru sürün.'), "Lale Sokak'ta kuzey yönüne doğru sürün.");
+  assert.equal(f('Vatan Cd. caddesine girin'), "Vatan Caddesi'ne girin");
+  assert.equal(f('E-5 Yolu caddesinde kalmak için sola'), "E-5 Yolu'nda kalmak için sola");
+  assert.equal(f('İSTİKLAL CADDESİ caddesine'), "İSTİKLAL CADDESİ'ne");
+  assert.equal(f('Bağdat caddesine doğru sağa dönün.'), 'Bağdat caddesine doğru sağa dönün.');
+  assert.equal(f('15 Temmuz Şehitler Köprüsü caddesi üzerinden'), '15 Temmuz Şehitler Köprüsü üzerinden');
+  assert.equal(f(null), null);
+});

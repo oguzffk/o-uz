@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ISTANBUL_BBOX, distanceMeters } from './geo';
 import { adjustedTime, trafficPeriod } from './traffic';
+import { fixStreetSuffixes } from './turkish';
 
 /**
  * Demo modu: kendi sunucumuz yerine OpenStreetMap topluluğunun herkese açık
@@ -84,9 +85,9 @@ function buildRoute(trip, periodKey) {
   const leg = trip.legs[0];
   const maneuvers = leg.maneuvers.map((m) => ({
     type: m.type,
-    instruction: m.instruction,
-    verbalPre: m.verbal_pre_transition_instruction ?? m.instruction,
-    verbalAlert: m.verbal_transition_alert_instruction ?? null,
+    instruction: fixStreetSuffixes(m.instruction),
+    verbalPre: fixStreetSuffixes(m.verbal_pre_transition_instruction ?? m.instruction),
+    verbalAlert: fixStreetSuffixes(m.verbal_transition_alert_instruction ?? null),
     streetNames: m.street_names ?? [],
     distanceKm: m.length,
     durationSec: Math.round(adjustedTime(m.length, m.time, periodKey)),

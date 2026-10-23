@@ -585,7 +585,7 @@ export default function App() {
 
       {/* Sağ kenardaki düğme paneli (arama sonuçları açıkken gizlenir). */}
       {results.length === 0 && (
-        <View style={[styles.sidePanel, { top: navigating ? 190 : 150 }]}>
+        <View style={[styles.sidePanel, { top: navigating ? 170 : 150 }]}>
           <SideButton label="Ayarlar" onPress={() => setSettingsOpen(true)}>
             <Text style={styles.sideGlyph}>⚙︎</Text>
           </SideButton>
@@ -674,9 +674,9 @@ const styles = StyleSheet.create({
   result: { paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: '#d1d1d6' },
   resultName: { fontSize: 16, fontWeight: '600' },
   resultAddr: { fontSize: 12, color: '#6e6e73', marginTop: 2 },
-  banner: { backgroundColor: '#0b5c3b', borderRadius: 14, padding: 16, ...shadow },
-  bannerDistance: { color: '#fff', fontSize: 30, fontWeight: '800' },
-  bannerText: { color: '#fff', fontSize: 18, marginTop: 4 },
+  banner: { backgroundColor: '#0b5c3b', borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10, ...shadow },
+  bannerDistance: { color: '#fff', fontSize: 22, fontWeight: '800' },
+  bannerText: { color: '#fff', fontSize: 15, marginTop: 2 },
   adminRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
   adminPill: { backgroundColor: '#d70015', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 },
   zonesButton: { backgroundColor: '#fff', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6, ...shadow },

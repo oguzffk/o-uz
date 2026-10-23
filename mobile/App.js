@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Animated,
+  Easing,
   FlatList,
   Keyboard,
   Pressable,
@@ -34,6 +36,8 @@ import { enterPip, pipSupported, setAutoPip, usePipMode } from './src/pip';
 import ZonesSheet from './src/ZonesSheet';
 
 const SETTINGS_KEY = 'nav-settings-v1';
+const RECENTS_KEY = 'recent-places-v1';
+const MAX_RECENTS = 8;
 const CLOSURE_POLL_MS = 5000;
 
 // Demo modu kendi sunucumuz olmadan herkese açık Valhalla'yı kullanır (bkz. src/demoApi.js).
@@ -71,6 +75,10 @@ export default function App() {
   const [searching, setSearching] = useState(false);
   const [toast, setToast] = useState(null);
   const [bottomPanelHeight, setBottomPanelHeight] = useState(0);
+  const [searchFocused, setSearchFocused] = useState(false);
+  const [recents, setRecents] = useState([]); // son seçilen yerler (cihazda saklanır)
+  // Temizle'de alt panel aşağı kayarak kaybolsun diye: 0 = yerinde, 1 = ekran dışında.
+  const panelExit = useRef(new Animated.Value(0)).current;
 
   const api = useMemo(() => apiFor(settings), [settings]);
   const demo = settings.backend === 'demo';
@@ -94,6 +102,24 @@ export default function App() {
       })
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    AsyncStorage.getItem(RECENTS_KEY)
+      .then((raw) => raw && setRecents(JSON.parse(raw)))
+      .catch(() => {});
+  }, []);
+
+  const storeRecents = (list) => {
+    setRecents(list);
+    AsyncStorage.setItem(RECENTS_KEY, JSON.stringify(list)).catch(() => {});
+  };
+
+  // Seçilen yeri son aramaların başına ekler; aynı yer tekrar eklenmez.
+  const addRecent = (place) => {
+    const key = (p) => `${p.lat.toFixed(4)},${p.lon.toFixed(4)}`;
+    const entry = { name: place.name, address: place.address ?? '', lat: place.lat, lon: place.lon };
+    storeRecents([entry, ...recents.filter((r) => key(r) !== key(entry))].slice(0, MAX_RECENTS));
+  };
 
   const saveSettings = (next) => {
     setSettings(next);
@@ -330,7 +356,8 @@ export default function App() {
       showToast('Seyir için İstanbul içinde GPS konumu gerekli. Rota önizlemesi kullanılabilir.', 'error');
       return;
     }
-    // Önizlemede seçilen rota (alternatif olsa bile) olduğu gibi kullanılır.
+    // Önizlemede seçilen rota (alternatif olsa bile) olduğu gibi kullanılır. Harita takip
+    // kamerasıyla yumuşakça konuma yaklaşır; paneller kayarak değişir.
     setCentered(true);
     setNavigating(true);
     setRouteOptions([]);
@@ -341,12 +368,38 @@ export default function App() {
     stopSpeech();
   };
 
+  // "Seyri bitir": harita düzleşip kuzeye döner, sonra rotanın tamamını gösterecek şekilde uzaklaşır.
+  const finishNavigation = () => {
+    stopNavigation();
+    setCentered(false);
+    mapRef.current?.animateCamera({ pitch: 0, heading: 0 }, { duration: 450 });
+    if (route) {
+      setTimeout(() => {
+        mapRef.current?.fitToCoordinates(route.coordinates.map(toLatLng), {
+          edgePadding: { top: 160, right: 50, bottom: 260, left: 50 },
+          animated: true,
+        });
+      }, 480);
+    }
+  };
+
+  // "Temizle": alt panel aşağı kayarak kaybolur, ardından harita yumuşakça konuma döner.
   const clearTrip = () => {
     stopNavigation();
-    setRoute(null);
-    setRouteOptions([]);
-    setDestination(null);
-    setQuery('');
+    Animated.timing(panelExit, { toValue: 1, duration: 220, easing: Easing.in(Easing.cubic), useNativeDriver: true }).start(() => {
+      setRoute(null);
+      setRouteOptions([]);
+      setDestination(null);
+      setQuery('');
+      panelExit.setValue(0);
+      if (location) {
+        mapRef.current?.animateCamera(
+          { center: { latitude: location.lat, longitude: location.lon }, zoom: 15, pitch: 0, heading: 0 },
+          { duration: 800 },
+        );
+        setCentered(true);
+      }
+    });
   };
 
   // --- Arama ---
@@ -385,6 +438,7 @@ export default function App() {
   }, [query]);
 
   const chooseDestination = (place) => {
+    addRecent(place);
     setResults([]);
     skipAutoSearch.current = true;
     Keyboard.dismiss();
@@ -499,6 +553,7 @@ export default function App() {
   };
 
   const next = progress?.next;
+  const showRecents = !navigating && searchFocused && query.trim().length < 3 && results.length === 0 && recents.length > 0;
 
   return (
     <View style={styles.container}>
@@ -609,27 +664,60 @@ export default function App() {
               <Text style={styles.editHint}>Yola dokun: gruba ekle · Turuncu yola dokun: gruptan çıkar</Text>
             </View>
           ) : navigating && next ? (
-            <View style={styles.banner}>
+            <SlideIn from={-24} style={styles.banner}>
               <Text style={styles.bannerDistance}>{formatDistance(progress.distanceToNext)}</Text>
               <Text style={styles.bannerText} numberOfLines={2}>
                 {next.instruction}
               </Text>
-            </View>
+            </SlideIn>
           ) : (
             <>
-              <View style={styles.searchRow}>
+              <SlideIn from={-12} style={styles.searchRow}>
                 <TextInput
                   style={styles.search}
                   value={query}
                   onChangeText={setQuery}
                   onSubmitEditing={() => search()}
+                  onFocus={() => setSearchFocused(true)}
+                  // Listeye dokunma kaybolmadan önce işlensin diye biraz gecikmeli.
+                  onBlur={() => setTimeout(() => setSearchFocused(false), 150)}
                   placeholder="Nereye? (ör. Taksim)"
                   returnKeyType="search"
                 />
                 <Pressable style={[styles.iconButton, styles.searchButton]} onPress={() => search()}>
                   {searching ? <ActivityIndicator color="#fff" /> : <Text style={styles.searchButtonText}>Ara</Text>}
                 </Pressable>
-              </View>
+              </SlideIn>
+              {showRecents && (
+                <View style={styles.results}>
+                  <View style={styles.recentsHeader}>
+                    <Text style={styles.recentsTitle}>Son aramalar</Text>
+                    <Pressable onPress={() => storeRecents([])} hitSlop={10}>
+                      <Text style={styles.recentsClear}>Temizle</Text>
+                    </Pressable>
+                  </View>
+                  <FlatList
+                    keyboardShouldPersistTaps="handled"
+                    data={recents}
+                    keyExtractor={(item, i) => `${item.lat},${item.lon},${i}`}
+                    renderItem={({ item }) => (
+                      <Pressable style={[styles.result, styles.recentRow]} onPress={() => chooseDestination(item)}>
+                        <ClockIcon />
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.resultName} numberOfLines={1}>
+                            {item.name}
+                          </Text>
+                          {!!item.address && (
+                            <Text style={styles.resultAddr} numberOfLines={1}>
+                              {item.address}
+                            </Text>
+                          )}
+                        </View>
+                      </Pressable>
+                    )}
+                  />
+                </View>
+              )}
               {locStatus !== 'ok' && !manualOrigin && (
                 <View style={styles.notice}>
                   <Text style={styles.noticeText}>
@@ -693,87 +781,99 @@ export default function App() {
 
       {/* Alt panel: rota özeti ve düğmeler */}
       {!inPip && (route || busy) && (
-        <View style={styles.bottom} onLayout={(e) => setBottomPanelHeight(e.nativeEvent.layout.height)}>
-          {busy && !route ? (
-            <ActivityIndicator />
-          ) : (
-            <>
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryMain}>
-                  {formatDuration(
-                    navigating && progress
-                      ? (route.durationSec * progress.remainingMeters) / Math.max(1, route.distanceKm * 1000)
-                      : route.durationSec,
-                  )}
-                </Text>
-                <Text style={styles.summarySub}>
-                  {formatDistance(navigating && progress ? progress.remainingMeters : route.distanceKm * 1000)}
-                  {busy ? '  ·  güncelleniyor…' : ''}
-                </Text>
-              </View>
-              {route.traffic && route.traffic.key !== 'night' && (
-                <Text style={styles.trafficNote}>
-                  {route.traffic.label} tahmini dahil · boş yolda {formatDuration(route.freeFlowDurationSec)}
-                </Text>
-              )}
-              {route.hasToll && (
-                <Text style={styles.tollNote}>
-                  {settings.avoidTolls
-                    ? 'Ücretsiz yol bulunamadı; bu rota ücretli yol (köprü, tünel ya da otoyol) içeriyor.'
-                    : 'Bu rota ücretli yol (köprü, tünel ya da otoyol) içeriyor.'}
-                </Text>
-              )}
-              {!navigating && (
-                <View style={styles.tollRow}>
-                  <Text style={styles.tollLabel}>Ücretli yollardan kaçın</Text>
-                  <Switch
-                    value={settings.avoidTolls}
-                    onValueChange={(avoidTolls) => saveSettings({ ...settings, avoidTolls })}
-                  />
+        <Animated.View
+          onLayout={(e) => setBottomPanelHeight(e.nativeEvent.layout.height)}
+          style={[
+            styles.bottom,
+            {
+              opacity: panelExit.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
+              transform: [{ translateY: panelExit.interpolate({ inputRange: [0, 1], outputRange: [0, 320] }) }],
+            },
+          ]}
+        >
+          {/* Başla / Seyri bitir'de panel yeniden kurulur ve kayarak gelir. */}
+          <SlideIn key={navigating ? 'nav' : 'preview'} from={40}>
+            {busy && !route ? (
+              <ActivityIndicator />
+            ) : (
+              <>
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryMain}>
+                    {formatDuration(
+                      navigating && progress
+                        ? (route.durationSec * progress.remainingMeters) / Math.max(1, route.distanceKm * 1000)
+                        : route.durationSec,
+                    )}
+                  </Text>
+                  <Text style={styles.summarySub}>
+                    {formatDistance(navigating && progress ? progress.remainingMeters : route.distanceKm * 1000)}
+                    {busy ? '  ·  güncelleniyor…' : ''}
+                  </Text>
                 </View>
-              )}
-              {!navigating && routeOptions.length > 1 && (
-                <View style={styles.options}>
-                  {routeOptions.map((o) => {
-                    const selected = o.index === route.index;
-                    return (
-                      <Pressable key={o.index} style={[styles.option, selected && styles.optionSelected]} onPress={() => setRoute(o)}>
-                        <Text style={[styles.optionTime, selected && styles.optionTimeSelected]}>{formatDuration(o.durationSec)}</Text>
-                        <Text style={styles.optionSub}>
-                          {formatDistance(o.distanceKm * 1000)}
-                          {o.index === 0 ? ' · En hızlı' : ''}
-                          {o.hasToll ? ' · Ücretli' : ''}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-              )}
-              <View style={styles.actions}>
-                {navigating ? (
-                  <Pressable style={[styles.button, styles.stop]} onPress={stopNavigation}>
-                    <Text style={styles.buttonText}>Seyri bitir</Text>
-                  </Pressable>
-                ) : (
-                  <>
-                    <Pressable style={[styles.button, styles.secondary]} onPress={clearTrip}>
-                      <Text style={styles.secondaryText}>Temizle</Text>
-                    </Pressable>
-                    <Pressable style={styles.button} onPress={startNavigation}>
-                      <Text style={styles.buttonText}>Başla</Text>
-                    </Pressable>
-                  </>
+                {route.traffic && route.traffic.key !== 'night' && (
+                  <Text style={styles.trafficNote}>
+                    {route.traffic.label} tahmini dahil · boş yolda {formatDuration(route.freeFlowDurationSec)}
+                  </Text>
                 )}
-              </View>
-            </>
-          )}
-        </View>
+                {route.hasToll && (
+                  <Text style={styles.tollNote}>
+                    {settings.avoidTolls
+                      ? 'Ücretsiz yol bulunamadı; bu rota ücretli yol (köprü, tünel ya da otoyol) içeriyor.'
+                      : 'Bu rota ücretli yol (köprü, tünel ya da otoyol) içeriyor.'}
+                  </Text>
+                )}
+                {!navigating && (
+                  <View style={styles.tollRow}>
+                    <Text style={styles.tollLabel}>Ücretli yollardan kaçın</Text>
+                    <Switch
+                      value={settings.avoidTolls}
+                      onValueChange={(avoidTolls) => saveSettings({ ...settings, avoidTolls })}
+                    />
+                  </View>
+                )}
+                {!navigating && routeOptions.length > 1 && (
+                  <View style={styles.options}>
+                    {routeOptions.map((o) => {
+                      const selected = o.index === route.index;
+                      return (
+                        <Pressable key={o.index} style={[styles.option, selected && styles.optionSelected]} onPress={() => setRoute(o)}>
+                          <Text style={[styles.optionTime, selected && styles.optionTimeSelected]}>{formatDuration(o.durationSec)}</Text>
+                          <Text style={styles.optionSub}>
+                            {formatDistance(o.distanceKm * 1000)}
+                            {o.index === 0 ? ' · En hızlı' : ''}
+                            {o.hasToll ? ' · Ücretli' : ''}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                )}
+                <View style={styles.actions}>
+                  {navigating ? (
+                    <Pressable style={[styles.button, styles.stop]} onPress={finishNavigation}>
+                      <Text style={styles.buttonText}>Seyri bitir</Text>
+                    </Pressable>
+                  ) : (
+                    <>
+                      <Pressable style={[styles.button, styles.secondary]} onPress={clearTrip}>
+                        <Text style={styles.secondaryText}>Temizle</Text>
+                      </Pressable>
+                      <Pressable style={styles.button} onPress={startNavigation}>
+                        <Text style={styles.buttonText}>Başla</Text>
+                      </Pressable>
+                    </>
+                  )}
+                </View>
+              </>
+            )}
+          </SlideIn>
+        </Animated.View>
       )}
 
       {navigating && <KeepScreenOn />}
 
       {/* Sağ kenardaki düğme paneli (arama sonuçları açıkken gizlenir). */}
-      {!inPip && results.length === 0 && !editing && (
+      {!inPip && results.length === 0 && !showRecents && !editing && (
         <View style={[styles.sidePanel, { top: navigating ? 170 : 150 }]}>
           <SideButton label="Ayarlar" onPress={() => setSettingsOpen(true)}>
             <Text style={styles.sideGlyph}>⚙︎</Text>
@@ -866,6 +966,30 @@ function SideButton({ label, onPress, active, highlight, last, children }) {
       {children}
       <Text style={[styles.sideLabel, active && styles.sideLabelActive, highlight && styles.sideLabelHighlight]}>{label}</Text>
     </Pressable>
+  );
+}
+
+// Görünüm ilk kez çizildiğinde kısa bir kayma + solma ile gelir (yön bandı, paneller).
+function SlideIn({ from = 24, duration = 260, style, children, ...rest }) {
+  const anim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(anim, { toValue: 1, duration, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+  }, [anim, duration]);
+  const translateY = anim.interpolate({ inputRange: [0, 1], outputRange: [from, 0] });
+  return (
+    <Animated.View style={[style, { opacity: anim, transform: [{ translateY }] }]} {...rest}>
+      {children}
+    </Animated.View>
+  );
+}
+
+// Son aramalar listesindeki küçük saat simgesi.
+function ClockIcon() {
+  return (
+    <View style={styles.clock}>
+      <View style={styles.clockHandUp} />
+      <View style={styles.clockHandRight} />
+    </View>
   );
 }
 
@@ -1024,6 +1148,13 @@ const styles = StyleSheet.create({
     borderRightColor: 'transparent',
     borderBottomColor: '#fff',
   },
+  recentsHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingTop: 10, paddingBottom: 4 },
+  recentsTitle: { fontSize: 12, fontWeight: '700', color: '#6e6e73', letterSpacing: 0.4 },
+  recentsClear: { fontSize: 13, fontWeight: '600', color: '#0a66d8' },
+  recentRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  clock: { width: 18, height: 18, borderRadius: 9, borderWidth: 2, borderColor: '#8e9aa8' },
+  clockHandUp: { position: 'absolute', left: 6, top: 2, width: 2, height: 6, backgroundColor: '#8e9aa8', borderRadius: 1 },
+  clockHandRight: { position: 'absolute', left: 6, top: 6, width: 5, height: 2, backgroundColor: '#8e9aa8', borderRadius: 1 },
   recenter: {
     position: 'absolute',
     left: 14,

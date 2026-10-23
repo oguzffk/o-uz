@@ -53,6 +53,9 @@ export default function App() {
   const [adminMode, setAdminMode] = useState(false);
 
   const [location, setLocation] = useState(null); // { lat, lon, heading }
+  // Harita şu an kullanıcının konumunda mı? Seyirde bu "takip ediliyor" demek. Kullanıcı
+  // haritayı kaydırınca ya da rota gösterilince false olur ve "Ortala" düğmesi çıkar.
+  const [centered, setCentered] = useState(true);
   const [manualOrigin, setManualOrigin] = useState(null);
   const [destination, setDestination] = useState(null); // { lat, lon, name }
   const [route, setRoute] = useState(null); // seçili rota
@@ -67,6 +70,7 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [searching, setSearching] = useState(false);
   const [toast, setToast] = useState(null);
+  const [bottomPanelHeight, setBottomPanelHeight] = useState(0);
 
   const api = useMemo(() => apiFor(settings), [settings]);
   const demo = settings.backend === 'demo';
@@ -149,6 +153,7 @@ export default function App() {
     }
     if (!inIstanbul(location)) showToast('Konumunuz İstanbul dışında görünüyor.');
     mapRef.current?.animateCamera({ center: { latitude: location.lat, longitude: location.lon }, zoom: 16 }, { duration: 600 });
+    setCentered(true);
   };
 
   // Cihaz İstanbul dışındaysa (ör. emülatör) başlangıç haritadan seçilir.
@@ -186,6 +191,7 @@ export default function App() {
           showToast('Seçilen noktaya araçla tam ulaşılamıyor; en yakın, araçla gidilebilen yola rota çizildi.');
         }
         if (!navigating) {
+          setCentered(false); // harita rotanın tamamını gösteriyor; "Ortala" ile konuma dönülür
           mapRef.current?.fitToCoordinates(options.flatMap((o) => o.coordinates.map(toLatLng)), {
             edgePadding: { top: 160, right: 50, bottom: 260, left: 50 },
             animated: true,
@@ -265,7 +271,6 @@ export default function App() {
   // Yön telefonun GPS yönünden alınmıyor: o değer yavaşken çoğunlukla boş (0 = kuzey)
   // geliyor ve harita yan dönüyordu. Rotadayken rotanın hemen önündeki kısmının yönü,
   // rotadan çıkınca son iki konum arasındaki hareket yönü kullanılır.
-  const [following, setFollowing] = useState(true);
   const lastBearing = useRef(0);
   const lastFix = useRef(null);
   const onRoute = Boolean(navigating && progress && progress.snap.distance < 30);
@@ -288,7 +293,7 @@ export default function App() {
     lastBearing.current = bearing;
     const here = [location.lat, location.lon];
     if (!lastFix.current || distanceMeters(lastFix.current, here) > 8) lastFix.current = here;
-    if (!following) return;
+    if (!centered) return;
     // Hız arttıkça biraz uzaklaş; ok ekranın alt kısmında kalsın diye merkez biraz ileride.
     const speed = location.speed > 0 ? location.speed : 0;
     const zoom = speed > 17 ? 16.6 : speed > 8 ? 17.3 : 17.9;
@@ -299,7 +304,7 @@ export default function App() {
     );
     // bearing ve puck konumdan türetiliyor; konum değişimi yeterli tetikleyici.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [navigating, following, gpsUsable, location, route]);
+  }, [navigating, centered, gpsUsable, location, route]);
 
   // Resim içinde resim: seyir sürerken ana ekrana dönülünce (Android 12+) uygulama
   // küçük pencerede devam eder; küçük pencerede yalnızca harita ve yön bandı görünür.
@@ -308,11 +313,16 @@ export default function App() {
     setAutoPip(navigating);
   }, [navigating]);
   useEffect(() => {
-    if (inPip) setFollowing(true); // küçük pencerede harita hep konumu takip etsin
+    if (inPip) setCentered(true); // küçük pencerede harita hep konumu takip etsin
   }, [inPip]);
 
   const stopFollowingOnGesture = () => {
-    if (navigating && following) setFollowing(false);
+    if (centered) setCentered(false);
+  };
+
+  const recenter = () => {
+    if (navigating) setCentered(true); // takip kamerası hemen konuma döner
+    else goToMyLocation();
   };
 
   const startNavigation = () => {
@@ -321,7 +331,7 @@ export default function App() {
       return;
     }
     // Önizlemede seçilen rota (alternatif olsa bile) olduğu gibi kullanılır.
-    setFollowing(true);
+    setCentered(true);
     setNavigating(true);
     setRouteOptions([]);
   };
@@ -440,6 +450,7 @@ export default function App() {
 
   const showZone = (zone) => {
     setZonesOpen(false);
+    setCentered(false);
     mapRef.current?.fitToCoordinates(zone.segments.flatMap((s) => s.coordinates.map(toLatLng)), {
       edgePadding: { top: 160, right: 60, bottom: 200, left: 60 },
       animated: true,
@@ -682,7 +693,7 @@ export default function App() {
 
       {/* Alt panel: rota özeti ve düğmeler */}
       {!inPip && (route || busy) && (
-        <View style={styles.bottom}>
+        <View style={styles.bottom} onLayout={(e) => setBottomPanelHeight(e.nativeEvent.layout.height)}>
           {busy && !route ? (
             <ActivityIndicator />
           ) : (
@@ -777,25 +788,37 @@ export default function App() {
               <Text style={styles.sideGlyph}>☰</Text>
             </SideButton>
           )}
-          <SideButton label={settings.voice === false ? 'Ses\nkapalı' : 'Ses\naçık'} active={settings.voice === false} onPress={toggleVoice}>
+          <SideButton
+            label={settings.voice === false ? 'Ses\nkapalı' : 'Ses\naçık'}
+            active={settings.voice === false}
+            onPress={toggleVoice}
+            last={!(navigating && pipSupported)}
+          >
             <Text style={styles.sideGlyph}>{settings.voice === false ? '🔇' : '🔊'}</Text>
           </SideButton>
           {navigating && pipSupported && (
-            <SideButton label="Küçült" onPress={enterPip}>
+            <SideButton label="Küçült" onPress={enterPip} last>
               <View style={styles.pipIcon}>
                 <View style={styles.pipIconInner} />
               </View>
             </SideButton>
           )}
-          <SideButton
-            label={navigating ? 'Ortala' : 'Konumum'}
-            highlight={navigating && !following}
-            onPress={navigating ? () => setFollowing(true) : goToMyLocation}
-            last
-          >
-            <View style={styles.myLocationDot} />
-          </SideButton>
         </View>
+      )}
+
+      {/* "Ortala": harita konumda değilken (rota gösterilince ya da kaydırınca) çıkar, basınca gider. */}
+      {!inPip && !editing && !centered && location && (
+        <Pressable
+          style={({ pressed }) => [
+            styles.recenter,
+            { bottom: route || busy ? bottomPanelHeight + 34 + 12 : 40 },
+            pressed && styles.recenterPressed,
+          ]}
+          onPress={recenter}
+        >
+          <RecenterIcon />
+          <Text style={styles.recenterText}>Ortala</Text>
+        </Pressable>
       )}
 
       {!inPip && <Text style={styles.attribution}>© OpenStreetMap katkıcıları</Text>}
@@ -843,6 +866,20 @@ function SideButton({ label, onPress, active, highlight, last, children }) {
       {children}
       <Text style={[styles.sideLabel, active && styles.sideLabelActive, highlight && styles.sideLabelHighlight]}>{label}</Text>
     </Pressable>
+  );
+}
+
+// "Ortala" simgesi: gri halka, dört yönde kırmızı nişan çizgileri, ortada mavi konum noktası.
+function RecenterIcon() {
+  return (
+    <View style={styles.recenterIcon}>
+      <View style={styles.recenterRing} />
+      <View style={[styles.recenterTick, styles.tickTop]} />
+      <View style={[styles.recenterTick, styles.tickBottom]} />
+      <View style={[styles.recenterTick, styles.tickSide, styles.tickLeft]} />
+      <View style={[styles.recenterTick, styles.tickSide, styles.tickRight]} />
+      <View style={styles.recenterDot} />
+    </View>
   );
 }
 
@@ -987,6 +1024,31 @@ const styles = StyleSheet.create({
     borderRightColor: 'transparent',
     borderBottomColor: '#fff',
   },
-  myLocationDot: { width: 16, height: 16, borderRadius: 8, backgroundColor: '#0a66d8', borderWidth: 3, borderColor: '#cfe0fb' },
+  recenter: {
+    position: 'absolute',
+    left: 14,
+    height: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingLeft: 10,
+    paddingRight: 18,
+    backgroundColor: '#fff',
+    borderRadius: 26,
+    borderWidth: 1.5,
+    borderColor: '#c7ced6',
+    ...shadow,
+  },
+  recenterPressed: { backgroundColor: '#eef4fd' },
+  recenterText: { fontSize: 16, fontWeight: '800', color: '#0a66d8' },
+  recenterIcon: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center' },
+  recenterRing: { position: 'absolute', width: 26, height: 26, borderRadius: 13, borderWidth: 2.5, borderColor: '#8e9aa8' },
+  recenterTick: { position: 'absolute', width: 3, height: 7, borderRadius: 1.5, backgroundColor: '#d70015' },
+  tickTop: { top: 0 },
+  tickBottom: { bottom: 0 },
+  tickSide: { width: 7, height: 3 },
+  tickLeft: { left: 0 },
+  tickRight: { right: 0 },
+  recenterDot: { width: 13, height: 13, borderRadius: 6.5, backgroundColor: '#0a66d8', borderWidth: 2, borderColor: '#fff' },
   attribution: { position: 'absolute', right: 6, bottom: 6, fontSize: 10, color: '#3a3a3c', backgroundColor: 'rgba(255,255,255,0.7)', paddingHorizontal: 4 },
 });

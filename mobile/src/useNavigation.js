@@ -20,19 +20,29 @@ const speak = (text) => {
  * Seyir sırasında konumu rotaya oturtur, sıradaki manevrayı ve mesafeleri hesaplar,
  * sesli yönlendirme yapar. Rotadan çıkılırsa onOffRoute, varışta onArrive çağrılır.
  */
-export function useNavigation({ route, location, active, onOffRoute, onArrive }) {
+export function useNavigation({ route, location, active, voice = true, onOffRoute, onArrive }) {
   const lastIndex = useRef(0);
   const offRouteCount = useRef(0);
   const spoken = useRef(new Set());
   const callbacks = useRef({ onOffRoute, onArrive });
   callbacks.current = { onOffRoute, onArrive };
+  // Sesli yönlendirme kapalıysa talimatlar yine "söylendi" sayılır; açılınca eskiler tekrarlanmaz.
+  const voiceOn = useRef(voice);
+  voiceOn.current = voice;
+  const say = (text) => {
+    if (voiceOn.current) speak(text);
+  };
+
+  useEffect(() => {
+    if (!voice) Speech.stop(); // kapatılınca o an okunan talimat da sussun
+  }, [voice]);
 
   // Yeni rota geldiğinde takip durumu sıfırlanır ve ilk talimat okunur.
   useEffect(() => {
     lastIndex.current = 0;
     offRouteCount.current = 0;
     spoken.current = new Set();
-    if (active && route) speak(route.maneuvers[0]?.verbalPre);
+    if (active && route) say(route.maneuvers[0]?.verbalPre);
   }, [route, active]);
 
   const progress = useMemo(() => {
@@ -65,7 +75,7 @@ export function useNavigation({ route, location, active, onOffRoute, onArrive })
     offRouteCount.current = 0;
 
     if (progress.remainingMeters < ARRIVE_METERS) {
-      speak('Hedefinize vardınız.');
+      say('Hedefinize vardınız.');
       callbacks.current.onArrive?.();
       return;
     }
@@ -75,7 +85,7 @@ export function useNavigation({ route, location, active, onOffRoute, onArrive })
     const once = (key, text) => {
       if (spoken.current.has(key)) return;
       spoken.current.add(key);
-      speak(text);
+      say(text);
     };
     if (distanceToNext < PRE_METERS) once(`${nextIdx}:pre`, next.verbalPre);
     else if (distanceToNext < ALERT_METERS && next.verbalAlert) once(`${nextIdx}:alert`, next.verbalAlert);

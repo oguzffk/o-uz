@@ -47,6 +47,7 @@ export default function App() {
     adminToken: '',
     costing: 'auto',
     avoidTolls: false,
+    voice: true,
   });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [adminMode, setAdminMode] = useState(false);
@@ -245,6 +246,7 @@ export default function App() {
     route,
     location: gpsUsable ? location : null,
     active: navigating,
+    voice: settings.voice !== false,
     onOffRoute: () => {
       showToast('Rotadan çıkıldı, yeniden hesaplanıyor…');
       requestRoute({ quiet: true });
@@ -456,6 +458,12 @@ export default function App() {
     setDestination(place);
     setQuery('');
     requestRoute({ to: place });
+  };
+
+  const toggleVoice = () => {
+    const voice = settings.voice === false;
+    saveSettings({ ...settings, voice });
+    showToast(voice ? 'Sesli yönlendirme açıldı.' : 'Sesli yönlendirme kapatıldı.');
   };
 
   const toggleAdmin = () => {
@@ -769,6 +777,9 @@ export default function App() {
               <Text style={styles.sideGlyph}>☰</Text>
             </SideButton>
           )}
+          <SideButton label={settings.voice === false ? 'Ses\nkapalı' : 'Ses\naçık'} active={settings.voice === false} onPress={toggleVoice}>
+            <Text style={styles.sideGlyph}>{settings.voice === false ? '🔇' : '🔊'}</Text>
+          </SideButton>
           {navigating && pipSupported && (
             <SideButton label="Küçült" onPress={enterPip}>
               <View style={styles.pipIcon}>

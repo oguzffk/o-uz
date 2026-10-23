@@ -28,6 +28,7 @@ import {
 } from './src/geo';
 import { stopSpeech, useNavigation } from './src/useNavigation';
 import SettingsSheet from './src/SettingsSheet';
+import { enterPip, pipSupported, setAutoPip, usePipMode } from './src/pip';
 import ZonesSheet from './src/ZonesSheet';
 
 const SETTINGS_KEY = 'nav-settings-v1';
@@ -279,6 +280,16 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navigating, following, gpsUsable, location, route]);
 
+  // Resim içinde resim: seyir sürerken ana ekrana dönülünce (Android 12+) uygulama
+  // küçük pencerede devam eder; küçük pencerede yalnızca harita ve yön bandı görünür.
+  const inPip = usePipMode();
+  useEffect(() => {
+    setAutoPip(navigating);
+  }, [navigating]);
+  useEffect(() => {
+    if (inPip) setFollowing(true); // küçük pencerede harita hep konumu takip etsin
+  }, [inPip]);
+
   const stopFollowingOnGesture = () => {
     if (navigating && following) setFollowing(false);
   };
@@ -526,109 +537,121 @@ export default function App() {
         {destination && <Marker coordinate={toLatLng([destination.lat, destination.lon])} title={destination.name} />}
       </MapView>
 
+      {/* Küçük pencere (PiP): yalnızca kısa yön bandı. */}
+      {inPip && navigating && next && (
+        <View style={styles.pipBanner} pointerEvents="none">
+          <Text style={styles.pipDistance}>{formatDistance(progress.distanceToNext)}</Text>
+          <Text style={styles.pipText} numberOfLines={2}>
+            {next.instruction}
+          </Text>
+        </View>
+      )}
+
       {/* Üst kısım: seyirde manevra bandı, değilse arama kutusu */}
-      <View style={styles.top} pointerEvents="box-none">
-        {editing ? (
-          <View style={styles.editCard}>
-            <Text style={styles.editLabel}>GRUBU DÜZENLE · {editingZone?.segments.length ?? 0} yol parçası</Text>
-            <View style={styles.editRow}>
-              <TextInput
-                style={styles.editInput}
-                value={editing.name}
-                onChangeText={(name) => setEditing((e) => ({ ...e, name }))}
-                maxLength={80}
-                placeholder="Grup adı"
-              />
-              <Pressable style={styles.editDone} onPress={finishEditing}>
-                <Text style={styles.editDoneText}>Bitti</Text>
-              </Pressable>
-            </View>
-            <Text style={styles.editHint}>Yola dokun: gruba ekle · Turuncu yola dokun: gruptan çıkar</Text>
-          </View>
-        ) : navigating && next ? (
-          <View style={styles.banner}>
-            <Text style={styles.bannerDistance}>{formatDistance(progress.distanceToNext)}</Text>
-            <Text style={styles.bannerText} numberOfLines={2}>
-              {next.instruction}
-            </Text>
-          </View>
-        ) : (
-          <>
-            <View style={styles.searchRow}>
-              <TextInput
-                style={styles.search}
-                value={query}
-                onChangeText={setQuery}
-                onSubmitEditing={() => search()}
-                placeholder="Nereye? (ör. Taksim)"
-                returnKeyType="search"
-              />
-              <Pressable style={[styles.iconButton, styles.searchButton]} onPress={() => search()}>
-                {searching ? <ActivityIndicator color="#fff" /> : <Text style={styles.searchButtonText}>Ara</Text>}
-              </Pressable>
-            </View>
-            {locStatus !== 'ok' && !manualOrigin && (
-              <View style={styles.notice}>
-                <Text style={styles.noticeText}>
-                  {locStatus === 'denied'
-                    ? 'Konum izni yok. Telefon ayarlarından izin verin ya da başlangıcı haritada basılı tutarak seçin.'
-                    : locStatus === 'off'
-                      ? 'Telefonun Konum (GPS) özelliği kapalı. Açın ya da başlangıcı haritada basılı tutarak seçin.'
-                      : 'Konumunuz aranıyor…'}
-                </Text>
+      {!inPip && (
+        <View style={styles.top} pointerEvents="box-none">
+          {editing ? (
+            <View style={styles.editCard}>
+              <Text style={styles.editLabel}>GRUBU DÜZENLE · {editingZone?.segments.length ?? 0} yol parçası</Text>
+              <View style={styles.editRow}>
+                <TextInput
+                  style={styles.editInput}
+                  value={editing.name}
+                  onChangeText={(name) => setEditing((e) => ({ ...e, name }))}
+                  maxLength={80}
+                  placeholder="Grup adı"
+                />
+                <Pressable style={styles.editDone} onPress={finishEditing}>
+                  <Text style={styles.editDoneText}>Bitti</Text>
+                </Pressable>
               </View>
-            )}
-            {location && !gpsUsable && !manualOrigin && (
-              <View style={styles.notice}>
-                <Text style={styles.noticeText}>
-                  Konumunuz İstanbul dışında. Denemek için önce başlangıç, sonra varış noktasını haritada basılı tutun.
-                </Text>
-              </View>
-            )}
-            {results.length > 0 && (
-              <FlatList
-                style={styles.results}
-                keyboardShouldPersistTaps="handled"
-                data={results}
-                keyExtractor={(item, i) => `${item.lat},${item.lon},${i}`}
-                renderItem={({ item }) => (
-                  <Pressable style={styles.result} onPress={() => chooseDestination(item)}>
-                    <Text style={styles.resultName}>{item.name}</Text>
-                    <Text style={styles.resultAddr} numberOfLines={1}>
-                      {item.address}
-                    </Text>
-                  </Pressable>
-                )}
-              />
-            )}
-          </>
-        )}
-        {adminMode && navigating && (
-          <View style={styles.adminRow}>
-            <View style={styles.adminPill}>
-              <Text style={styles.adminPillText}>YÖNETİCİ · {closures.closures.length} kapalı parça</Text>
+              <Text style={styles.editHint}>Yola dokun: gruba ekle · Turuncu yola dokun: gruptan çıkar</Text>
             </View>
-            <Pressable style={styles.zonesButton} onPress={() => setZonesOpen(true)}>
-              <Text style={styles.zonesButtonText}>
-                Kayıtlı gruplar{closures.zones.length ? ` (${closures.zones.length})` : ''}
+          ) : navigating && next ? (
+            <View style={styles.banner}>
+              <Text style={styles.bannerDistance}>{formatDistance(progress.distanceToNext)}</Text>
+              <Text style={styles.bannerText} numberOfLines={2}>
+                {next.instruction}
               </Text>
-            </Pressable>
-          </View>
-        )}
-        {demo && !navigating && (
-          <View style={styles.demoPill}>
-            <Text style={styles.demoPillText}>Demo modu · kapatmalar yalnızca bu telefonda</Text>
-          </View>
-        )}
-        {toast && (
-          <View style={[styles.toast, toast.kind === 'error' && styles.toastError]}>
-            <Text style={styles.toastText}>{toast.text}</Text>
-          </View>
-        )}
-      </View>
+            </View>
+          ) : (
+            <>
+              <View style={styles.searchRow}>
+                <TextInput
+                  style={styles.search}
+                  value={query}
+                  onChangeText={setQuery}
+                  onSubmitEditing={() => search()}
+                  placeholder="Nereye? (ör. Taksim)"
+                  returnKeyType="search"
+                />
+                <Pressable style={[styles.iconButton, styles.searchButton]} onPress={() => search()}>
+                  {searching ? <ActivityIndicator color="#fff" /> : <Text style={styles.searchButtonText}>Ara</Text>}
+                </Pressable>
+              </View>
+              {locStatus !== 'ok' && !manualOrigin && (
+                <View style={styles.notice}>
+                  <Text style={styles.noticeText}>
+                    {locStatus === 'denied'
+                      ? 'Konum izni yok. Telefon ayarlarından izin verin ya da başlangıcı haritada basılı tutarak seçin.'
+                      : locStatus === 'off'
+                        ? 'Telefonun Konum (GPS) özelliği kapalı. Açın ya da başlangıcı haritada basılı tutarak seçin.'
+                        : 'Konumunuz aranıyor…'}
+                  </Text>
+                </View>
+              )}
+              {location && !gpsUsable && !manualOrigin && (
+                <View style={styles.notice}>
+                  <Text style={styles.noticeText}>
+                    Konumunuz İstanbul dışında. Denemek için önce başlangıç, sonra varış noktasını haritada basılı tutun.
+                  </Text>
+                </View>
+              )}
+              {results.length > 0 && (
+                <FlatList
+                  style={styles.results}
+                  keyboardShouldPersistTaps="handled"
+                  data={results}
+                  keyExtractor={(item, i) => `${item.lat},${item.lon},${i}`}
+                  renderItem={({ item }) => (
+                    <Pressable style={styles.result} onPress={() => chooseDestination(item)}>
+                      <Text style={styles.resultName}>{item.name}</Text>
+                      <Text style={styles.resultAddr} numberOfLines={1}>
+                        {item.address}
+                      </Text>
+                    </Pressable>
+                  )}
+                />
+              )}
+            </>
+          )}
+          {adminMode && navigating && (
+            <View style={styles.adminRow}>
+              <View style={styles.adminPill}>
+                <Text style={styles.adminPillText}>YÖNETİCİ · {closures.closures.length} kapalı parça</Text>
+              </View>
+              <Pressable style={styles.zonesButton} onPress={() => setZonesOpen(true)}>
+                <Text style={styles.zonesButtonText}>
+                  Kayıtlı gruplar{closures.zones.length ? ` (${closures.zones.length})` : ''}
+                </Text>
+              </Pressable>
+            </View>
+          )}
+          {demo && !navigating && (
+            <View style={styles.demoPill}>
+              <Text style={styles.demoPillText}>Demo modu · kapatmalar yalnızca bu telefonda</Text>
+            </View>
+          )}
+          {toast && (
+            <View style={[styles.toast, toast.kind === 'error' && styles.toastError]}>
+              <Text style={styles.toastText}>{toast.text}</Text>
+            </View>
+          )}
+        </View>
+      )}
 
       {/* Alt panel: rota özeti ve düğmeler */}
-      {(route || busy) && (
+      {!inPip && (route || busy) && (
         <View style={styles.bottom}>
           {busy && !route ? (
             <ActivityIndicator />
@@ -709,7 +732,7 @@ export default function App() {
       {navigating && <KeepScreenOn />}
 
       {/* Sağ kenardaki düğme paneli (arama sonuçları açıkken gizlenir). */}
-      {results.length === 0 && !editing && (
+      {!inPip && results.length === 0 && !editing && (
         <View style={[styles.sidePanel, { top: navigating ? 170 : 150 }]}>
           <SideButton label="Ayarlar" onPress={() => setSettingsOpen(true)}>
             <Text style={styles.sideGlyph}>⚙︎</Text>
@@ -724,6 +747,13 @@ export default function App() {
               <Text style={styles.sideGlyph}>☰</Text>
             </SideButton>
           )}
+          {navigating && pipSupported && (
+            <SideButton label="Küçült" onPress={enterPip}>
+              <View style={styles.pipIcon}>
+                <View style={styles.pipIconInner} />
+              </View>
+            </SideButton>
+          )}
           <SideButton
             label={navigating ? 'Ortala' : 'Konumum'}
             highlight={navigating && !following}
@@ -735,7 +765,7 @@ export default function App() {
         </View>
       )}
 
-      <Text style={styles.attribution}>© OpenStreetMap katkıcıları</Text>
+      {!inPip && <Text style={styles.attribution}>© OpenStreetMap katkıcıları</Text>}
 
       <ZonesSheet
         visible={zonesOpen}
@@ -851,6 +881,11 @@ const styles = StyleSheet.create({
   editDone: { backgroundColor: '#f08c00', borderRadius: 10, paddingHorizontal: 18, justifyContent: 'center' },
   editDoneText: { color: '#fff', fontWeight: '800', fontSize: 15 },
   editHint: { fontSize: 12, color: '#6e6e73' },
+  pipBanner: { position: 'absolute', top: 6, left: 6, right: 6, backgroundColor: '#0b5c3b', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 5 },
+  pipDistance: { color: '#fff', fontSize: 15, fontWeight: '800' },
+  pipText: { color: '#fff', fontSize: 11 },
+  pipIcon: { width: 24, height: 18, borderRadius: 3, borderWidth: 2, borderColor: '#1d1d1f', alignItems: 'flex-end', justifyContent: 'flex-end', padding: 2 },
+  pipIconInner: { width: 10, height: 7, borderRadius: 1, backgroundColor: '#1d1d1f' },
   sidePanel: { position: 'absolute', right: 12, width: 64, backgroundColor: '#fff', borderRadius: 14, overflow: 'hidden', ...shadow },
   sideButton: { alignItems: 'center', justifyContent: 'center', paddingVertical: 9, gap: 4, minHeight: 60 },
   sideDivider: { borderBottomWidth: StyleSheet.hairlineWidth, borderColor: '#d1d1d6' },

@@ -116,6 +116,7 @@ Telefonda Expo Go ile QR kodu okutun, ⚙︎ **Ayarlar → Rota sunucusu → Ken
 | Seyre başla | **Başla** — kamera sizi takip eder, talimatlar Türkçe okunur |
 | Ulaşım türü | Ayarlar → Araç / Motor |
 | Ücretli yollardan kaçın | Rota panelindeki anahtar ya da Ayarlar. Yasaklamaz, mümkünse kaçınır; ücretsiz yol yoksa rota ücretli yolu kullanır ve bunu belirtir (Boğaz geçişlerinin çoğu ücretli) |
+| Küçük pencere (resim içinde resim) | Yalnızca Android APK'da (Expo Go'da yok). Seyir sırasında ana ekran tuşuna basınca (Android 12+) ya da sağ paneldeki **Küçült** ile uygulama köşede küçük pencerede yönlendirmeye devam eder |
 | Yönetici modu | Ayarlar → anahtarı girin, **Yönetici modu**nu açın → sokağa **dokunun** = kapat/aç |
 | Grup kaydet / aç / kapat / düzenle | Sağ panelde **Yol kapat** → **Gruplar**; **Düzenle** ile haritada yol ekleyip çıkarın, adını değiştirin |
 

@@ -35,6 +35,10 @@
         {
           "locationWhenInUsePermission": "Rota hesaplamak ve seyir sırasında yönlendirme yapmak için konumunuz kullanılır."
         }
+      ],
+      [
+        "expo-pip",
+        {}
       ]
     ]
   }

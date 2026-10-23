@@ -114,7 +114,7 @@ Telefonda Expo Go ile QR kodu okutun, ⚙︎ **Ayarlar → Rota sunucusu → Ken
 | --- | --- |
 | Hedef seç | Arama kutusuna yazın veya haritada **basılı tutun** |
 | Seyre başla | **Başla** — kamera sizi takip eder, talimatlar Türkçe okunur |
-| Ulaşım türü | Ayarlar → Araç / Motor / Bisiklet / Yaya |
+| Ulaşım türü | Ayarlar → Araç / Motor |
 | Yönetici modu | Ayarlar → anahtarı girin, **Yönetici modu**nu açın → sokağa **dokunun** = kapat/aç |
 | Grup kaydet / aç / kapat | Yönetici modunda üstteki **Kayıtlı gruplar** düğmesi |
 

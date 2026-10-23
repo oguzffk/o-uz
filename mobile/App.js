@@ -73,7 +73,13 @@ export default function App() {
   // --- Ayarlar (cihazda saklanır) ---
   useEffect(() => {
     AsyncStorage.getItem(SETTINGS_KEY)
-      .then((raw) => raw && setSettings((s) => ({ ...s, ...JSON.parse(raw) })))
+      .then((raw) => {
+        if (!raw) return;
+        const saved = JSON.parse(raw);
+        // Bisiklet/yaya seçenekleri kaldırıldı; eskiden kaydedilmişse araca dön.
+        if (!['auto', 'motorcycle'].includes(saved.costing)) saved.costing = 'auto';
+        setSettings((s) => ({ ...s, ...saved }));
+      })
       .catch(() => {});
   }, []);
 

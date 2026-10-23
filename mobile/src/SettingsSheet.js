@@ -4,8 +4,6 @@ import { KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Switch, T
 const COSTINGS = [
   { key: 'auto', label: 'Araç' },
   { key: 'motorcycle', label: 'Motor' },
-  { key: 'bicycle', label: 'Bisiklet' },
-  { key: 'pedestrian', label: 'Yaya' },
 ];
 
 const BACKENDS = [

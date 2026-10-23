@@ -6,7 +6,7 @@ import { ClosureStore } from './closures.js';
 
 // İstanbul il sınırını kabaca kapsayan kutu (indirme betiğiyle aynı).
 export const ISTANBUL_BBOX = { minLon: 27.95, minLat: 40.78, maxLon: 29.95, maxLat: 41.6 };
-const COSTINGS = new Set(['auto', 'motorcycle', 'bicycle', 'pedestrian']);
+const COSTINGS = new Set(['auto', 'motorcycle']);
 // Dokunulan nokta en yakın yoldan bundan uzaksa "yol bulunamadı" denir.
 const MAX_SNAP_METERS = 40;
 

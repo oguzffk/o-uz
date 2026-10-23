@@ -144,7 +144,8 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL) {
       return { version: st.version, closures: effective(st), zones: st.zones };
     },
 
-    async route({ from, to, costing = 'auto', heading }) {
+    async route({ from, to, costing: requested, heading }) {
+      const costing = requested === 'motorcycle' ? 'motorcycle' : 'auto';
       const st = await load();
       const { version } = st;
       const closures = effective(st);

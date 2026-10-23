@@ -34,6 +34,23 @@ Telefonda Expo Go ile QR kodu okutun. Uygulama varsayılan olarak **demo modunda
 
 Tam sürüm (kapatmalar herkese yansır) için aşağıdaki kurulumu yapıp uygulamada ⚙︎ **Ayarlar → Rota sunucusu → Kendi sunucum** seçin.
 
+## Android APK (Play Store olmadan kurulum)
+
+Expo'nun ücretsiz bulut derleme servisi (EAS Build) ile kurulabilir bir APK üretilir:
+
+1. https://expo.dev adresinde ücretsiz hesap açın.
+2. Google Cloud Console'da **Maps SDK for Android**'i etkinleştirip bir API anahtarı oluşturun (Expo Go dışında haritanın görünmesi için gerekli). Anahtarı yalnızca "Maps SDK for Android" ile sınırlayın.
+3. `mobile` klasöründe:
+   ```bash
+   npx eas-cli@latest login
+   npx eas-cli@latest init
+   npx eas-cli@latest env:create --name GOOGLE_MAPS_API_KEY --value <ANAHTAR> --environment preview --visibility sensitive
+   npx eas-cli@latest build --platform android --profile apk
+   ```
+4. Derleme bitince verilen linkten APK'yı telefona indirip kurun ("bilinmeyen kaynaklar" iznini bir kez verin).
+
+Anahtar dosyalara yazılmaz; `app.config.js` onu derleme sırasında ortam değişkeninden okur. APK demo modunda çalışır; "Kendi sunucum" için sunucunun internetten **https** ile erişilebilir olması gerekir.
+
 ## Neden Valhalla (OSRM değil)?
 
 OSRM hızlıdır ama yol ağını önceden "contract" eder; bir yolu kapatmak için grafiği yeniden işlemek gerekir (İstanbul için dakikalar). Valhalla ise her rota isteğinde `exclude_polygons` parametresi alır. API, her kapalı segmentin ortasına ~1 m'lik bir poligon koyup bunu isteğe ekler; böylece **kapatma/açma anında geçerli olur, hiçbir şey yeniden derlenmez.** Bu, otoyol gibi Valhalla'nın "shortcut" kenarlarında da çalışır (test edildi).

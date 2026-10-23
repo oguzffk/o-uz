@@ -12,6 +12,7 @@ import {
 import { StatusBar } from 'expo-status-bar';
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import * as Location from 'expo-location';
+import { useKeepAwake } from 'expo-keep-awake';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createApi, defaultApiUrl } from './src/api';
 import { createDemoApi } from './src/demoApi';
@@ -48,6 +49,7 @@ export default function App() {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [busy, setBusy] = useState(false);
+  const [searching, setSearching] = useState(false);
   const [toast, setToast] = useState(null);
 
   const api = useMemo(() => apiFor(settings), [settings]);
@@ -74,21 +76,58 @@ export default function App() {
   };
 
   // --- Konum ---
+  // locStatus: 'waiting' | 'denied' | 'off' | 'ok' — ekranda neden konum olmadığını söylemek için.
+  const [locStatus, setLocStatus] = useState('waiting');
   useEffect(() => {
     let sub;
+    let cancelled = false;
+    const update = ({ coords }) => {
+      if (cancelled) return;
+      setLocation({ lat: coords.latitude, lon: coords.longitude, heading: coords.heading });
+      setLocStatus('ok');
+    };
     (async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        showToast('Konum izni yok: başlangıç noktasını haritada basılı tutarak seçin.');
-        return;
-      }
+      if (status !== 'granted') return setLocStatus('denied');
+      if (!(await Location.hasServicesEnabledAsync())) setLocStatus('off');
+      // Hızlı ilk konum: son bilinen konum, sonra tek ölçüm; ardından sürekli takip.
+      const last = await Location.getLastKnownPositionAsync().catch(() => null);
+      if (last) update(last);
+      Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }).then(update).catch(() => {});
       sub = await Location.watchPositionAsync(
         { accuracy: Location.Accuracy.BestForNavigation, timeInterval: 1000, distanceInterval: 3 },
-        ({ coords }) => setLocation({ lat: coords.latitude, lon: coords.longitude, heading: coords.heading }),
+        update,
       );
     })().catch((err) => showToast(err.message, 'error'));
-    return () => sub?.remove();
+    return () => {
+      cancelled = true;
+      sub?.remove();
+    };
   }, [showToast]);
+
+  // Konum ilk kez bulunduğunda harita oraya gelsin.
+  const centeredOnce = useRef(false);
+  useEffect(() => {
+    if (!location || centeredOnce.current) return;
+    centeredOnce.current = true;
+    if (inIstanbul(location)) {
+      mapRef.current?.animateCamera({ center: { latitude: location.lat, longitude: location.lon }, zoom: 15 }, { duration: 800 });
+    }
+  }, [location]);
+
+  const goToMyLocation = () => {
+    if (!location) {
+      showToast(
+        locStatus === 'denied'
+          ? 'Konum izni verilmedi. Telefon ayarlarından bu uygulamaya konum izni verin.'
+          : 'Konum henüz bulunamadı. Telefonun Konum (GPS) özelliğinin açık olduğundan emin olun.',
+        'error',
+      );
+      return;
+    }
+    if (!inIstanbul(location)) showToast('Konumunuz İstanbul dışında görünüyor.');
+    mapRef.current?.animateCamera({ center: { latitude: location.lat, longitude: location.lon }, zoom: 16 }, { duration: 600 });
+  };
 
   // Cihaz İstanbul dışındaysa (ör. emülatör) başlangıç haritadan seçilir.
   const gpsUsable = location && inIstanbul(location);
@@ -214,22 +253,44 @@ export default function App() {
   };
 
   // --- Arama ---
-  const search = async () => {
-    if (query.trim().length < 2) return;
-    setBusy(true);
+  const searchSeq = useRef(0);
+  const skipAutoSearch = useRef(false);
+  const search = async ({ auto = false } = {}) => {
+    const q = query.trim();
+    if (q.length < 2) return;
+    const seq = ++searchSeq.current;
+    setSearching(true);
     try {
-      const { results: r } = await api.search(query.trim());
+      const { results: r } = await api.search(q);
+      if (seq !== searchSeq.current) return;
       setResults(r);
-      if (!r.length) showToast('Sonuç bulunamadı.');
+      if (!r.length && !auto) showToast(`"${q}" için İstanbul'da sonuç bulunamadı.`);
     } catch (err) {
-      showToast(err.message, 'error');
+      if (seq === searchSeq.current) showToast(err.message, 'error');
     } finally {
-      setBusy(false);
+      if (seq === searchSeq.current) setSearching(false);
     }
   };
 
+  // Yazarken otomatik öneri (yazmayı bıraktıktan kısa süre sonra).
+  useEffect(() => {
+    if (skipAutoSearch.current) {
+      skipAutoSearch.current = false;
+      return;
+    }
+    if (query.trim().length < 3) {
+      setResults([]);
+      return;
+    }
+    const t = setTimeout(() => search({ auto: true }), 700);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query]);
+
   const chooseDestination = (place) => {
     setResults([]);
+    skipAutoSearch.current = true;
+    Keyboard.dismiss();
     setQuery(place.name);
     setDestination(place);
     requestRoute({ to: place });
@@ -309,6 +370,7 @@ export default function App() {
         // karo sunucusu uygulamalardan gelen istekleri engellediği için onu kullanmıyoruz.
         mapType="standard"
         showsUserLocation
+        showsMyLocationButton={false}
         showsCompass={false}
         toolbarEnabled={false}
         onPress={onMapPress}
@@ -363,14 +425,59 @@ export default function App() {
                 style={styles.search}
                 value={query}
                 onChangeText={setQuery}
-                onSubmitEditing={search}
-                placeholder="Nereye gitmek istiyorsunuz?"
+                onSubmitEditing={() => search()}
+                placeholder="Nereye? (ör. Taksim)"
                 returnKeyType="search"
               />
+              <Pressable style={[styles.iconButton, styles.searchButton]} onPress={() => search()}>
+                {searching ? <ActivityIndicator color="#fff" /> : <Text style={styles.searchButtonText}>Ara</Text>}
+              </Pressable>
               <Pressable style={styles.iconButton} onPress={() => setSettingsOpen(true)}>
                 <Text style={styles.iconText}>⚙︎</Text>
               </Pressable>
             </View>
+            <View style={styles.chipRow}>
+              <Pressable
+                style={[styles.chip, adminMode && styles.chipOn]}
+                onPress={() => {
+                  if (adminMode) return setAdminMode(false);
+                  if (!demo && !settings.adminToken) {
+                    setSettingsOpen(true);
+                    return showToast('Önce Ayarlar\'dan yönetici anahtarını girin.');
+                  }
+                  onAdminModeChange(true, settings);
+                }}
+              >
+                <Text style={[styles.chipText, adminMode && styles.chipTextOn]}>
+                  {adminMode ? 'Yol kapatma: AÇIK' : 'Yol kapatma modu'}
+                </Text>
+              </Pressable>
+              {adminMode && (
+                <Pressable style={styles.chip} onPress={() => setZonesOpen(true)}>
+                  <Text style={styles.chipText}>
+                    Kayıtlı gruplar{closures.zones.length ? ` (${closures.zones.length})` : ''}
+                  </Text>
+                </Pressable>
+              )}
+            </View>
+            {locStatus !== 'ok' && !manualOrigin && (
+              <View style={styles.notice}>
+                <Text style={styles.noticeText}>
+                  {locStatus === 'denied'
+                    ? 'Konum izni yok. Telefon ayarlarından izin verin ya da başlangıcı haritada basılı tutarak seçin.'
+                    : locStatus === 'off'
+                      ? 'Telefonun Konum (GPS) özelliği kapalı. Açın ya da başlangıcı haritada basılı tutarak seçin.'
+                      : 'Konumunuz aranıyor…'}
+                </Text>
+              </View>
+            )}
+            {location && !gpsUsable && !manualOrigin && (
+              <View style={styles.notice}>
+                <Text style={styles.noticeText}>
+                  Konumunuz İstanbul dışında. Denemek için önce başlangıç, sonra varış noktasını haritada basılı tutun.
+                </Text>
+              </View>
+            )}
             {results.length > 0 && (
               <FlatList
                 style={styles.results}
@@ -389,7 +496,7 @@ export default function App() {
             )}
           </>
         )}
-        {adminMode && (
+        {adminMode && navigating && (
           <View style={styles.adminRow}>
             <View style={styles.adminPill}>
               <Text style={styles.adminPillText}>YÖNETİCİ · {closures.closures.length} kapalı parça</Text>
@@ -454,6 +561,12 @@ export default function App() {
         </View>
       )}
 
+      {navigating && <KeepScreenOn />}
+
+      <Pressable style={[styles.myLocation, { bottom: route || busy ? 200 : 40 }]} onPress={goToMyLocation}>
+        <View style={styles.myLocationDot} />
+      </Pressable>
+
       <Text style={styles.attribution}>© OpenStreetMap katkıcıları</Text>
 
       <ZonesSheet
@@ -479,6 +592,12 @@ export default function App() {
       />
     </View>
   );
+}
+
+// Seyir sürerken ekranın kendiliğinden kapanmasını engeller.
+function KeepScreenOn() {
+  useKeepAwake('navigation');
+  return null;
 }
 
 const shadow = {
@@ -523,5 +642,16 @@ const styles = StyleSheet.create({
   secondary: { backgroundColor: '#f2f2f7' },
   secondaryText: { color: '#1d1d1f', fontSize: 17, fontWeight: '600' },
   stop: { backgroundColor: '#d70015' },
+  searchButton: { width: 56, backgroundColor: '#0a66d8' },
+  searchButtonText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  chipRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
+  chip: { backgroundColor: '#fff', borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8, ...shadow },
+  chipOn: { backgroundColor: '#d70015' },
+  chipText: { fontSize: 13, fontWeight: '700', color: '#1d1d1f' },
+  chipTextOn: { color: '#fff' },
+  notice: { backgroundColor: '#fff8e1', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, ...shadow },
+  noticeText: { fontSize: 13, color: '#5c4400' },
+  myLocation: { position: 'absolute', right: 14, width: 48, height: 48, borderRadius: 24, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', ...shadow },
+  myLocationDot: { width: 16, height: 16, borderRadius: 8, backgroundColor: '#0a66d8', borderWidth: 3, borderColor: '#cfe0fb' },
   attribution: { position: 'absolute', right: 6, bottom: 6, fontSize: 10, color: '#3a3a3c', backgroundColor: 'rgba(255,255,255,0.7)', paddingHorizontal: 4 },
 });

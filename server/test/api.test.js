@@ -296,3 +296,27 @@ test('alternatif rotalar: istenirse gelir, yoğun saat süresine göre sıralan�
     assert.equal(peak.body.routes[1].freeFlowDurationSec, 600);
   });
 });
+
+test('ücretli yollardan kaçın: Valhalla use_tolls=0 alır, rota ücretli yol içeriyorsa belirtilir', async () => {
+  await withServer(async ({ req, valhalla }) => {
+    valhalla.route = async (body) => {
+      valhalla.calls.push(body);
+      return {
+        trip: {
+          summary: { length: 5, time: 400, has_toll: !body.costing_options },
+          legs: [{ shape: SHAPE, maneuvers: [{ type: 1, instruction: 'Başla', length: 5, time: 400, begin_shape_index: 0, end_shape_index: 1 }] }],
+        },
+      };
+    };
+    const body = { from: { lat: 41.03, lon: 28.98 }, to: { lat: 41.04, lon: 28.99 }, costing: 'motorcycle' };
+    const normal = await req('/api/route', { method: 'POST', body });
+    assert.equal(valhalla.calls.at(-1).costing_options, undefined);
+    assert.equal(normal.body.hasToll, true);
+    assert.equal(normal.body.avoidTolls, false);
+
+    const avoid = await req('/api/route', { method: 'POST', body: { ...body, avoidTolls: true } });
+    assert.deepEqual(valhalla.calls.at(-1).costing_options, { motorcycle: { use_tolls: 0 } });
+    assert.equal(avoid.body.hasToll, false);
+    assert.equal(avoid.body.avoidTolls, true);
+  });
+});

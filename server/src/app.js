@@ -40,6 +40,7 @@ function buildRoute(trip, periodKey) {
   }));
   return {
     distanceKm: trip.summary.length,
+    hasToll: Boolean(trip.summary.has_toll),
     durationSec: maneuvers.reduce((sum, m) => sum + m.durationSec, 0),
     freeFlowDurationSec: Math.round(trip.summary.time),
     coordinates: decodePolyline(leg.shape),
@@ -212,12 +213,15 @@ export function createApp({ valhalla, store, adminToken, nominatimUrl = 'https:/
 
       const exclude = store.excludePolygons();
       const wantAlternatives = Boolean(req.body.alternatives);
+      // Ücretli yollardan kaçın: yasaklamaz, mümkünse kaçınır (Boğaz geçişlerinin çoğu ücretli).
+      const avoidTolls = Boolean(req.body.avoidTolls);
       const data = await valhalla.route({
         locations: [origin, { ...to, type: 'break' }],
         costing,
         directions_options: { language: 'tr-TR', units: 'kilometers' },
         // Alternatifler de exclude_polygons'a uyar: hiçbiri kapalı yoldan geçmez.
         ...(wantAlternatives ? { alternates: 2 } : {}),
+        ...(avoidTolls ? { costing_options: { [costing]: { use_tolls: 0 } } } : {}),
         ...(exclude.length ? { exclude_polygons: exclude } : {}),
       });
 
@@ -226,7 +230,7 @@ export function createApp({ valhalla, store, adminToken, nominatimUrl = 'https:/
       const trips = [data.trip, ...(data.alternates ?? []).map((a) => a.trip)];
       // Yoğun saat tahminine göre en hızlıdan yavaşa sırala.
       const routes = trips.map((trip) => buildRoute(trip, traffic.key)).sort((a, b) => a.durationSec - b.durationSec);
-      res.json({ closuresVersion: store.version, costing, traffic, ...routes[0], routes });
+      res.json({ closuresVersion: store.version, costing, avoidTolls, traffic, ...routes[0], routes });
     } catch (err) {
       next(err);
     }

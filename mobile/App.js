@@ -5,6 +5,7 @@ import {
   Keyboard,
   Pressable,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -42,6 +43,7 @@ export default function App() {
     apiUrl: defaultApiUrl(),
     adminToken: '',
     costing: 'auto',
+    avoidTolls: false,
   });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [adminMode, setAdminMode] = useState(false);
@@ -163,9 +165,16 @@ export default function App() {
       try {
         const heading = navigating && from === location ? location.heading : undefined;
         // Seyir sırasında (yeniden rota) tek rota yeter; önizlemede alternatifler de istenir.
-        const r = await api.route({ from, to, costing: settings.costing, heading, alternatives: !navigating });
+        const r = await api.route({
+          from,
+          to,
+          costing: settings.costing,
+          avoidTolls: settings.avoidTolls,
+          heading,
+          alternatives: !navigating,
+        });
         if (reqId !== routeRequest.current) return; // daha yeni bir istek var
-        const meta = { closuresVersion: r.closuresVersion, costing: r.costing, traffic: r.traffic };
+        const meta = { closuresVersion: r.closuresVersion, costing: r.costing, avoidTolls: r.avoidTolls, traffic: r.traffic };
         const options = (r.routes ?? [r]).map((rt, index) => ({ ...meta, ...rt, index }));
         setRoute(options[0]);
         setRouteOptions(navigating ? [] : options);
@@ -182,14 +191,16 @@ export default function App() {
         if (reqId === routeRequest.current) setBusy(false);
       }
     },
-    [api, destination, origin, location, navigating, settings.costing, showToast],
+    [api, destination, origin, location, navigating, settings.costing, settings.avoidTolls, showToast],
   );
 
-  // Ulaşım türü değişince mevcut rota yenilenir.
+  // Ulaşım türü ya da "ücretli yollardan kaçın" değişince mevcut rota yenilenir.
   useEffect(() => {
-    if (route && route.costing !== settings.costing) requestRoute({ quiet: true });
+    if (route && (route.costing !== settings.costing || Boolean(route.avoidTolls) !== settings.avoidTolls)) {
+      requestRoute({ quiet: true });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings.costing]);
+  }, [settings.costing, settings.avoidTolls]);
 
   // --- Kapalı yollar: periyodik kontrol; değişince rota yeniden hesaplanır ---
   const latest = useRef({});
@@ -641,6 +652,22 @@ export default function App() {
                   {route.traffic.label} tahmini dahil · boş yolda {formatDuration(route.freeFlowDurationSec)}
                 </Text>
               )}
+              {route.hasToll && (
+                <Text style={styles.tollNote}>
+                  {settings.avoidTolls
+                    ? 'Ücretsiz yol bulunamadı; bu rota ücretli yol (köprü, tünel ya da otoyol) içeriyor.'
+                    : 'Bu rota ücretli yol (köprü, tünel ya da otoyol) içeriyor.'}
+                </Text>
+              )}
+              {!navigating && (
+                <View style={styles.tollRow}>
+                  <Text style={styles.tollLabel}>Ücretli yollardan kaçın</Text>
+                  <Switch
+                    value={settings.avoidTolls}
+                    onValueChange={(avoidTolls) => saveSettings({ ...settings, avoidTolls })}
+                  />
+                </View>
+              )}
               {!navigating && routeOptions.length > 1 && (
                 <View style={styles.options}>
                   {routeOptions.map((o) => {
@@ -651,6 +678,7 @@ export default function App() {
                         <Text style={styles.optionSub}>
                           {formatDistance(o.distanceKm * 1000)}
                           {o.index === 0 ? ' · En hızlı' : ''}
+                          {o.hasToll ? ' · Ücretli' : ''}
                         </Text>
                       </Pressable>
                     );
@@ -797,6 +825,9 @@ const styles = StyleSheet.create({
   summaryMain: { fontSize: 26, fontWeight: '800', color: '#0b8a3e' },
   summarySub: { fontSize: 16, color: '#3a3a3c' },
   actions: { flexDirection: 'row', gap: 10, marginTop: 12 },
+  tollNote: { fontSize: 12, color: '#6e6e73', marginTop: 4 },
+  tollRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 },
+  tollLabel: { fontSize: 14, fontWeight: '600', color: '#1d1d1f' },
   trafficNote: { fontSize: 12, color: '#b35f00', marginTop: 4 },
   options: { flexDirection: 'row', gap: 8, marginTop: 10 },
   option: { flex: 1, borderWidth: 1.5, borderColor: '#d1d1d6', borderRadius: 10, paddingVertical: 8, paddingHorizontal: 10 },

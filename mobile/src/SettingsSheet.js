@@ -68,6 +68,14 @@ export default function SettingsSheet({ visible, settings, adminMode, onClose, o
             ))}
           </View>
 
+          <View style={styles.row}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.rowTitle}>Ücretli yollardan kaçın</Text>
+              <Text style={styles.rowSub}>Köprü, tünel ve otoyol ücretlerinden mümkün olduğunca kaçınır.</Text>
+            </View>
+            <Switch value={Boolean(draft.avoidTolls)} onValueChange={set('avoidTolls')} />
+          </View>
+
           {!demo && (
             <>
               <Text style={styles.label}>Yönetici anahtarı</Text>

@@ -95,6 +95,7 @@ function buildRoute(trip, periodKey) {
   }));
   return {
     distanceKm: trip.summary.length,
+    hasToll: Boolean(trip.summary.has_toll),
     durationSec: maneuvers.reduce((sum, m) => sum + m.durationSec, 0),
     freeFlowDurationSec: Math.round(trip.summary.time),
     coordinates: decodePolyline(leg.shape),
@@ -188,7 +189,7 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL) {
       return { version: st.version, closures: effective(st), zones: st.zones };
     },
 
-    async route({ from, to, costing: requested, heading, alternatives = false }) {
+    async route({ from, to, costing: requested, heading, alternatives = false, avoidTolls = false }) {
       const costing = requested === 'motorcycle' ? 'motorcycle' : 'auto';
       const st = await load();
       const { version } = st;
@@ -204,13 +205,14 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL) {
         directions_options: { language: 'tr-TR', units: 'kilometers' },
         // Alternatifler de exclude_polygons'a uyar: hiçbiri kapalı yoldan geçmez.
         ...(alternatives ? { alternates: 2 } : {}),
+        ...(avoidTolls ? { costing_options: { [costing]: { use_tolls: 0 } } } : {}),
         ...(closures.length ? { exclude_polygons: closures.map((c) => tinySquareRing(c.midpoint)) } : {}),
       });
       const traffic = trafficPeriod();
       const trips = [data.trip, ...(data.alternates ?? []).map((a) => a.trip)];
       // Sunucudaki gibi: yoğun saat tahminine göre en hızlıdan yavaşa.
       const routes = trips.map((trip) => buildRoute(trip, traffic.key)).sort((a, b) => a.durationSec - b.durationSec);
-      return { closuresVersion: version, costing, traffic, ...routes[0], routes };
+      return { closuresVersion: version, costing, avoidTolls, traffic, ...routes[0], routes };
     },
 
     async search(q) {

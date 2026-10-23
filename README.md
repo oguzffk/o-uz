@@ -115,6 +115,7 @@ Telefonda Expo Go ile QR kodu okutun, ⚙︎ **Ayarlar → Rota sunucusu → Ken
 | Hedef seç | Arama kutusuna yazın veya haritada **basılı tutun** |
 | Seyre başla | **Başla** — kamera sizi takip eder, talimatlar Türkçe okunur |
 | Ulaşım türü | Ayarlar → Araç / Motor |
+| Ücretli yollardan kaçın | Rota panelindeki anahtar ya da Ayarlar. Yasaklamaz, mümkünse kaçınır; ücretsiz yol yoksa rota ücretli yolu kullanır ve bunu belirtir (Boğaz geçişlerinin çoğu ücretli) |
 | Yönetici modu | Ayarlar → anahtarı girin, **Yönetici modu**nu açın → sokağa **dokunun** = kapat/aç |
 | Grup kaydet / aç / kapat / düzenle | Sağ panelde **Yol kapat** → **Gruplar**; **Düzenle** ile haritada yol ekleyip çıkarın, adını değiştirin |
 
@@ -124,7 +125,7 @@ Telefon İstanbul dışındaysa (ör. emülatör) ilk basılı tutma **başlang�
 
 | Uç nokta | Açıklama |
 | --- | --- |
-| `POST /api/route` `{from:{lat,lon}, to:{lat,lon}, costing?, heading?, alternatives?}` | Kapalı yolları dışlayan rota; `alternatives: true` ile en fazla 2 alternatif (hepsi kapalı yollardan kaçar). Süreler İstanbul saatine göre yoğun saat tahminiyle uzatılır (`traffic`, `freeFlowDurationSec`); rotalar bu süreye göre sıralanır |
+| `POST /api/route` `{from:{lat,lon}, to:{lat,lon}, costing?, heading?, alternatives?, avoidTolls?}` | Kapalı yolları dışlayan rota; `alternatives: true` ile en fazla 2 alternatif (hepsi kapalı yollardan kaçar). Süreler İstanbul saatine göre yoğun saat tahminiyle uzatılır (`traffic`, `freeFlowDurationSec`); rotalar bu süreye göre sıralanır |
 | `GET /api/closures` | `{version, closures[], zones[]}` — `closures` şu an trafiğe kapalı tüm parçalar (gruptakiler `zoneName` taşır); her değişiklikte `version` artar |
 | `GET /api/closures/stream` | Değişiklikler için Server-Sent Events |
 | `POST /api/closures/toggle` `{lat,lon}` 🔒 | Dokunulan noktadaki segmenti kapatır, kapalıysa açar |

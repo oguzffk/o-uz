@@ -67,3 +67,21 @@ export function formatDuration(sec) {
 }
 
 export const toLatLng = ([latitude, longitude]) => ({ latitude, longitude });
+
+/** a'dan b'ye pusula yönü (derece, 0 = kuzey, saat yönünde). */
+export function bearingDegrees([lat1, lon1], [lat2, lon2]) {
+  const φ1 = toRad(lat1);
+  const φ2 = toRad(lat2);
+  const Δλ = toRad(lon2 - lon1);
+  const y = Math.sin(Δλ) * Math.cos(φ2);
+  const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+}
+
+/** Noktadan verilen yönde `meters` kadar ilerideki nokta (kısa mesafeler için düzlem yaklaşımı). */
+export function offsetPoint([lat, lon], bearingDeg, meters) {
+  const b = toRad(bearingDeg);
+  const dLat = (meters * Math.cos(b)) / R;
+  const dLon = (meters * Math.sin(b)) / (R * Math.cos(toRad(lat)));
+  return [lat + (dLat * 180) / Math.PI, lon + (dLon * 180) / Math.PI];
+}

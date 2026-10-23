@@ -16,7 +16,15 @@ import { useKeepAwake } from 'expo-keep-awake';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createApi, defaultApiUrl } from './src/api';
 import { createDemoApi } from './src/demoApi';
-import { ISTANBUL_REGION, formatDistance, formatDuration, inIstanbul, toLatLng } from './src/geo';
+import {
+  ISTANBUL_REGION,
+  bearingDegrees,
+  formatDistance,
+  formatDuration,
+  inIstanbul,
+  offsetPoint,
+  toLatLng,
+} from './src/geo';
 import { stopSpeech, useNavigation } from './src/useNavigation';
 import SettingsSheet from './src/SettingsSheet';
 import ZonesSheet from './src/ZonesSheet';
@@ -83,7 +91,7 @@ export default function App() {
     let cancelled = false;
     const update = ({ coords }) => {
       if (cancelled) return;
-      setLocation({ lat: coords.latitude, lon: coords.longitude, heading: coords.heading });
+      setLocation({ lat: coords.latitude, lon: coords.longitude, heading: coords.heading, speed: coords.speed });
       setLocStatus('ok');
     };
     (async () => {
@@ -218,24 +226,46 @@ export default function App() {
     },
   });
 
+  // --- Takip kamerası (Google Haritalar'daki gibi) ---
+  // Seyirde harita konumu takip eder ve gidiş yönüne döner. Kullanıcı haritayı
+  // kaydırınca takip durur; "Ortala" düğmesi takibi geri açar.
+  const [following, setFollowing] = useState(true);
+  const lastBearing = useRef(0);
   useEffect(() => {
-    if (!navigating || !gpsUsable) return;
+    if (!navigating || !following || !gpsUsable) return;
+    const here = [location.lat, location.lon];
+    const moving = location.speed != null && location.speed > 2; // ~7 km/sa üstü
+    // Hareket halindeyken GPS yönü güvenilir; dururken rotanın gittiği yöne bak.
+    let bearing = lastBearing.current;
+    if (moving && location.heading >= 0) {
+      bearing = location.heading;
+    } else if (route && progress) {
+      const i = Math.min(progress.snap.index, route.coordinates.length - 2);
+      if (i >= 0) bearing = bearingDegrees(route.coordinates[i], route.coordinates[i + 1]);
+    }
+    lastBearing.current = bearing;
+    // Hız arttıkça biraz uzaklaş; konum ekranın alt kısmında kalsın diye merkez biraz ileride.
+    const speed = location.speed ?? 0;
+    const zoom = speed > 17 ? 16.5 : speed > 8 ? 17.2 : 17.8;
+    const [lat, lon] = offsetPoint(here, bearing, speed > 17 ? 90 : 45);
     mapRef.current?.animateCamera(
-      {
-        center: { latitude: location.lat, longitude: location.lon },
-        heading: location.heading >= 0 ? location.heading : 0,
-        pitch: 45,
-        zoom: 17,
-      },
-      { duration: 800 },
+      { center: { latitude: lat, longitude: lon }, heading: bearing, pitch: 50, zoom },
+      { duration: 900 },
     );
-  }, [navigating, gpsUsable, location]);
+    // progress her konumda değişir; ayrı bağımlılık gerekmiyor.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [navigating, following, gpsUsable, location, route]);
+
+  const stopFollowingOnGesture = () => {
+    if (navigating && following) setFollowing(false);
+  };
 
   const startNavigation = () => {
     if (!gpsUsable) {
       showToast('Seyir için İstanbul içinde GPS konumu gerekli. Rota önizlemesi kullanılabilir.', 'error');
       return;
     }
+    setFollowing(true);
     setNavigating(true);
     requestRoute({ from: location, quiet: true });
   };
@@ -375,6 +405,8 @@ export default function App() {
         toolbarEnabled={false}
         onPress={onMapPress}
         onLongPress={onMapLongPress}
+        onPanDrag={stopFollowingOnGesture}
+        onRegionChangeComplete={(_, details) => details?.isGesture && stopFollowingOnGesture()}
       >
         {route && (
           <Polyline coordinates={route.coordinates.map(toLatLng)} strokeColor="#0a66d8" strokeWidth={7} zIndex={1} />
@@ -563,9 +595,18 @@ export default function App() {
 
       {navigating && <KeepScreenOn />}
 
-      <Pressable style={[styles.myLocation, { bottom: route || busy ? 200 : 40 }]} onPress={goToMyLocation}>
-        <View style={styles.myLocationDot} />
-      </Pressable>
+      {navigating ? (
+        !following && (
+          <Pressable style={[styles.recenter, { bottom: 200 }]} onPress={() => setFollowing(true)}>
+            <View style={styles.myLocationDot} />
+            <Text style={styles.recenterText}>Ortala</Text>
+          </Pressable>
+        )
+      ) : (
+        <Pressable style={[styles.myLocation, { bottom: route || busy ? 200 : 40 }]} onPress={goToMyLocation}>
+          <View style={styles.myLocationDot} />
+        </Pressable>
+      )}
 
       <Text style={styles.attribution}>© OpenStreetMap katkıcıları</Text>
 
@@ -652,6 +693,8 @@ const styles = StyleSheet.create({
   notice: { backgroundColor: '#fff8e1', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, ...shadow },
   noticeText: { fontSize: 13, color: '#5c4400' },
   myLocation: { position: 'absolute', right: 14, width: 48, height: 48, borderRadius: 24, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', ...shadow },
+  recenter: { position: 'absolute', left: 14, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#fff', borderRadius: 24, paddingHorizontal: 16, height: 48, ...shadow },
+  recenterText: { fontSize: 16, fontWeight: '700', color: '#0a66d8' },
   myLocationDot: { width: 16, height: 16, borderRadius: 8, backgroundColor: '#0a66d8', borderWidth: 3, borderColor: '#cfe0fb' },
   attribution: { position: 'absolute', right: 6, bottom: 6, fontSize: 10, color: '#3a3a3c', backgroundColor: 'rgba(255,255,255,0.7)', paddingHorizontal: 4 },
 });

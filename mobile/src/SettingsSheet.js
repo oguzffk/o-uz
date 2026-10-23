@@ -8,9 +8,15 @@ const COSTINGS = [
   { key: 'pedestrian', label: 'Yaya' },
 ];
 
+const BACKENDS = [
+  { key: 'demo', label: 'Demo (herkese açık)' },
+  { key: 'server', label: 'Kendi sunucum' },
+];
+
 export default function SettingsSheet({ visible, settings, adminMode, onClose, onSave, onAdminModeChange }) {
   const [draft, setDraft] = useState(settings);
   const set = (key) => (value) => setDraft((d) => ({ ...d, [key]: value }));
+  const demo = draft.backend === 'demo';
 
   return (
     <Modal visible={visible} animationType="slide" transparent onShow={() => setDraft(settings)} onRequestClose={onClose}>
@@ -18,16 +24,38 @@ export default function SettingsSheet({ visible, settings, adminMode, onClose, o
         <View style={styles.sheet}>
           <Text style={styles.title}>Ayarlar</Text>
 
-          <Text style={styles.label}>Sunucu adresi</Text>
-          <TextInput
-            style={styles.input}
-            value={draft.apiUrl}
-            onChangeText={set('apiUrl')}
-            autoCapitalize="none"
-            autoCorrect={false}
-            keyboardType="url"
-            placeholder="http://192.168.1.20:3000"
-          />
+          <Text style={styles.label}>Rota sunucusu</Text>
+          <View style={styles.segment}>
+            {BACKENDS.map((b) => (
+              <Pressable
+                key={b.key}
+                onPress={() => set('backend')(b.key)}
+                style={[styles.segmentItem, draft.backend === b.key && styles.segmentOn]}
+              >
+                <Text style={[styles.segmentText, draft.backend === b.key && styles.segmentTextOn]}>{b.label}</Text>
+              </Pressable>
+            ))}
+          </View>
+          {demo && (
+            <Text style={styles.hint}>
+              Herkese açık OpenStreetMap Valhalla sunucusu kullanılır. Kapattığınız yollar yalnızca bu telefonda geçerlidir.
+            </Text>
+          )}
+
+          {!demo && (
+            <>
+              <Text style={styles.label}>Sunucu adresi</Text>
+              <TextInput
+                style={styles.input}
+                value={draft.apiUrl}
+                onChangeText={set('apiUrl')}
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="url"
+                placeholder="http://192.168.1.20:3000"
+              />
+            </>
+          )}
 
           <Text style={styles.label}>Ulaşım türü</Text>
           <View style={styles.segment}>
@@ -42,16 +70,20 @@ export default function SettingsSheet({ visible, settings, adminMode, onClose, o
             ))}
           </View>
 
-          <Text style={styles.label}>Yönetici anahtarı</Text>
-          <TextInput
-            style={styles.input}
-            value={draft.adminToken}
-            onChangeText={set('adminToken')}
-            autoCapitalize="none"
-            autoCorrect={false}
-            secureTextEntry
-            placeholder="Yalnızca yöneticiler için"
-          />
+          {!demo && (
+            <>
+              <Text style={styles.label}>Yönetici anahtarı</Text>
+              <TextInput
+                style={styles.input}
+                value={draft.adminToken}
+                onChangeText={set('adminToken')}
+                autoCapitalize="none"
+                autoCorrect={false}
+                secureTextEntry
+                placeholder="Yalnızca yöneticiler için"
+              />
+            </>
+          )}
 
           <View style={styles.row}>
             <View style={{ flex: 1 }}>
@@ -80,6 +112,7 @@ const styles = StyleSheet.create({
   sheet: { backgroundColor: '#fff', borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 20, paddingBottom: 36 },
   title: { fontSize: 20, fontWeight: '700', marginBottom: 12 },
   label: { color: '#6e6e73', fontSize: 13, marginTop: 12, marginBottom: 6 },
+  hint: { color: '#6e6e73', fontSize: 12, marginTop: 6 },
   input: { borderWidth: 1, borderColor: '#d1d1d6', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 16 },
   segment: { flexDirection: 'row', backgroundColor: '#f2f2f7', borderRadius: 10, padding: 3 },
   segmentItem: { flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 8 },

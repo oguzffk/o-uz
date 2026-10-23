@@ -16,6 +16,23 @@ Telefon odaklı, İstanbul'a özel bir navigasyon uygulaması:
  └─────────────┘                               └──────────────┘
 ```
 
+## En hızlı deneme: demo modu (Docker gerekmez)
+
+Sadece Node.js ve telefonda **Expo Go** yeterli:
+
+```bash
+cd mobile
+npm install
+npx expo start
+```
+
+Telefonda Expo Go ile QR kodu okutun. Uygulama varsayılan olarak **demo modunda** açılır: rotaları OpenStreetMap topluluğunun herkese açık Valhalla sunucusundan (`valhalla1.openstreetmap.de`) alır; gerçek İstanbul sokakları, Türkçe sesli yönlendirme ve yol kapatma çalışır. Farkları:
+
+- Kapattığınız yollar **yalnızca o telefonda** geçerlidir, diğer kullanıcılara yansımaz.
+- Herkese açık sunucu adil kullanım içindir; yalnızca deneme amaçlı kullanın.
+
+Tam sürüm (kapatmalar herkese yansır) için aşağıdaki kurulumu yapıp uygulamada ⚙︎ **Ayarlar → Rota sunucusu → Kendi sunucum** seçin.
+
 ## Neden Valhalla (OSRM değil)?
 
 OSRM hızlıdır ama yol ağını önceden "contract" eder; bir yolu kapatmak için grafiği yeniden işlemek gerekir (İstanbul için dakikalar). Valhalla ise her rota isteğinde `exclude_polygons` parametresi alır. API, her kapalı segmentin ortasına ~1 m'lik bir poligon koyup bunu isteğe ekler; böylece **kapatma/açma anında geçerli olur, hiçbir şey yeniden derlenmez.** Bu, otoyol gibi Valhalla'nın "shortcut" kenarlarında da çalışır (test edildi).
@@ -71,7 +88,7 @@ npm install
 npx expo start
 ```
 
-Telefonda Expo Go ile QR kodu okutun. Uygulama API adresini otomatik olarak Expo'yu çalıştıran bilgisayarın IP'si üzerinden bulur (`http://<bilgisayar-ip>:3000`). Gerekirse ⚙︎ **Ayarlar**'dan değiştirin ya da `EXPO_PUBLIC_API_URL=http://192.168.1.20:3000 npx expo start` kullanın.
+Telefonda Expo Go ile QR kodu okutun, ⚙︎ **Ayarlar → Rota sunucusu → Kendi sunucum** seçin. Uygulama API adresini otomatik olarak Expo'yu çalıştıran bilgisayarın IP'si üzerinden bulur (`http://<bilgisayar-ip>:3000`). Gerekirse ⚙︎ **Ayarlar**'dan değiştirin ya da `EXPO_PUBLIC_API_URL=http://192.168.1.20:3000 npx expo start` kullanın.
 
 | İşlem | Nasıl |
 | --- | --- |

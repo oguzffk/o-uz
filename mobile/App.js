@@ -15,6 +15,7 @@ import MapView, { Marker, Polyline, UrlTile } from 'react-native-maps';
 import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createApi, defaultApiUrl } from './src/api';
+import { createDemoApi } from './src/demoApi';
 import { ISTANBUL_REGION, formatDistance, formatDuration, inIstanbul, toLatLng } from './src/geo';
 import { stopSpeech, useNavigation } from './src/useNavigation';
 import SettingsSheet from './src/SettingsSheet';
@@ -22,9 +23,17 @@ import SettingsSheet from './src/SettingsSheet';
 const SETTINGS_KEY = 'nav-settings-v1';
 const CLOSURE_POLL_MS = 5000;
 
+// Demo modu kendi sunucumuz olmadan herkese açık Valhalla'yı kullanır (bkz. src/demoApi.js).
+const apiFor = (s) => (s.backend === 'demo' ? createDemoApi() : createApi(s.apiUrl, s.adminToken));
+
 export default function App() {
   const mapRef = useRef(null);
-  const [settings, setSettings] = useState({ apiUrl: defaultApiUrl(), adminToken: '', costing: 'auto' });
+  const [settings, setSettings] = useState({
+    backend: process.env.EXPO_PUBLIC_API_URL ? 'server' : 'demo',
+    apiUrl: defaultApiUrl(),
+    adminToken: '',
+    costing: 'auto',
+  });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [adminMode, setAdminMode] = useState(false);
 
@@ -40,7 +49,8 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState(null);
 
-  const api = useMemo(() => createApi(settings.apiUrl, settings.adminToken), [settings]);
+  const api = useMemo(() => apiFor(settings), [settings]);
+  const demo = settings.backend === 'demo';
 
   const toastTimer = useRef(null);
   const showToast = useCallback((text, kind = 'info') => {
@@ -258,7 +268,7 @@ export default function App() {
   const onAdminModeChange = async (enabled, draft) => {
     if (!enabled) return setAdminMode(false);
     try {
-      await createApi(draft.apiUrl, draft.adminToken).checkAdmin();
+      await apiFor(draft).checkAdmin();
       saveSettings(draft);
       setAdminMode(true);
       showToast('Yönetici modu açık: kapatmak/açmak için bir sokağa dokunun.');
@@ -356,6 +366,11 @@ export default function App() {
             <Text style={styles.adminPillText}>YÖNETİCİ MODU · {closures.closures.length} kapalı segment</Text>
           </View>
         )}
+        {demo && !navigating && (
+          <View style={styles.demoPill}>
+            <Text style={styles.demoPillText}>Demo modu · kapatmalar yalnızca bu telefonda</Text>
+          </View>
+        )}
         {toast && (
           <View style={[styles.toast, toast.kind === 'error' && styles.toastError]}>
             <Text style={styles.toastText}>{toast.text}</Text>
@@ -442,6 +457,8 @@ const styles = StyleSheet.create({
   bannerText: { color: '#fff', fontSize: 18, marginTop: 4 },
   adminPill: { alignSelf: 'center', backgroundColor: '#d70015', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 },
   adminPillText: { color: '#fff', fontWeight: '700', fontSize: 12 },
+  demoPill: { alignSelf: 'center', backgroundColor: 'rgba(255,255,255,0.92)', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
+  demoPillText: { color: '#6e6e73', fontSize: 11 },
   toast: { alignSelf: 'center', backgroundColor: 'rgba(29,29,31,0.92)', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, maxWidth: '100%' },
   toastError: { backgroundColor: 'rgba(215,0,21,0.95)' },
   toastText: { color: '#fff', fontSize: 14 },

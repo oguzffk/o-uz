@@ -16,6 +16,7 @@ import { StatusBar } from 'expo-status-bar';
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { useKeepAwake } from 'expo-keep-awake';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createApi, defaultApiUrl } from './src/api';
 import { createDemoApi } from './src/demoApi';
@@ -45,6 +46,17 @@ const CLOSURE_POLL_MS = 5000;
 const apiFor = (s) => (s.backend === 'demo' ? createDemoApi() : createApi(s.apiUrl, s.adminToken));
 
 export default function App() {
+  return (
+    <SafeAreaProvider>
+      <AppScreen />
+    </SafeAreaProvider>
+  );
+}
+
+function AppScreen() {
+  // Alt kenardaki geri / ana ekran tuş çubuğunun yüksekliği; düğmeler bunun altında kalmasın.
+  const insets = useSafeAreaInsets();
+  const panelBottom = Math.max(34, insets.bottom + 16);
   const mapRef = useRef(null);
   const [settings, setSettings] = useState({
     backend: process.env.EXPO_PUBLIC_API_URL ? 'server' : 'demo',
@@ -918,6 +930,7 @@ export default function App() {
           onLayout={(e) => setBottomPanelHeight(e.nativeEvent.layout.height)}
           style={[
             styles.bottom,
+            { bottom: panelBottom },
             {
               opacity: panelExit.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
               transform: [{ translateY: panelExit.interpolate({ inputRange: [0, 1], outputRange: [0, 320] }) }],
@@ -1050,7 +1063,7 @@ export default function App() {
         <Pressable
           style={({ pressed }) => [
             styles.recenter,
-            { bottom: route || busy ? bottomPanelHeight + 34 + 12 : 40 },
+            { bottom: route || busy ? bottomPanelHeight + panelBottom + 12 : Math.max(96, insets.bottom + 48) },
             pressed && styles.recenterPressed,
           ]}
           onPress={recenter}
@@ -1060,7 +1073,7 @@ export default function App() {
         </Pressable>
       )}
 
-      {!inPip && <Text style={styles.attribution}>© OpenStreetMap katkıcıları</Text>}
+      {!inPip && <Text style={[styles.attribution, { bottom: insets.bottom + 4 }]}>© OpenStreetMap katkıcıları</Text>}
 
       <ZonesSheet
         visible={zonesOpen}

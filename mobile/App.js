@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -67,6 +67,7 @@ function AppScreen() {
     costing: 'auto',
     avoidTolls: false,
     voice: true,
+    night: false,
   });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [adminMode, setAdminMode] = useState(false);
@@ -116,6 +117,8 @@ function AppScreen() {
   const panelExit = useRef(new Animated.Value(0)).current;
 
   const api = useMemo(() => apiFor(settings), [settings]);
+  const night = Boolean(settings.night);
+  const styles = night ? nightStyles : baseStyles;
   const demo = settings.backend === 'demo';
 
   const toastTimer = useRef(null);
@@ -674,6 +677,12 @@ function AppScreen() {
     requestRoute({ to: place });
   };
 
+  const toggleNight = () => {
+    const night = !settings.night;
+    saveSettings({ ...settings, night });
+    showToast(night ? 'Gece modu açıldı.' : 'Gece modu kapatıldı.');
+  };
+
   const toggleVoice = () => {
     const voice = settings.voice === false;
     saveSettings({ ...settings, voice });
@@ -724,541 +733,554 @@ function AppScreen() {
     (recents.length > 0 || activeField === 'from');
 
   return (
-    <View style={styles.container}>
-      <StatusBar style="dark" />
-      <MapView
-        ref={mapRef}
-        style={StyleSheet.absoluteFill}
-        initialRegion={ISTANBUL_REGION}
-        // Altlık: telefonun kendi haritası (Android'de Google, iOS'ta Apple). OSM'nin ücretsiz
-        // karo sunucusu uygulamalardan gelen istekleri engellediği için onu kullanmıyoruz.
-        mapType="standard"
-        // Seyirde mavi nokta yerine aşağıdaki yön oku gösterilir.
-        showsUserLocation={!navigating}
-        showsMyLocationButton={false}
-        showsCompass={false}
-        toolbarEnabled={false}
-        onPress={onMapPress}
-        onLongPress={onMapLongPress}
-        onPanDrag={stopFollowingOnGesture}
-        onRegionChangeComplete={(_, details) => details?.isGesture && stopFollowingOnGesture()}
-      >
-        {/* Seçili olmayan alternatifler gri; dokununca seçilir. */}
-        {routeOptions
-          .filter((o) => o.index !== route?.index)
-          .map((o) => (
-            <Polyline
-              key={`alt:${o.index}`}
-              coordinates={o.coordinates.map(toLatLng)}
-              strokeColor="#8e9aa8"
-              strokeWidth={7}
-              zIndex={0}
-              tappable
-              onPress={() => setRoute(o)}
-            />
-          ))}
-        {route && (
-          <Polyline coordinates={route.coordinates.map(toLatLng)} strokeColor="#0a66d8" strokeWidth={7} zIndex={1} />
-        )}
-        {closures.closures.map((c) => (
-          <Polyline
-            key={c.id}
-            coordinates={c.coordinates.map(toLatLng)}
-            strokeColor="#d70015"
-            strokeWidth={adminMode ? 9 : 6}
-            zIndex={2}
-          />
-        ))}
-        {/* Yöneticiye, şu an trafiğe açık olan kayıtlı grupları kesik çizgiyle göster. */}
-        {adminMode &&
-          closures.zones
-            .filter((z) => !z.active)
-            .flatMap((z) => z.segments.map((s) => ({ ...s, key: `${z.id}:${s.id}` })))
-            .map((s) => (
+    <NightContext.Provider value={night}>
+      <View style={styles.container}>
+        <StatusBar style={night ? 'light' : 'dark'} />
+        <MapView
+          ref={mapRef}
+          style={StyleSheet.absoluteFill}
+          initialRegion={ISTANBUL_REGION}
+          // Gece modu: Android'de (Google) koyu harita stili, iOS'ta (Apple) koyu görünüm.
+          customMapStyle={night ? NIGHT_MAP_STYLE : []}
+          userInterfaceStyle={night ? 'dark' : 'light'}
+          // Altlık: telefonun kendi haritası (Android'de Google, iOS'ta Apple). OSM'nin ücretsiz
+          // karo sunucusu uygulamalardan gelen istekleri engellediği için onu kullanmıyoruz.
+          mapType="standard"
+          // Seyirde mavi nokta yerine aşağıdaki yön oku gösterilir.
+          showsUserLocation={!navigating}
+          showsMyLocationButton={false}
+          showsCompass={false}
+          toolbarEnabled={false}
+          onPress={onMapPress}
+          onLongPress={onMapLongPress}
+          onPanDrag={stopFollowingOnGesture}
+          onRegionChangeComplete={(_, details) => details?.isGesture && stopFollowingOnGesture()}
+        >
+          {/* Seçili olmayan alternatifler gri; dokununca seçilir. */}
+          {routeOptions
+            .filter((o) => o.index !== route?.index)
+            .map((o) => (
               <Polyline
-                key={s.key}
-                coordinates={s.coordinates.map(toLatLng)}
-                strokeColor="#d70015"
-                strokeWidth={4}
-                lineDashPattern={[6, 8]}
-                zIndex={2}
+                key={`alt:${o.index}`}
+                coordinates={o.coordinates.map(toLatLng)}
+                strokeColor="#8e9aa8"
+                strokeWidth={7}
+                zIndex={0}
+                tappable
+                onPress={() => setRoute(o)}
               />
             ))}
-        {/* Düzenlenen grubun yolları turuncu. */}
-        {editingZone?.segments.map((seg) => (
-          <Polyline
-            key={`edit:${seg.id}`}
-            coordinates={seg.coordinates.map(toLatLng)}
-            strokeColor="#f08c00"
-            strokeWidth={9}
-            zIndex={3}
-          />
-        ))}
-        {fromPlace && (
-          <Marker coordinate={toLatLng([fromPlace.lat, fromPlace.lon])} pinColor="green" title={fromPlace.name} />
-        )}
-        {stops.map((s, i) => (
-          <Marker
-            key={`stop:${i}:${s.lat},${s.lon}`}
-            coordinate={toLatLng([s.lat, s.lon])}
-            pinColor="orange"
-            title={`${i + 1}. durak: ${s.name}`}
-          />
-        ))}
-        {destination && <Marker coordinate={toLatLng([destination.lat, destination.lon])} title={destination.name} />}
-        {puck && <NavPuck position={puck} bearing={bearing} />}
-      </MapView>
-
-      {/* Küçük pencere (PiP): yalnızca kısa yön bandı. */}
-      {inPip && navigating && next && (
-        <View style={styles.pipBanner} pointerEvents="none">
-          <Text style={styles.pipDistance}>{formatDistance(progress.distanceToNext)}</Text>
-          <Text style={styles.pipText} numberOfLines={2}>
-            {bannerInstruction}
-          </Text>
-        </View>
-      )}
-
-      {/* Üst kısım: seyirde manevra bandı, değilse arama kutusu */}
-      {!inPip && (
-        <View style={styles.top} pointerEvents="box-none">
-          {editing ? (
-            <View style={styles.editCard}>
-              <Text style={styles.editLabel}>GRUBU DÜZENLE · {editingZone?.segments.length ?? 0} yol parçası</Text>
-              <View style={styles.editRow}>
-                <TextInput
-                  style={styles.editInput}
-                  value={editing.name}
-                  onChangeText={(name) => setEditing((e) => ({ ...e, name }))}
-                  maxLength={80}
-                  placeholder="Grup adı"
+          {route && (
+            <Polyline coordinates={route.coordinates.map(toLatLng)} strokeColor="#0a66d8" strokeWidth={7} zIndex={1} />
+          )}
+          {closures.closures.map((c) => (
+            <Polyline
+              key={c.id}
+              coordinates={c.coordinates.map(toLatLng)}
+              strokeColor="#d70015"
+              strokeWidth={adminMode ? 9 : 6}
+              zIndex={2}
+            />
+          ))}
+          {/* Yöneticiye, şu an trafiğe açık olan kayıtlı grupları kesik çizgiyle göster. */}
+          {adminMode &&
+            closures.zones
+              .filter((z) => !z.active)
+              .flatMap((z) => z.segments.map((s) => ({ ...s, key: `${z.id}:${s.id}` })))
+              .map((s) => (
+                <Polyline
+                  key={s.key}
+                  coordinates={s.coordinates.map(toLatLng)}
+                  strokeColor="#d70015"
+                  strokeWidth={4}
+                  lineDashPattern={[6, 8]}
+                  zIndex={2}
                 />
-                <Pressable style={styles.editDone} onPress={finishEditing}>
-                  <Text style={styles.editDoneText}>Bitti</Text>
-                </Pressable>
-              </View>
-              <Text style={styles.editHint}>Yola dokun: gruba ekle · Turuncu yola dokun: gruptan çıkar</Text>
-            </View>
-          ) : navigating && next ? (
-            <>
-              <SlideIn from={-24} style={styles.banner}>
-                <Text style={styles.bannerDistance}>{formatDistance(progress.distanceToNext)}</Text>
-                <Text style={styles.bannerText} numberOfLines={2}>
-                  {bannerInstruction}
-                </Text>
-              </SlideIn>
-              {(speedLimit != null || speedKph != null) && (
-                <View style={styles.speedRow} pointerEvents="none">
-                  {speedLimit != null && (
-                    <View style={styles.speedSign} accessibilityLabel={`Hız sınırı ${speedLimit}`}>
-                      <Text style={styles.speedSignText}>{speedLimit}</Text>
-                    </View>
-                  )}
-                  {speedKph != null && (
-                    <View style={[styles.speedNow, overLimit && styles.speedNowOver]}>
-                      <Text style={[styles.speedNowValue, overLimit && styles.speedNowOverText]}>{speedKph}</Text>
-                      <Text style={[styles.speedNowUnit, overLimit && styles.speedNowOverText]}>km/sa</Text>
-                    </View>
-                  )}
+              ))}
+          {/* Düzenlenen grubun yolları turuncu. */}
+          {editingZone?.segments.map((seg) => (
+            <Polyline
+              key={`edit:${seg.id}`}
+              coordinates={seg.coordinates.map(toLatLng)}
+              strokeColor="#f08c00"
+              strokeWidth={9}
+              zIndex={3}
+            />
+          ))}
+          {fromPlace && (
+            <Marker coordinate={toLatLng([fromPlace.lat, fromPlace.lon])} pinColor="green" title={fromPlace.name} />
+          )}
+          {stops.map((s, i) => (
+            <Marker
+              key={`stop:${i}:${s.lat},${s.lon}`}
+              coordinate={toLatLng([s.lat, s.lon])}
+              pinColor="orange"
+              title={`${i + 1}. durak: ${s.name}`}
+            />
+          ))}
+          {destination && <Marker coordinate={toLatLng([destination.lat, destination.lon])} title={destination.name} />}
+          {puck && <NavPuck position={puck} bearing={bearing} />}
+        </MapView>
+
+        {/* Küçük pencere (PiP): yalnızca kısa yön bandı. */}
+        {inPip && navigating && next && (
+          <View style={styles.pipBanner} pointerEvents="none">
+            <Text style={styles.pipDistance}>{formatDistance(progress.distanceToNext)}</Text>
+            <Text style={styles.pipText} numberOfLines={2}>
+              {bannerInstruction}
+            </Text>
+          </View>
+        )}
+
+        {/* Üst kısım: seyirde manevra bandı, değilse arama kutusu */}
+        {!inPip && (
+          <View style={styles.top} pointerEvents="box-none">
+            {editing ? (
+              <View style={styles.editCard}>
+                <Text style={styles.editLabel}>GRUBU DÜZENLE · {editingZone?.segments.length ?? 0} yol parçası</Text>
+                <View style={styles.editRow}>
+                  <TextInput
+                    style={styles.editInput}
+                    value={editing.name}
+                    onChangeText={(name) => setEditing((e) => ({ ...e, name }))}
+                    maxLength={80}
+                    placeholder="Grup adı"
+                  />
+                  <Pressable style={styles.editDone} onPress={finishEditing}>
+                    <Text style={styles.editDoneText}>Bitti</Text>
+                  </Pressable>
                 </View>
-              )}
-            </>
-          ) : (
-            <>
-              <SlideIn
-                from={-12}
-                style={styles.searchRow}
-                onLayout={(e) => setSearchCardBottom(e.nativeEvent.layout.y + e.nativeEvent.layout.height)}
-              >
-                <View style={styles.routeCard}>
-                  <View style={styles.fieldRow}>
-                    <View style={styles.iconSlot}>
-                      <View style={styles.fromDot} />
-                    </View>
-                    <TextInput
-                      style={styles.fieldInput}
-                      value={fromText}
-                      onChangeText={(t) => {
-                        setTyped(true);
-                        setFromText(t);
-                      }}
-                      selectTextOnFocus
-                      onSubmitEditing={() => search()}
-                      onFocus={() => {
-                        setActiveField('from');
-                        setTyped(false);
-                        setResults([]);
-                        setSearchFocused(true);
-                      }}
-                      onBlur={() =>
-                        setTimeout(() => {
-                          setSearchFocused(false);
-                          // yarım kalan yazı silinsin, seçili başlangıcın adı geri gelsin
-                          setFromText(fromPlaceRef.current ? fromPlaceRef.current.name : '');
-                        }, 150)
-                      }
-                      placeholder={gpsUsable ? 'Konumum' : 'Nereden? (başlangıç seçin)'}
-                      placeholderTextColor={gpsUsable ? '#0a66d8' : '#8e8e93'}
-                      returnKeyType="search"
-                    />
+                <Text style={styles.editHint}>Yola dokun: gruba ekle · Turuncu yola dokun: gruptan çıkar</Text>
+              </View>
+            ) : navigating && next ? (
+              <>
+                <SlideIn from={-24} style={styles.banner}>
+                  <Text style={styles.bannerDistance}>{formatDistance(progress.distanceToNext)}</Text>
+                  <Text style={styles.bannerText} numberOfLines={2}>
+                    {bannerInstruction}
+                  </Text>
+                </SlideIn>
+                {(speedLimit != null || speedKph != null) && (
+                  <View style={styles.speedRow} pointerEvents="none">
+                    {speedLimit != null && (
+                      <View style={styles.speedSign} accessibilityLabel={`Hız sınırı ${speedLimit}`}>
+                        <Text style={styles.speedSignText}>{speedLimit}</Text>
+                      </View>
+                    )}
+                    {speedKph != null && (
+                      <View style={[styles.speedNow, overLimit && styles.speedNowOver]}>
+                        <Text style={[styles.speedNowValue, overLimit && styles.speedNowOverText]}>{speedKph}</Text>
+                        <Text style={[styles.speedNowUnit, overLimit && styles.speedNowOverText]}>km/sa</Text>
+                      </View>
+                    )}
                   </View>
-                  <StopRows stops={stops} onRemove={removeStop} onMove={moveStop} />
-                  {addingStop && (
-                    <View>
-                      <FieldJoiner />
-                      <View style={styles.fieldRow}>
-                        <View style={styles.iconSlot}>
-                          <View style={styles.stopBadge}>
-                            <Text style={styles.stopBadgeText}>{stops.length + 1}</Text>
+                )}
+              </>
+            ) : (
+              <>
+                <SlideIn
+                  from={-12}
+                  style={styles.searchRow}
+                  onLayout={(e) => setSearchCardBottom(e.nativeEvent.layout.y + e.nativeEvent.layout.height)}
+                >
+                  <View style={styles.routeCard}>
+                    <View style={styles.fieldRow}>
+                      <View style={styles.iconSlot}>
+                        <View style={styles.fromDot} />
+                      </View>
+                      <TextInput
+                        style={styles.fieldInput}
+                        value={fromText}
+                        onChangeText={(t) => {
+                          setTyped(true);
+                          setFromText(t);
+                        }}
+                        selectTextOnFocus
+                        onSubmitEditing={() => search()}
+                        onFocus={() => {
+                          setActiveField('from');
+                          setTyped(false);
+                          setResults([]);
+                          setSearchFocused(true);
+                        }}
+                        onBlur={() =>
+                          setTimeout(() => {
+                            setSearchFocused(false);
+                            // yarım kalan yazı silinsin, seçili başlangıcın adı geri gelsin
+                            setFromText(fromPlaceRef.current ? fromPlaceRef.current.name : '');
+                          }, 150)
+                        }
+                        placeholder={gpsUsable ? 'Konumum' : 'Nereden? (başlangıç seçin)'}
+                        placeholderTextColor={gpsUsable ? (night ? '#4c9bff' : '#0a66d8') : '#8e8e93'}
+                        returnKeyType="search"
+                      />
+                    </View>
+                    <StopRows stops={stops} onRemove={removeStop} onMove={moveStop} />
+                    {addingStop && (
+                      <View>
+                        <FieldJoiner />
+                        <View style={styles.fieldRow}>
+                          <View style={styles.iconSlot}>
+                            <View style={styles.stopBadge}>
+                              <Text style={styles.stopBadgeText}>{stops.length + 1}</Text>
+                            </View>
                           </View>
+                          <TextInput
+                            style={styles.fieldInput}
+                            value={stopText}
+                            autoFocus
+                            onChangeText={(t) => {
+                              setTyped(true);
+                              setStopText(t);
+                            }}
+                            onSubmitEditing={() => search()}
+                            onFocus={() => {
+                              setActiveField('stop');
+                              setTyped(false);
+                              setResults([]);
+                              setSearchFocused(true);
+                            }}
+                            onBlur={() => setTimeout(() => setSearchFocused(false), 150)}
+                            placeholder="Ara durak ara ya da haritada basılı tut"
+                            returnKeyType="search"
+                          />
+                          <Pressable onPress={closeStopField} hitSlop={10} accessibilityLabel="Durak eklemeyi iptal et">
+                            <Text style={styles.stopRemove}>✕</Text>
+                          </Pressable>
                         </View>
-                        <TextInput
-                          style={styles.fieldInput}
-                          value={stopText}
-                          autoFocus
-                          onChangeText={(t) => {
-                            setTyped(true);
-                            setStopText(t);
-                          }}
-                          onSubmitEditing={() => search()}
-                          onFocus={() => {
-                            setActiveField('stop');
-                            setTyped(false);
-                            setResults([]);
-                            setSearchFocused(true);
-                          }}
-                          onBlur={() => setTimeout(() => setSearchFocused(false), 150)}
-                          placeholder="Ara durak ara ya da haritada basılı tut"
-                          returnKeyType="search"
-                        />
-                        <Pressable onPress={closeStopField} hitSlop={10} accessibilityLabel="Durak eklemeyi iptal et">
-                          <Text style={styles.stopRemove}>✕</Text>
+                      </View>
+                    )}
+                    <FieldJoiner />
+                    <View style={styles.fieldRow}>
+                      <View style={styles.iconSlot}>
+                        <View style={styles.toPin} />
+                      </View>
+                      <TextInput
+                        style={styles.fieldInput}
+                        value={query}
+                        onChangeText={(t) => {
+                          setTyped(true);
+                          setQuery(t);
+                        }}
+                        selectTextOnFocus
+                        onSubmitEditing={() => search()}
+                        onFocus={() => {
+                          setActiveField('to');
+                          setTyped(false);
+                          setResults([]);
+                          setSearchFocused(true);
+                        }}
+                        // Listeye dokunma kaybolmadan önce işlensin diye biraz gecikmeli.
+                        onBlur={() => setTimeout(() => setSearchFocused(false), 150)}
+                        placeholder="Nereye? (ör. Taksim)"
+                        returnKeyType="search"
+                      />
+                    </View>
+                    {destination && !addingStop && stops.length < MAX_STOPS && (
+                      <Pressable style={styles.addStop} onPress={openStopField} hitSlop={6}>
+                        <Text style={styles.addStopText}>＋ Ara durak ekle</Text>
+                      </Pressable>
+                    )}
+                  </View>
+                  <View style={styles.cardButtons}>
+                    <Pressable style={[styles.iconButton, styles.swapButton]} onPress={swapPlaces} accessibilityLabel="Yer değiştir">
+                      <Text style={styles.swapText}>⇅</Text>
+                    </Pressable>
+                    <Pressable style={[styles.iconButton, styles.searchButton, styles.cardSearch]} onPress={() => search()}>
+                      {searching ? <ActivityIndicator color="#fff" /> : <Text style={styles.searchButtonText}>Ara</Text>}
+                    </Pressable>
+                  </View>
+                </SlideIn>
+                {showRecents && (
+                  <View style={styles.results}>
+                    {activeField === 'from' && <MyLocationRow onPress={chooseMyLocationAsStart} />}
+                    {recents.length > 0 && (
+                      <View style={styles.recentsHeader}>
+                        <Text style={styles.recentsTitle}>Son aramalar</Text>
+                        <Pressable onPress={() => storeRecents([])} hitSlop={10}>
+                          <Text style={styles.recentsClear}>Temizle</Text>
                         </Pressable>
                       </View>
-                    </View>
-                  )}
-                  <FieldJoiner />
-                  <View style={styles.fieldRow}>
-                    <View style={styles.iconSlot}>
-                      <View style={styles.toPin} />
-                    </View>
-                    <TextInput
-                      style={styles.fieldInput}
-                      value={query}
-                      onChangeText={(t) => {
-                        setTyped(true);
-                        setQuery(t);
-                      }}
-                      selectTextOnFocus
-                      onSubmitEditing={() => search()}
-                      onFocus={() => {
-                        setActiveField('to');
-                        setTyped(false);
-                        setResults([]);
-                        setSearchFocused(true);
-                      }}
-                      // Listeye dokunma kaybolmadan önce işlensin diye biraz gecikmeli.
-                      onBlur={() => setTimeout(() => setSearchFocused(false), 150)}
-                      placeholder="Nereye? (ör. Taksim)"
-                      returnKeyType="search"
+                    )}
+                    <FlatList
+                      keyboardShouldPersistTaps="handled"
+                      data={recents}
+                      keyExtractor={(item, i) => `${item.lat},${item.lon},${i}`}
+                      renderItem={({ item }) => (
+                        <Pressable style={[styles.result, styles.recentRow]} onPress={() => choosePlace(item)}>
+                          <ClockIcon />
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.resultName} numberOfLines={1}>
+                              {item.name}
+                            </Text>
+                            {!!item.address && (
+                              <Text style={styles.resultAddr} numberOfLines={1}>
+                                {item.address}
+                              </Text>
+                            )}
+                          </View>
+                        </Pressable>
+                      )}
                     />
                   </View>
-                  {destination && !addingStop && stops.length < MAX_STOPS && (
-                    <Pressable style={styles.addStop} onPress={openStopField} hitSlop={6}>
-                      <Text style={styles.addStopText}>＋ Ara durak ekle</Text>
-                    </Pressable>
-                  )}
-                </View>
-                <View style={styles.cardButtons}>
-                  <Pressable style={[styles.iconButton, styles.swapButton]} onPress={swapPlaces} accessibilityLabel="Yer değiştir">
-                    <Text style={styles.swapText}>⇅</Text>
-                  </Pressable>
-                  <Pressable style={[styles.iconButton, styles.searchButton, styles.cardSearch]} onPress={() => search()}>
-                    {searching ? <ActivityIndicator color="#fff" /> : <Text style={styles.searchButtonText}>Ara</Text>}
-                  </Pressable>
-                </View>
-              </SlideIn>
-              {showRecents && (
-                <View style={styles.results}>
-                  {activeField === 'from' && <MyLocationRow onPress={chooseMyLocationAsStart} />}
-                  {recents.length > 0 && (
-                    <View style={styles.recentsHeader}>
-                      <Text style={styles.recentsTitle}>Son aramalar</Text>
-                      <Pressable onPress={() => storeRecents([])} hitSlop={10}>
-                        <Text style={styles.recentsClear}>Temizle</Text>
-                      </Pressable>
-                    </View>
-                  )}
+                )}
+                {locStatus !== 'ok' && !fromPlace && (
+                  <View style={styles.notice}>
+                    <Text style={styles.noticeText}>
+                      {locStatus === 'denied'
+                        ? 'Konum izni yok. Telefon ayarlarından izin verin ya da başlangıcı haritada basılı tutarak seçin.'
+                        : locStatus === 'off'
+                          ? 'Telefonun Konum (GPS) özelliği kapalı. Açın ya da başlangıcı haritada basılı tutarak seçin.'
+                          : 'Konumunuz aranıyor…'}
+                    </Text>
+                  </View>
+                )}
+                {location && !gpsUsable && !fromPlace && (
+                  <View style={styles.notice}>
+                    <Text style={styles.noticeText}>
+                      Konumunuz İstanbul dışında. Denemek için önce başlangıç, sonra varış noktasını haritada basılı tutun.
+                    </Text>
+                  </View>
+                )}
+                {results.length > 0 && (
                   <FlatList
+                    style={styles.results}
                     keyboardShouldPersistTaps="handled"
-                    data={recents}
+                    data={results}
                     keyExtractor={(item, i) => `${item.lat},${item.lon},${i}`}
+                    ListHeaderComponent={activeField === 'from' ? <MyLocationRow onPress={chooseMyLocationAsStart} /> : null}
                     renderItem={({ item }) => (
-                      <Pressable style={[styles.result, styles.recentRow]} onPress={() => choosePlace(item)}>
-                        <ClockIcon />
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.resultName} numberOfLines={1}>
-                            {item.name}
-                          </Text>
-                          {!!item.address && (
-                            <Text style={styles.resultAddr} numberOfLines={1}>
-                              {item.address}
-                            </Text>
-                          )}
-                        </View>
+                      <Pressable style={styles.result} onPress={() => choosePlace(item)}>
+                        <Text style={styles.resultName}>{item.name}</Text>
+                        <Text style={styles.resultAddr} numberOfLines={1}>
+                          {item.address}
+                        </Text>
                       </Pressable>
                     )}
                   />
-                </View>
-              )}
-              {locStatus !== 'ok' && !fromPlace && (
-                <View style={styles.notice}>
-                  <Text style={styles.noticeText}>
-                    {locStatus === 'denied'
-                      ? 'Konum izni yok. Telefon ayarlarından izin verin ya da başlangıcı haritada basılı tutarak seçin.'
-                      : locStatus === 'off'
-                        ? 'Telefonun Konum (GPS) özelliği kapalı. Açın ya da başlangıcı haritada basılı tutarak seçin.'
-                        : 'Konumunuz aranıyor…'}
-                  </Text>
-                </View>
-              )}
-              {location && !gpsUsable && !fromPlace && (
-                <View style={styles.notice}>
-                  <Text style={styles.noticeText}>
-                    Konumunuz İstanbul dışında. Denemek için önce başlangıç, sonra varış noktasını haritada basılı tutun.
-                  </Text>
-                </View>
-              )}
-              {results.length > 0 && (
-                <FlatList
-                  style={styles.results}
-                  keyboardShouldPersistTaps="handled"
-                  data={results}
-                  keyExtractor={(item, i) => `${item.lat},${item.lon},${i}`}
-                  ListHeaderComponent={activeField === 'from' ? <MyLocationRow onPress={chooseMyLocationAsStart} /> : null}
-                  renderItem={({ item }) => (
-                    <Pressable style={styles.result} onPress={() => choosePlace(item)}>
-                      <Text style={styles.resultName}>{item.name}</Text>
-                      <Text style={styles.resultAddr} numberOfLines={1}>
-                        {item.address}
-                      </Text>
-                    </Pressable>
-                  )}
-                />
-              )}
-            </>
-          )}
-          {adminMode && navigating && (
-            <View style={styles.adminRow}>
-              <View style={styles.adminPill}>
-                <Text style={styles.adminPillText}>YÖNETİCİ · {closures.closures.length} kapalı parça</Text>
-              </View>
-              <Pressable style={styles.zonesButton} onPress={() => setZonesOpen(true)}>
-                <Text style={styles.zonesButtonText}>
-                  Kayıtlı gruplar{closures.zones.length ? ` (${closures.zones.length})` : ''}
-                </Text>
-              </Pressable>
-            </View>
-          )}
-          {demo && !navigating && (
-            <View style={styles.demoPill}>
-              <Text style={styles.demoPillText}>Demo modu · kapatmalar yalnızca bu telefonda</Text>
-            </View>
-          )}
-          {toast && (
-            <View style={[styles.toast, toast.kind === 'error' && styles.toastError]}>
-              <Text style={styles.toastText}>{toast.text}</Text>
-            </View>
-          )}
-        </View>
-      )}
-
-      {/* Alt panel: rota özeti ve düğmeler */}
-      {!inPip && (route || busy) && (
-        <Animated.View
-          onLayout={(e) => setBottomPanelHeight(e.nativeEvent.layout.height)}
-          style={[
-            styles.bottom,
-            { bottom: panelBottom },
-            {
-              opacity: panelExit.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
-              transform: [{ translateY: panelExit.interpolate({ inputRange: [0, 1], outputRange: [0, 320] }) }],
-            },
-          ]}
-        >
-          {/* Başla / Seyri bitir'de panel yeniden kurulur ve kayarak gelir. */}
-          <SlideIn key={navigating ? 'nav' : 'preview'} from={40}>
-            {busy && !route ? (
-              <ActivityIndicator />
-            ) : (
-              <>
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryMain}>{formatDuration(remainingSec)}</Text>
-                  <Text style={styles.summarySub}>
-                    {formatDistance(navigating && progress ? progress.remainingMeters : route.distanceKm * 1000)}
-                    {busy ? '  ·  güncelleniyor…' : ''}
-                  </Text>
-                  <View style={styles.arrival}>
-                    <Text style={styles.arrivalLabel}>Varış</Text>
-                    <Text style={styles.arrivalTime}>{formatArrival(remainingSec)}</Text>
-                  </View>
-                </View>
-                {route.traffic && route.traffic.key !== 'night' && (
-                  <Text style={styles.trafficNote}>
-                    {route.traffic.label} tahmini dahil · boş yolda {formatDuration(route.freeFlowDurationSec)}
-                  </Text>
                 )}
-                {route.hasToll && (
-                  <Text style={styles.tollNote}>
-                    {settings.avoidTolls
-                      ? 'Ücretsiz yol bulunamadı; bu rota ücretli yol (köprü, tünel ya da otoyol) içeriyor.'
-                      : 'Bu rota ücretli yol (köprü, tünel ya da otoyol) içeriyor.'}
-                  </Text>
-                )}
-                {!navigating && fromPlace && (
-                  <Text style={styles.previewNote}>
-                    Rota önizlemesi: seyir yalnızca konumunuzdan başlar. Başlamak için “Nereden”i Konumum yapın.
-                  </Text>
-                )}
-                {!navigating && (
-                  <View style={styles.tollRow}>
-                    <Text style={styles.tollLabel}>Ücretli yollardan kaçın</Text>
-                    <Switch
-                      value={settings.avoidTolls}
-                      onValueChange={(avoidTolls) => saveSettings({ ...settings, avoidTolls })}
-                    />
-                  </View>
-                )}
-                {!navigating && routeOptions.length > 1 && (
-                  <View style={styles.options}>
-                    {routeOptions.map((o) => {
-                      const selected = o.index === route.index;
-                      return (
-                        <Pressable key={o.index} style={[styles.option, selected && styles.optionSelected]} onPress={() => setRoute(o)}>
-                          <Text style={[styles.optionTime, selected && styles.optionTimeSelected]}>{formatDuration(o.durationSec)}</Text>
-                          <Text style={styles.optionSub}>
-                            {formatDistance(o.distanceKm * 1000)}
-                            {o.index === 0 ? ' · En hızlı' : ''}
-                            {o.hasToll ? ' · Ücretli' : ''}
-                          </Text>
-                          <Text style={styles.optionArrival}>Varış {formatArrival(o.durationSec)}</Text>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                )}
-                <View style={styles.actions}>
-                  {navigating ? (
-                    <Pressable style={[styles.button, styles.stop]} onPress={finishNavigation}>
-                      <Text style={styles.buttonText}>Seyri bitir</Text>
-                    </Pressable>
-                  ) : (
-                    <>
-                      <Pressable style={[styles.button, styles.secondary]} onPress={clearTrip}>
-                        <Text style={styles.secondaryText}>Temizle</Text>
-                      </Pressable>
-                      {canNavigate && (
-                        <Pressable style={styles.button} onPress={startNavigation}>
-                          <Text style={styles.buttonText}>Başla</Text>
-                        </Pressable>
-                      )}
-                    </>
-                  )}
-                </View>
               </>
             )}
-          </SlideIn>
-        </Animated.View>
-      )}
+            {adminMode && navigating && (
+              <View style={styles.adminRow}>
+                <View style={styles.adminPill}>
+                  <Text style={styles.adminPillText}>YÖNETİCİ · {closures.closures.length} kapalı parça</Text>
+                </View>
+                <Pressable style={styles.zonesButton} onPress={() => setZonesOpen(true)}>
+                  <Text style={styles.zonesButtonText}>
+                    Kayıtlı gruplar{closures.zones.length ? ` (${closures.zones.length})` : ''}
+                  </Text>
+                </Pressable>
+              </View>
+            )}
+            {demo && !navigating && (
+              <View style={styles.demoPill}>
+                <Text style={styles.demoPillText}>Demo modu · kapatmalar yalnızca bu telefonda</Text>
+              </View>
+            )}
+            {toast && (
+              <View style={[styles.toast, toast.kind === 'error' && styles.toastError]}>
+                <Text style={styles.toastText}>{toast.text}</Text>
+              </View>
+            )}
+          </View>
+        )}
 
-      {navigating && <KeepScreenOn />}
-
-      {/* Sağ kenardaki düğme paneli (arama sonuçları açıkken gizlenir). */}
-      {!inPip && results.length === 0 && !showRecents && !editing && (
-        <View style={[styles.sidePanel, { top: navigating ? 170 : Math.max(200, TOP_OFFSET + searchCardBottom + 12) }]}>
-          <SideButton label="Ayarlar" onPress={() => setSettingsOpen(true)}>
-            <Text style={styles.sideGlyph}>⚙︎</Text>
-          </SideButton>
-          <SideButton label={adminMode ? 'Kapatma\nAÇIK' : 'Yol\nkapat'} active={adminMode} onPress={toggleAdmin}>
-            <View style={[styles.noEntry, adminMode && styles.noEntryOn]}>
-              <View style={[styles.noEntryBar, adminMode && styles.noEntryBarOn]} />
-            </View>
-          </SideButton>
-          {adminMode && (
-            <SideButton label={`Gruplar${closures.zones.length ? ` (${closures.zones.length})` : ''}`} onPress={() => setZonesOpen(true)}>
-              <Text style={styles.sideGlyph}>☰</Text>
-            </SideButton>
-          )}
-          <SideButton
-            label={settings.voice === false ? 'Ses\nkapalı' : 'Ses\naçık'}
-            active={settings.voice === false}
-            onPress={toggleVoice}
-            last={!(navigating && pipSupported)}
+        {/* Alt panel: rota özeti ve düğmeler */}
+        {!inPip && (route || busy) && (
+          <Animated.View
+            onLayout={(e) => setBottomPanelHeight(e.nativeEvent.layout.height)}
+            style={[
+              styles.bottom,
+              { bottom: panelBottom },
+              {
+                opacity: panelExit.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
+                transform: [{ translateY: panelExit.interpolate({ inputRange: [0, 1], outputRange: [0, 320] }) }],
+              },
+            ]}
           >
-            <Text style={styles.sideGlyph}>{settings.voice === false ? '🔇' : '🔊'}</Text>
-          </SideButton>
-          {navigating && pipSupported && (
-            <SideButton label="Küçült" onPress={enterPip} last>
-              <View style={styles.pipIcon}>
-                <View style={styles.pipIconInner} />
+            {/* Başla / Seyri bitir'de panel yeniden kurulur ve kayarak gelir. */}
+            <SlideIn key={navigating ? 'nav' : 'preview'} from={40}>
+              {busy && !route ? (
+                <ActivityIndicator />
+              ) : (
+                <>
+                  <View style={styles.summaryRow}>
+                    <Text style={styles.summaryMain}>{formatDuration(remainingSec)}</Text>
+                    <Text style={styles.summarySub}>
+                      {formatDistance(navigating && progress ? progress.remainingMeters : route.distanceKm * 1000)}
+                      {busy ? '  ·  güncelleniyor…' : ''}
+                    </Text>
+                    <View style={styles.arrival}>
+                      <Text style={styles.arrivalLabel}>Varış</Text>
+                      <Text style={styles.arrivalTime}>{formatArrival(remainingSec)}</Text>
+                    </View>
+                  </View>
+                  {route.traffic && route.traffic.key !== 'night' && (
+                    <Text style={styles.trafficNote}>
+                      {route.traffic.label} tahmini dahil · boş yolda {formatDuration(route.freeFlowDurationSec)}
+                    </Text>
+                  )}
+                  {route.hasToll && (
+                    <Text style={styles.tollNote}>
+                      {settings.avoidTolls
+                        ? 'Ücretsiz yol bulunamadı; bu rota ücretli yol (köprü, tünel ya da otoyol) içeriyor.'
+                        : 'Bu rota ücretli yol (köprü, tünel ya da otoyol) içeriyor.'}
+                    </Text>
+                  )}
+                  {!navigating && fromPlace && (
+                    <Text style={styles.previewNote}>
+                      Rota önizlemesi: seyir yalnızca konumunuzdan başlar. Başlamak için “Nereden”i Konumum yapın.
+                    </Text>
+                  )}
+                  {!navigating && (
+                    <View style={styles.tollRow}>
+                      <Text style={styles.tollLabel}>Ücretli yollardan kaçın</Text>
+                      <Switch
+                        value={settings.avoidTolls}
+                        onValueChange={(avoidTolls) => saveSettings({ ...settings, avoidTolls })}
+                      />
+                    </View>
+                  )}
+                  {!navigating && routeOptions.length > 1 && (
+                    <View style={styles.options}>
+                      {routeOptions.map((o) => {
+                        const selected = o.index === route.index;
+                        return (
+                          <Pressable key={o.index} style={[styles.option, selected && styles.optionSelected]} onPress={() => setRoute(o)}>
+                            <Text style={[styles.optionTime, selected && styles.optionTimeSelected]}>{formatDuration(o.durationSec)}</Text>
+                            <Text style={styles.optionSub}>
+                              {formatDistance(o.distanceKm * 1000)}
+                              {o.index === 0 ? ' · En hızlı' : ''}
+                              {o.hasToll ? ' · Ücretli' : ''}
+                            </Text>
+                            <Text style={styles.optionArrival}>Varış {formatArrival(o.durationSec)}</Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  )}
+                  <View style={styles.actions}>
+                    {navigating ? (
+                      <Pressable style={[styles.button, styles.stop]} onPress={finishNavigation}>
+                        <Text style={styles.buttonText}>Seyri bitir</Text>
+                      </Pressable>
+                    ) : (
+                      <>
+                        <Pressable style={[styles.button, styles.secondary]} onPress={clearTrip}>
+                          <Text style={styles.secondaryText}>Temizle</Text>
+                        </Pressable>
+                        {canNavigate && (
+                          <Pressable style={styles.button} onPress={startNavigation}>
+                            <Text style={styles.buttonText}>Başla</Text>
+                          </Pressable>
+                        )}
+                      </>
+                    )}
+                  </View>
+                </>
+              )}
+            </SlideIn>
+          </Animated.View>
+        )}
+
+        {navigating && <KeepScreenOn />}
+
+        {/* Sağ kenardaki düğme paneli (arama sonuçları açıkken gizlenir). */}
+        {!inPip && results.length === 0 && !showRecents && !editing && (
+          <View style={[styles.sidePanel, { top: navigating ? 170 : Math.max(200, TOP_OFFSET + searchCardBottom + 12) }]}>
+            <SideButton label="Ayarlar" onPress={() => setSettingsOpen(true)}>
+              <Text style={styles.sideGlyph}>⚙︎</Text>
+            </SideButton>
+            <SideButton label={adminMode ? 'Kapatma\nAÇIK' : 'Yol\nkapat'} active={adminMode} onPress={toggleAdmin}>
+              <View style={[styles.noEntry, adminMode && styles.noEntryOn]}>
+                <View style={[styles.noEntryBar, adminMode && styles.noEntryBarOn]} />
               </View>
             </SideButton>
-          )}
-        </View>
-      )}
+            {adminMode && (
+              <SideButton label={`Gruplar${closures.zones.length ? ` (${closures.zones.length})` : ''}`} onPress={() => setZonesOpen(true)}>
+                <Text style={styles.sideGlyph}>☰</Text>
+              </SideButton>
+            )}
+            <SideButton
+              label={settings.voice === false ? 'Ses\nkapalı' : 'Ses\naçık'}
+              active={settings.voice === false}
+              onPress={toggleVoice}
+            >
+              <Text style={styles.sideGlyph}>{settings.voice === false ? '🔇' : '🔊'}</Text>
+            </SideButton>
+            <SideButton
+              label={night ? 'Gece\naçık' : 'Gece\nmodu'}
+              highlight={night}
+              onPress={toggleNight}
+              last={!(navigating && pipSupported)}
+            >
+              <Text style={styles.sideGlyph}>{night ? '🌙' : '☀️'}</Text>
+            </SideButton>
+            {navigating && pipSupported && (
+              <SideButton label="Küçült" onPress={enterPip} last>
+                <View style={styles.pipIcon}>
+                  <View style={styles.pipIconInner} />
+                </View>
+              </SideButton>
+            )}
+          </View>
+        )}
 
-      {/* "Ortala": harita konumda değilken (rota gösterilince ya da kaydırınca) çıkar, basınca gider. */}
-      {!inPip && !editing && !centered && location && (
-        <Pressable
-          style={({ pressed }) => [
-            styles.recenter,
-            { bottom: route || busy ? bottomPanelHeight + panelBottom + 12 : Math.max(96, insets.bottom + 48) },
-            pressed && styles.recenterPressed,
-          ]}
-          onPress={recenter}
-          accessibilityLabel="Ortala"
-        >
-          <RecenterIcon />
-        </Pressable>
-      )}
+        {/* "Ortala": harita konumda değilken (rota gösterilince ya da kaydırınca) çıkar, basınca gider. */}
+        {!inPip && !editing && !centered && location && (
+          <Pressable
+            style={({ pressed }) => [
+              styles.recenter,
+              { bottom: route || busy ? bottomPanelHeight + panelBottom + 12 : Math.max(96, insets.bottom + 48) },
+              pressed && styles.recenterPressed,
+            ]}
+            onPress={recenter}
+            accessibilityLabel="Ortala"
+          >
+            <RecenterIcon />
+          </Pressable>
+        )}
 
-      {!inPip && <Text style={[styles.attribution, { bottom: insets.bottom + 4 }]}>© OpenStreetMap katkıcıları</Text>}
+        {!inPip && <Text style={[styles.attribution, { bottom: insets.bottom + 4 }]}>© OpenStreetMap katkıcıları</Text>}
 
-      <ZonesSheet
-        visible={zonesOpen}
-        zones={closures.zones}
-        unsavedCount={unsavedCount}
-        closedCount={closures.closures.length}
-        onOpenAll={() =>
-          adminAction(async () => {
-            const r = await api.openAll();
-            if (!r.removed && !r.zonesOpened) throw new Error('Zaten kapalı yol yok.');
-          }, 'Tüm yollar trafiğe açıldı.')
-        }
-        onClose={() => setZonesOpen(false)}
-        onShow={showZone}
-        onSave={(name) => adminAction(() => api.saveZone(name), `"${name}" kaydedildi ve trafiğe kapatıldı.`)}
-        onToggle={(z) =>
-          adminAction(() => api.setZoneActive(z.id, !z.active), `"${z.name}" ${z.active ? 'trafiğe açıldı' : 'trafiğe kapatıldı'}.`)
-        }
-        onDelete={(z) => adminAction(() => api.deleteZone(z.id), `"${z.name}" silindi.`)}
-        onEdit={startEditing}
-      />
+        <ZonesSheet
+          visible={zonesOpen}
+          zones={closures.zones}
+          unsavedCount={unsavedCount}
+          closedCount={closures.closures.length}
+          onOpenAll={() =>
+            adminAction(async () => {
+              const r = await api.openAll();
+              if (!r.removed && !r.zonesOpened) throw new Error('Zaten kapalı yol yok.');
+            }, 'Tüm yollar trafiğe açıldı.')
+          }
+          onClose={() => setZonesOpen(false)}
+          onShow={showZone}
+          onSave={(name) => adminAction(() => api.saveZone(name), `"${name}" kaydedildi ve trafiğe kapatıldı.`)}
+          onToggle={(z) =>
+            adminAction(() => api.setZoneActive(z.id, !z.active), `"${z.name}" ${z.active ? 'trafiğe açıldı' : 'trafiğe kapatıldı'}.`)
+          }
+          onDelete={(z) => adminAction(() => api.deleteZone(z.id), `"${z.name}" silindi.`)}
+          onEdit={startEditing}
+        />
 
-      <SettingsSheet
-        visible={settingsOpen}
-        settings={settings}
-        adminMode={adminMode}
-        onClose={() => setSettingsOpen(false)}
-        onSave={saveSettings}
-        onAdminModeChange={onAdminModeChange}
-      />
-    </View>
+        <SettingsSheet
+          visible={settingsOpen}
+          settings={settings}
+          adminMode={adminMode}
+          onClose={() => setSettingsOpen(false)}
+          onSave={saveSettings}
+          onAdminModeChange={onAdminModeChange}
+        />
+      </View>
+    </NightContext.Provider>
   );
 }
 
 // Sağ paneldeki tek bir düğme: üstte simge, altta kısa etiket.
 function SideButton({ label, onPress, active, highlight, last, children }) {
+  const styles = useStyles();
   return (
     <Pressable
       onPress={onPress}
@@ -1290,6 +1312,7 @@ function SlideIn({ from = 24, duration = 260, style, children, ...rest }) {
  * bırakınca onMove(eski sıra, yeni sıra) çağrılır.
  */
 function StopRows({ stops, onRemove, onMove }) {
+  const styles = useStyles();
   const [drag, setDrag] = useState(null); // { index, dy }
   const rowHeight = useRef(44);
   const target = drag ? Math.max(0, Math.min(stops.length - 1, drag.index + Math.round(drag.dy / rowHeight.current))) : -1;
@@ -1345,6 +1368,7 @@ function StopRows({ stops, onRemove, onMove }) {
 }
 
 function DragHandle({ label, onDrag, onDrop }) {
+  const styles = useStyles();
   const handlers = useRef({ onDrag, onDrop });
   handlers.current = { onDrag, onDrop };
   const pan = useRef(
@@ -1369,6 +1393,7 @@ function DragHandle({ label, onDrag, onDrop }) {
 
 // Kutular arasındaki ayırıcı çizgi ve soldaki noktalı bağlantı (Nereden → duraklar → Nereye).
 function FieldJoiner() {
+  const styles = useStyles();
   return (
     <View style={styles.joiner}>
       <View style={styles.joinerDots} pointerEvents="none">
@@ -1383,6 +1408,7 @@ function FieldJoiner() {
 
 // Son aramalar listesindeki küçük saat simgesi.
 function ClockIcon() {
+  const styles = useStyles();
   return (
     <View style={styles.clock}>
       <View style={styles.clockHandUp} />
@@ -1393,6 +1419,7 @@ function ClockIcon() {
 
 // "Ortala" simgesi: Apple Haritalar'daki gibi sağ üste bakan mavi konum oku.
 function RecenterIcon() {
+  const styles = useStyles();
   return (
     <View style={styles.locArrow}>
       <View style={styles.locArrowHead} />
@@ -1403,12 +1430,13 @@ function RecenterIcon() {
 
 // "Nereden" listesinin başındaki "Konumum" seçeneği.
 function MyLocationRow({ onPress }) {
+  const styles = useStyles();
   return (
     <Pressable style={[styles.result, styles.recentRow]} onPress={onPress}>
       <View style={styles.myLocIcon}>
         <View style={styles.myLocIconDot} />
       </View>
-      <Text style={[styles.resultName, { color: '#0a66d8' }]}>Konumum</Text>
+      <Text style={[styles.resultName, styles.myLocText]}>Konumum</Text>
     </Pressable>
   );
 }
@@ -1416,6 +1444,7 @@ function MyLocationRow({ onPress }) {
 // Seyirdeki yön oku. Harita düzlemine yatık (flat) olduğu için harita döndükçe
 // birlikte döner; kamera gidiş yönüne baktığında ok hep yukarıyı gösterir.
 function NavPuck({ position, bearing }) {
+  const styles = useStyles();
   // Android özel işaretçiyi bir kez resme çevirir; ilk çizimde görünüm hazır olmayabilir,
   // bu yüzden kısa süre güncellemeye izin verip sonra (performans için) kapatıyoruz.
   const [tracks, setTracks] = useState(true);
@@ -1458,7 +1487,7 @@ const shadow = {
   elevation: 4,
 };
 
-const styles = StyleSheet.create({
+const baseStyles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#e9e9e9' },
   top: { position: 'absolute', top: TOP_OFFSET, left: 12, right: 12, gap: 8 },
   searchRow: { flexDirection: 'row', gap: 8 },
@@ -1657,7 +1686,113 @@ const styles = StyleSheet.create({
   swapText: { fontSize: 22, color: '#3a3a3c', fontWeight: '600' },
   cardSearch: { flex: 1, minHeight: 40 },
   previewNote: { fontSize: 12, color: '#6e6e73', marginTop: 4 },
+  myLocText: { color: '#0a66d8' },
   myLocIcon: { width: 18, height: 18, borderRadius: 9, backgroundColor: '#cfe0fb', alignItems: 'center', justifyContent: 'center' },
   myLocIconDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#0a66d8', borderWidth: 1.5, borderColor: '#fff' },
   attribution: { position: 'absolute', right: 6, bottom: 6, fontSize: 10, color: '#3a3a3c', backgroundColor: 'rgba(255,255,255,0.7)', paddingHorizontal: 4 },
 });
+
+// --- Gece modu ---
+// Koyu renkler yalnızca değişen özellikleri ezer; bileşenler useStyles() ile o anki temayı alır.
+const NIGHT = {
+  surface: '#1c1c1e',
+  raised: '#2c2c2e',
+  text: '#f2f2f7',
+  sub: '#a1a1a6',
+  line: '#3a3a3c',
+  blue: '#4c9bff',
+};
+const nightOverrides = StyleSheet.create({
+  container: { backgroundColor: NIGHT.surface },
+  search: { backgroundColor: NIGHT.surface, color: NIGHT.text },
+  iconButton: { backgroundColor: NIGHT.surface },
+  results: { backgroundColor: NIGHT.surface },
+  result: { borderColor: NIGHT.line },
+  resultName: { color: NIGHT.text },
+  resultAddr: { color: NIGHT.sub },
+  zonesButton: { backgroundColor: NIGHT.surface },
+  zonesButtonText: { color: NIGHT.text },
+  demoPill: { backgroundColor: 'rgba(44,44,46,0.92)' },
+  demoPillText: { color: NIGHT.sub },
+  bottom: { backgroundColor: NIGHT.surface },
+  summaryMain: { color: '#30d158' },
+  summarySub: { color: '#d1d1d6' },
+  arrivalLabel: { color: NIGHT.sub },
+  arrivalTime: { color: NIGHT.text },
+  optionArrival: { color: '#d1d1d6' },
+  tollNote: { color: NIGHT.sub },
+  tollLabel: { color: NIGHT.text },
+  trafficNote: { color: '#ffb340' },
+  option: { borderColor: NIGHT.line },
+  optionSelected: { borderColor: NIGHT.blue, backgroundColor: '#10284a' },
+  optionTime: { color: '#d1d1d6' },
+  optionTimeSelected: { color: NIGHT.blue },
+  optionSub: { color: NIGHT.sub },
+  secondary: { backgroundColor: NIGHT.raised },
+  secondaryText: { color: NIGHT.text },
+  notice: { backgroundColor: '#3a3000' },
+  noticeText: { color: '#ffe08a' },
+  editCard: { backgroundColor: NIGHT.surface },
+  editInput: { borderColor: NIGHT.line, color: NIGHT.text },
+  editHint: { color: NIGHT.sub },
+  pipIcon: { borderColor: NIGHT.text },
+  pipIconInner: { backgroundColor: NIGHT.text },
+  sidePanel: { backgroundColor: NIGHT.surface },
+  sideDivider: { borderColor: NIGHT.line },
+  sideActive: { backgroundColor: '#4a1418' },
+  sidePressed: { backgroundColor: NIGHT.raised },
+  sideGlyph: { color: NIGHT.text },
+  sideLabel: { color: '#d1d1d6' },
+  sideLabelHighlight: { color: NIGHT.blue },
+  recentsTitle: { color: NIGHT.sub },
+  recentsClear: { color: NIGHT.blue },
+  recenter: { backgroundColor: NIGHT.surface },
+  recenterPressed: { backgroundColor: NIGHT.raised },
+  locArrowHead: { borderBottomColor: NIGHT.blue },
+  locArrowNotch: { borderBottomColor: NIGHT.surface },
+  routeCard: { backgroundColor: NIGHT.surface },
+  fieldInput: { color: NIGHT.text },
+  fieldDivider: { backgroundColor: NIGHT.line },
+  fromDot: { borderColor: NIGHT.blue, backgroundColor: NIGHT.surface },
+  toPin: { borderColor: '#d1d1d6', backgroundColor: NIGHT.surface },
+  stopName: { color: NIGHT.text },
+  stopDragging: { backgroundColor: NIGHT.raised },
+  addStop: { borderTopColor: NIGHT.line },
+  addStopText: { color: NIGHT.blue },
+  speedNow: { backgroundColor: NIGHT.surface },
+  speedNowValue: { color: NIGHT.text },
+  speedNowUnit: { color: NIGHT.sub },
+  connectorDot: { backgroundColor: '#636366' },
+  swapText: { color: NIGHT.text },
+  previewNote: { color: NIGHT.sub },
+  myLocIcon: { backgroundColor: '#10284a' },
+  myLocText: { color: NIGHT.blue },
+  attribution: { color: '#d1d1d6', backgroundColor: 'rgba(0,0,0,0.5)' },
+});
+const nightStyles = Object.fromEntries(
+  Object.entries(baseStyles).map(([key, style]) => [key, nightOverrides[key] ? [style, nightOverrides[key]] : style]),
+);
+const NightContext = createContext(false);
+const useStyles = () => (useContext(NightContext) ? nightStyles : baseStyles);
+
+// Google Haritalar'ın gece stili (Android). iOS'taki Apple haritası userInterfaceStyle ile kararır.
+const NIGHT_MAP_STYLE = [
+  { elementType: 'geometry', stylers: [{ color: '#242f3e' }] },
+  { elementType: 'labels.text.stroke', stylers: [{ color: '#242f3e' }] },
+  { elementType: 'labels.text.fill', stylers: [{ color: '#746855' }] },
+  { featureType: 'administrative.locality', elementType: 'labels.text.fill', stylers: [{ color: '#d59563' }] },
+  { featureType: 'poi', elementType: 'labels.text.fill', stylers: [{ color: '#d59563' }] },
+  { featureType: 'poi.park', elementType: 'geometry', stylers: [{ color: '#263c3f' }] },
+  { featureType: 'poi.park', elementType: 'labels.text.fill', stylers: [{ color: '#6b9a76' }] },
+  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#38414e' }] },
+  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#212a37' }] },
+  { featureType: 'road', elementType: 'labels.text.fill', stylers: [{ color: '#9ca5b3' }] },
+  { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#746855' }] },
+  { featureType: 'road.highway', elementType: 'geometry.stroke', stylers: [{ color: '#1f2835' }] },
+  { featureType: 'road.highway', elementType: 'labels.text.fill', stylers: [{ color: '#f3d19c' }] },
+  { featureType: 'transit', elementType: 'geometry', stylers: [{ color: '#2f3948' }] },
+  { featureType: 'transit.station', elementType: 'labels.text.fill', stylers: [{ color: '#d59563' }] },
+  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#17263c' }] },
+  { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#515c6d' }] },
+  { featureType: 'water', elementType: 'labels.text.stroke', stylers: [{ color: '#17263c' }] },
+];

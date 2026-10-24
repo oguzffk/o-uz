@@ -120,6 +120,7 @@ Telefonda Expo Go ile QR kodu okutun, ⚙︎ **Ayarlar → Rota sunucusu → Ken
 | Hız sınırı | Seyirde yön bandının altında: kırmızı çerçeveli tabela yolun hız sınırı (OpenStreetMap'te `maxspeed` etiketi olan yollarda; etiketsiz yolda gösterilmez), yanındaki kutu anlık hız — sınır aşılınca kırmızı olur |
 | Ortala | Harita konumda değilken (rota gösterilince ya da kaydırınca) sol altta çıkar; basınca konuma döner |
 | Sesli yönlendirme | Sağ paneldeki **Ses** düğmesi; seçim saklanır |
+| Gece modu | Sağ paneldeki **Gece** düğmesi (☀️/🌙): harita koyu stile geçer (Android'de Google gece stili, iOS'ta Apple koyu görünüm), arama kartı, alt panel ve sağ panel koyu olur; seçim saklanır |
 | Ulaşım türü | Ayarlar → Araç / Motor |
 | Ücretli yollardan kaçın | Rota panelindeki anahtar ya da Ayarlar. Yasaklamaz, mümkünse kaçınır; ücretsiz yol yoksa rota ücretli yolu kullanır ve bunu belirtir (Boğaz geçişlerinin çoğu ücretli) |
 | Küçük pencere (resim içinde resim) | Yalnızca Android APK'da (Expo Go'da yok). Seyir sırasında ana ekran tuşuna basınca (Android 12+) ya da sağ paneldeki **Küçült** ile uygulama köşede küçük pencerede yönlendirmeye devam eder |

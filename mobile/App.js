@@ -23,6 +23,7 @@ import {
   ISTANBUL_REGION,
   bearingDegrees,
   distanceMeters,
+  formatArrival,
   formatDistance,
   formatDuration,
   inIstanbul,
@@ -85,6 +86,8 @@ export default function App() {
   const [searching, setSearching] = useState(false);
   const [toast, setToast] = useState(null);
   const [bottomPanelHeight, setBottomPanelHeight] = useState(0);
+  // Varış saati "şimdi"ye bağlı: rota ekrandayken dakikada bir yenilensin (seyirde konum zaten yeniler).
+  const [, setClockTick] = useState(0);
   const [searchFocused, setSearchFocused] = useState(false);
   // Kutuya dokunduktan sonra bir şey yazıldı mı? Yazılmadıysa öneri listesi (Konumum, son aramalar) gösterilir.
   const [typed, setTyped] = useState(false);
@@ -286,6 +289,12 @@ export default function App() {
       clearInterval(id);
     };
   }, [api, showToast]);
+
+  useEffect(() => {
+    if (!route) return undefined;
+    const id = setInterval(() => setClockTick((n) => n + 1), 30000);
+    return () => clearInterval(id);
+  }, [route]);
 
   // --- Seyir ---
   const progress = useNavigation({
@@ -609,6 +618,15 @@ export default function App() {
   };
 
   const next = progress?.next;
+  // Sıradaki talimat varışsa Valhalla'nın "Hedefinize vardınız." cümlesini erkenden göstermeyelim.
+  const nextIsArrival = Boolean(route && next && next === route.maneuvers[route.maneuvers.length - 1]);
+  const bannerInstruction = next ? (nextIsArrival ? 'Hedefe varış' : next.instruction) : '';
+  // Kalan süre: seyirde kalan mesafeye oranla, önizlemede rotanın tamamı (yoğun saat tahmini dahil).
+  const remainingSec = route
+    ? navigating && progress
+      ? (route.durationSec * progress.remainingMeters) / Math.max(1, route.distanceKm * 1000)
+      : route.durationSec
+    : 0;
   // Kutuya dokunulup henüz yazılmadıysa: son aramalar (Nereden'de en üstte "Konumum").
   const showRecents =
     !navigating &&
@@ -700,7 +718,7 @@ export default function App() {
         <View style={styles.pipBanner} pointerEvents="none">
           <Text style={styles.pipDistance}>{formatDistance(progress.distanceToNext)}</Text>
           <Text style={styles.pipText} numberOfLines={2}>
-            {next.instruction}
+            {bannerInstruction}
           </Text>
         </View>
       )}
@@ -729,7 +747,7 @@ export default function App() {
             <SlideIn from={-24} style={styles.banner}>
               <Text style={styles.bannerDistance}>{formatDistance(progress.distanceToNext)}</Text>
               <Text style={styles.bannerText} numberOfLines={2}>
-                {next.instruction}
+                {bannerInstruction}
               </Text>
             </SlideIn>
           ) : (
@@ -913,17 +931,15 @@ export default function App() {
             ) : (
               <>
                 <View style={styles.summaryRow}>
-                  <Text style={styles.summaryMain}>
-                    {formatDuration(
-                      navigating && progress
-                        ? (route.durationSec * progress.remainingMeters) / Math.max(1, route.distanceKm * 1000)
-                        : route.durationSec,
-                    )}
-                  </Text>
+                  <Text style={styles.summaryMain}>{formatDuration(remainingSec)}</Text>
                   <Text style={styles.summarySub}>
                     {formatDistance(navigating && progress ? progress.remainingMeters : route.distanceKm * 1000)}
                     {busy ? '  ·  güncelleniyor…' : ''}
                   </Text>
+                  <View style={styles.arrival}>
+                    <Text style={styles.arrivalLabel}>Varış</Text>
+                    <Text style={styles.arrivalTime}>{formatArrival(remainingSec)}</Text>
+                  </View>
                 </View>
                 {route.traffic && route.traffic.key !== 'night' && (
                   <Text style={styles.trafficNote}>
@@ -963,6 +979,7 @@ export default function App() {
                             {o.index === 0 ? ' · En hızlı' : ''}
                             {o.hasToll ? ' · Ücretli' : ''}
                           </Text>
+                          <Text style={styles.optionArrival}>Varış {formatArrival(o.durationSec)}</Text>
                         </Pressable>
                       );
                     })}
@@ -1207,6 +1224,10 @@ const styles = StyleSheet.create({
   summaryRow: { flexDirection: 'row', alignItems: 'baseline', gap: 10 },
   summaryMain: { fontSize: 26, fontWeight: '800', color: '#0b8a3e' },
   summarySub: { fontSize: 16, color: '#3a3a3c' },
+  arrival: { marginLeft: 'auto', alignItems: 'flex-end' },
+  arrivalLabel: { fontSize: 11, fontWeight: '700', color: '#6e6e73', letterSpacing: 0.3 },
+  arrivalTime: { fontSize: 20, fontWeight: '800', color: '#1d1d1f', fontVariant: ['tabular-nums'] },
+  optionArrival: { fontSize: 11, color: '#3a3a3c', fontWeight: '600', marginTop: 2 },
   actions: { flexDirection: 'row', gap: 10, marginTop: 12 },
   tollNote: { fontSize: 12, color: '#6e6e73', marginTop: 4 },
   tollRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 },

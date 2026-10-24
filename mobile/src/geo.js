@@ -101,3 +101,9 @@ export function pointAhead(coords, snap, meters) {
   }
   return coords[coords.length - 1];
 }
+
+/** Şimdiden `sec` saniye sonrasının saati, "18:45" biçiminde (cihazın yerel saatiyle). */
+export function formatArrival(sec, now = Date.now()) {
+  const t = new Date(now + sec * 1000);
+  return `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`;
+}

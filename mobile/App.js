@@ -766,8 +766,16 @@ function AppScreen() {
             <>
               <SlideIn from={-12} style={styles.searchRow}>
                 <View style={styles.routeCard}>
+                  {/* Nereden → Nereye arasındaki noktalı bağlantı */}
+                  <View style={styles.connector} pointerEvents="none">
+                    <View style={styles.connectorDot} />
+                    <View style={styles.connectorDot} />
+                    <View style={styles.connectorDot} />
+                  </View>
                   <View style={styles.fieldRow}>
-                    <View style={styles.fromDot} />
+                    <View style={styles.iconSlot}>
+                      <View style={styles.fromDot} />
+                    </View>
                     <TextInput
                       style={styles.fieldInput}
                       value={fromText}
@@ -797,7 +805,9 @@ function AppScreen() {
                   </View>
                   <View style={styles.fieldDivider} />
                   <View style={styles.fieldRow}>
-                    <View style={styles.toDot} />
+                    <View style={styles.iconSlot}>
+                      <View style={styles.toPin} />
+                    </View>
                     <TextInput
                       style={styles.fieldInput}
                       value={query}
@@ -1359,9 +1369,23 @@ const styles = StyleSheet.create({
   routeCard: { flex: 1, backgroundColor: '#fff', borderRadius: 14, paddingHorizontal: 12, ...shadow },
   fieldRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   fieldInput: { flex: 1, minWidth: 0, paddingVertical: 11, fontSize: 16 },
-  fieldDivider: { height: StyleSheet.hairlineWidth, backgroundColor: '#d1d1d6', marginLeft: 22 },
+  fieldDivider: { height: StyleSheet.hairlineWidth, backgroundColor: '#d1d1d6', marginLeft: 24 },
   fromDot: { width: 12, height: 12, borderRadius: 6, borderWidth: 3, borderColor: '#0a66d8', backgroundColor: '#fff' },
-  toDot: { width: 12, height: 12, borderRadius: 6, backgroundColor: '#d70015' },
+  iconSlot: { width: 14, alignItems: 'center', justifyContent: 'center' },
+  // Konum iğnesi: bir köşesi sivri yuvarlak, 45° döndürülünce sivri uç aşağı bakar.
+  toPin: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderBottomRightRadius: 1,
+    borderWidth: 3,
+    borderColor: '#3a3a3c',
+    backgroundColor: '#fff',
+    transform: [{ rotate: '45deg' }],
+    marginTop: -2,
+  },
+  connector: { position: 'absolute', left: 12, width: 14, top: 30, height: 24, alignItems: 'center', justifyContent: 'space-evenly' },
+  connectorDot: { width: 3, height: 3, borderRadius: 1.5, backgroundColor: '#aeb4bc' },
   cardButtons: { gap: 8 },
   swapButton: { flex: 1, minHeight: 40 },
   swapText: { fontSize: 22, color: '#3a3a3c', fontWeight: '600' },

@@ -112,13 +112,17 @@ Telefonda Expo Go ile QR kodu okutun, ⚙︎ **Ayarlar → Rota sunucusu → Ken
 
 | İşlem | Nasıl |
 | --- | --- |
-| Hedef seç | Arama kutusuna yazın veya haritada **basılı tutun** |
-| Seyre başla | **Başla** — kamera sizi takip eder, talimatlar Türkçe okunur |
+| Nereden / Nereye | Üstteki iki kutu. **Nereden** varsayılan olarak **Konumum**; başka bir yer de aranabilir (listenin başında "Konumum" seçeneği). **⇅** ikisini yer değiştirir. Haritada **basılı tutmak** varışı seçer |
+| Son aramalar | Bir kutuya dokununca (yazmadan) son seçilen yerler listelenir; cihazda saklanır, **Temizle** ile silinir |
+| Rota seçenekleri | En fazla 3 rota; gri alternatife ya da alttaki karta dokunarak seçin. Her kartta süre, mesafe ve **varış saati** |
+| Seyre başla | **Başla** (yalnızca Nereden = Konumum iken; başka başlangıçta rota önizlemesi). Harita yön okunu arkadan takip eder, talimatlar Türkçe okunur, rotadan çıkınca yeni rota hesaplanır |
+| Ortala | Harita konumda değilken (rota gösterilince ya da kaydırınca) sol altta çıkar; basınca konuma döner |
+| Sesli yönlendirme | Sağ paneldeki **Ses** düğmesi; seçim saklanır |
 | Ulaşım türü | Ayarlar → Araç / Motor |
 | Ücretli yollardan kaçın | Rota panelindeki anahtar ya da Ayarlar. Yasaklamaz, mümkünse kaçınır; ücretsiz yol yoksa rota ücretli yolu kullanır ve bunu belirtir (Boğaz geçişlerinin çoğu ücretli) |
 | Küçük pencere (resim içinde resim) | Yalnızca Android APK'da (Expo Go'da yok). Seyir sırasında ana ekran tuşuna basınca (Android 12+) ya da sağ paneldeki **Küçült** ile uygulama köşede küçük pencerede yönlendirmeye devam eder |
-| Yönetici modu | Ayarlar → anahtarı girin, **Yönetici modu**nu açın → sokağa **dokunun** = kapat/aç |
-| Grup kaydet / aç / kapat / düzenle | Sağ panelde **Yol kapat** → **Gruplar**; **Düzenle** ile haritada yol ekleyip çıkarın, adını değiştirin |
+| Yol kapatma | Sağ paneldeki **Yol kapat** (sunucu modunda önce Ayarlar'dan yönetici anahtarı) → sokağa **dokunun** = kapat/aç |
+| Grup kaydet / aç / kapat / düzenle | Sağ panelde **Yol kapat** → **Gruplar**; **Düzenle** ile haritada yol ekleyip çıkarın, adını değiştirin; **Tüm yolları trafiğe aç** hepsini birden açar |
 
 Telefon İstanbul dışındaysa (ör. emülatör) ilk basılı tutma **başlangıç**, ikincisi **varış** noktasını seçer; böylece rota önizlemesini her yerden deneyebilirsiniz.
 

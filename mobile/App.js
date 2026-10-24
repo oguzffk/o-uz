@@ -221,7 +221,7 @@ function AppScreen() {
     async ({ to = destination, from = origin, quiet = false } = {}) => {
       if (!to) return;
       if (!from) {
-        showToast('Önce başlangıç noktasını haritada basılı tutarak seçin.');
+        showToast('Önce başlangıç seçin: "Nereden" kutusundan arayın ya da haritada basılı tutun.');
         return;
       }
       const reqId = ++routeRequest.current;
@@ -320,6 +320,9 @@ function AppScreen() {
     },
     onArrive: () => {
       setNavigating(false);
+      // "Seyri bitir"deki gibi harita düzleşip kuzeye dönsün (sesli "vardınız" kesilmesin diye susturmuyoruz).
+      // Aynı karede takip kamerası da çalıştığı için düzleştirme bir sonraki ana erteleniyor.
+      setTimeout(() => mapRef.current?.animateCamera({ pitch: 0, heading: 0 }, { duration: 600 }), 50);
       showToast('Hedefinize vardınız.');
     },
   });
@@ -496,7 +499,7 @@ function AppScreen() {
     setDestination(place);
     requestRoute({ to: place });
   };
-  
+
   const chooseMyLocationAsStart = () => {
     if (!gpsUsable) {
       showToast('Konumunuz bulunamadı ya da İstanbul dışında; başlangıç olarak bir yer seçin.', 'error');
@@ -596,9 +599,11 @@ function AppScreen() {
       showToast('Başlangıç seçildi. Şimdi varış noktasını basılı tutun.');
       return;
     }
-    const place = { lat, lon, name: 'Seçilen nokta' };
+    const place = { lat, lon, name: 'Haritada seçilen nokta' };
+    skipAutoSearch.current = true; // kutuya yazılan ad arama başlatmasın
+    setResults([]);
     setDestination(place);
-    setQuery('');
+    setQuery(place.name);
     requestRoute({ to: place });
   };
 
@@ -978,7 +983,7 @@ function AppScreen() {
                 )}
                 {!navigating && fromPlace && (
                   <Text style={styles.previewNote}>
-                    Rota önizlemesi: seyir yalnızca konumunuzdan başlar. Başlamak için "Nereden"i Konumum yapın.
+                    Rota önizlemesi: seyir yalnızca konumunuzdan başlar. Başlamak için “Nereden”i Konumum yapın.
                   </Text>
                 )}
                 {!navigating && (

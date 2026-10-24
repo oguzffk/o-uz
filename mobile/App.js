@@ -5,6 +5,7 @@ import {
   Easing,
   FlatList,
   Keyboard,
+  PanResponder,
   Pressable,
   StyleSheet,
   Switch,
@@ -534,6 +535,13 @@ function AppScreen() {
     closeStopField();
     if (destination) requestRoute({ via: next });
   };
+  // Sürükleyerek sıralama: `from` sıradaki durak `to` sırasına taşınır.
+  const moveStop = (from, to) => {
+    const next = [...stops];
+    next.splice(to, 0, ...next.splice(from, 1));
+    setStops(next);
+    if (destination) requestRoute({ via: next });
+  };
   const removeStop = (index) => {
     const next = stops.filter((_, i) => i !== index);
     setStops(next);
@@ -894,24 +902,7 @@ function AppScreen() {
                       returnKeyType="search"
                     />
                   </View>
-                  {stops.map((s, i) => (
-                    <View key={`${i}:${s.lat},${s.lon}`}>
-                      <FieldJoiner />
-                      <View style={styles.fieldRow}>
-                        <View style={styles.iconSlot}>
-                          <View style={styles.stopBadge}>
-                            <Text style={styles.stopBadgeText}>{i + 1}</Text>
-                          </View>
-                        </View>
-                        <Text style={styles.stopName} numberOfLines={1}>
-                          {s.name}
-                        </Text>
-                        <Pressable onPress={() => removeStop(i)} hitSlop={10} accessibilityLabel={`${i + 1}. durağı kaldır`}>
-                          <Text style={styles.stopRemove}>✕</Text>
-                        </Pressable>
-                      </View>
-                    </View>
-                  ))}
+                  <StopRows stops={stops} onRemove={removeStop} onMove={moveStop} />
                   {addingStop && (
                     <View>
                       <FieldJoiner />
@@ -1293,6 +1284,89 @@ function SlideIn({ from = 24, duration = 260, style, children, ...rest }) {
   );
 }
 
+/**
+ * Ara durak satırları. Birden çok durak varsa sağdaki ≡ tutamağından sürükleyerek sıra
+ * değiştirilir: sürüklenen satır parmağı izler, üzerinden geçtiği satırlar yer açar,
+ * bırakınca onMove(eski sıra, yeni sıra) çağrılır.
+ */
+function StopRows({ stops, onRemove, onMove }) {
+  const [drag, setDrag] = useState(null); // { index, dy }
+  const rowHeight = useRef(44);
+  const target = drag ? Math.max(0, Math.min(stops.length - 1, drag.index + Math.round(drag.dy / rowHeight.current))) : -1;
+  return stops.map((s, i) => {
+    // Sürükleme sırasında satırın gösterilen yeri ve numarası (bırakınca alacağı sıra).
+    let shift = 0;
+    let number = i + 1;
+    if (drag && i === drag.index) {
+      shift = drag.dy;
+      number = target + 1;
+    } else if (drag && drag.index < i && i <= target) {
+      shift = -rowHeight.current;
+      number = i;
+    } else if (drag && target <= i && i < drag.index) {
+      shift = rowHeight.current;
+      number = i + 2;
+    }
+    const dragging = drag?.index === i;
+    return (
+      <View
+        key={`${i}:${s.lat},${s.lon}`}
+        onLayout={(e) => (rowHeight.current = e.nativeEvent.layout.height)}
+        style={[{ transform: [{ translateY: shift }] }, dragging && styles.stopDragging]}
+      >
+        <FieldJoiner />
+        <View style={styles.fieldRow}>
+          <View style={styles.iconSlot}>
+            <View style={styles.stopBadge}>
+              <Text style={styles.stopBadgeText}>{number}</Text>
+            </View>
+          </View>
+          <Text style={styles.stopName} numberOfLines={1}>
+            {s.name}
+          </Text>
+          <Pressable onPress={() => onRemove(i)} hitSlop={10} accessibilityLabel={`${i + 1}. durağı kaldır`}>
+            <Text style={styles.stopRemove}>✕</Text>
+          </Pressable>
+          {stops.length > 1 && (
+            <DragHandle
+              label={`${i + 1}. durağı sürükle`}
+              onDrag={(dy) => setDrag({ index: i, dy })}
+              onDrop={(dy) => {
+                setDrag(null);
+                const to = Math.max(0, Math.min(stops.length - 1, i + Math.round(dy / rowHeight.current)));
+                if (to !== i) onMove(i, to);
+              }}
+            />
+          )}
+        </View>
+      </View>
+    );
+  });
+}
+
+function DragHandle({ label, onDrag, onDrop }) {
+  const handlers = useRef({ onDrag, onDrop });
+  handlers.current = { onDrag, onDrop };
+  const pan = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderTerminationRequest: () => false, // harita sürüklemeyi devralmasın
+      onPanResponderGrant: () => handlers.current.onDrag(0),
+      onPanResponderMove: (_, g) => handlers.current.onDrag(g.dy),
+      onPanResponderRelease: (_, g) => handlers.current.onDrop(g.dy),
+      onPanResponderTerminate: () => handlers.current.onDrop(0),
+    }),
+  ).current;
+  return (
+    <View {...pan.panHandlers} style={styles.dragHandle} accessibilityLabel={label} hitSlop={8}>
+      <View style={styles.dragLine} />
+      <View style={styles.dragLine} />
+      <View style={styles.dragLine} />
+    </View>
+  );
+}
+
 // Kutular arasındaki ayırıcı çizgi ve soldaki noktalı bağlantı (Nereden → duraklar → Nereye).
 function FieldJoiner() {
   return (
@@ -1553,6 +1627,9 @@ const styles = StyleSheet.create({
   stopBadge: { width: 16, height: 16, borderRadius: 8, backgroundColor: '#f08c00', alignItems: 'center', justifyContent: 'center' },
   stopBadgeText: { color: '#fff', fontSize: 10, fontWeight: '800' },
   stopName: { flex: 1, minWidth: 0, paddingVertical: 11, fontSize: 16, color: '#1c1c1e' },
+  stopDragging: { backgroundColor: '#fff', zIndex: 10, ...shadow, shadowOpacity: 0.25, elevation: 8, borderRadius: 8 },
+  dragHandle: { width: 28, height: 36, alignItems: 'center', justifyContent: 'center', gap: 3, marginLeft: 6 },
+  dragLine: { width: 16, height: 2, borderRadius: 1, backgroundColor: '#8e8e93' },
   stopRemove: { color: '#8e8e93', fontSize: 16, paddingHorizontal: 4 },
   addStop: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#d1d1d6', marginLeft: 24, paddingVertical: 8 },
   addStopText: { color: '#0a66d8', fontSize: 14, fontWeight: '600' },

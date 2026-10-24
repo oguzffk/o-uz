@@ -19,7 +19,7 @@ import { useKeepAwake } from 'expo-keep-awake';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createApi, defaultApiUrl } from './src/api';
-import { createDemoApi } from './src/demoApi';
+import { MAX_STOPS, createDemoApi } from './src/demoApi';
 import {
   ISTANBUL_REGION,
   bearingDegrees,
@@ -30,6 +30,7 @@ import {
   inIstanbul,
   offsetPoint,
   pointAhead,
+  speedLimitAt,
   toLatLng,
 } from './src/geo';
 import { stopSpeech, useNavigation } from './src/useNavigation';
@@ -76,7 +77,7 @@ function AppScreen() {
   // Nereden: null = Konumum (GPS); başka bir yer seçilirse { lat, lon, name, address }.
   const [fromPlace, setFromPlace] = useState(null);
   const [fromText, setFromText] = useState('');
-  const [activeField, setActiveField] = useState('to'); // arama hangi kutu için: 'from' | 'to'
+  const [activeField, setActiveField] = useState('to'); // arama hangi kutu için: 'from' | 'stop' | 'to'
   // Kutudan çıkınca yazıyı geri yüklerken en güncel seçimi görmek için (blur, seçimden önce gelebilir).
   const fromPlaceRef = useRef(null);
   const selectFrom = (place) => {
@@ -85,6 +86,10 @@ function AppScreen() {
     setFromText(place ? place.name : '');
   };
   const [destination, setDestination] = useState(null); // { lat, lon, name }
+  // Ara duraklar (sırayla uğranır), en fazla MAX_STOPS. addingStop: "Durak ekle" kutusu açık mı.
+  const [stops, setStops] = useState([]);
+  const [stopText, setStopText] = useState('');
+  const [addingStop, setAddingStop] = useState(false);
   const [route, setRoute] = useState(null); // seçili rota
   const [routeOptions, setRouteOptions] = useState([]); // önizlemede alternatifler dahil tüm rotalar
   const [closures, setClosures] = useState({ version: -1, closures: [], zones: [] });
@@ -98,6 +103,8 @@ function AppScreen() {
   const [searching, setSearching] = useState(false);
   const [toast, setToast] = useState(null);
   const [bottomPanelHeight, setBottomPanelHeight] = useState(0);
+  // Arama kartının alt kenarı (üst alana göre); duraklar eklendikçe kart uzar, sağ panel altına iner.
+  const [searchCardBottom, setSearchCardBottom] = useState(0);
   // Varış saati "şimdi"ye bağlı: rota ekrandayken dakikada bir yenilensin (seyirde konum zaten yeniler).
   const [, setClockTick] = useState(0);
   const [searchFocused, setSearchFocused] = useState(false);
@@ -218,8 +225,17 @@ function AppScreen() {
   // --- Rota ---
   const routeRequest = useRef(0);
   const requestRoute = useCallback(
-    async ({ to = destination, from = origin, quiet = false } = {}) => {
+    async ({ to = destination, from = origin, via, quiet = false } = {}) => {
       if (!to) return;
+      if (!via) {
+        via = stops;
+        // Seyirde yeniden rota: geçilen duraklar atılır (rota durakları istek sırasıyla döndürür).
+        const { route: current, progress: p } = navRef.current;
+        if (navigating && p && current?.stops?.length === stops.length) {
+          via = stops.filter((_, i) => current.stops[i].shapeIndex > p.snap.index);
+          if (via.length !== stops.length) setStops(via);
+        }
+      }
       if (!from) {
         showToast('Önce başlangıç seçin: "Nereden" kutusundan arayın ya da haritada basılı tutun.');
         return;
@@ -232,6 +248,7 @@ function AppScreen() {
         const r = await api.route({
           from,
           to,
+          via,
           costing: settings.costing,
           avoidTolls: settings.avoidTolls,
           heading,
@@ -259,7 +276,7 @@ function AppScreen() {
         if (reqId === routeRequest.current) setBusy(false);
       }
     },
-    [api, destination, origin, location, navigating, settings.costing, settings.avoidTolls, showToast],
+    [api, destination, stops, origin, location, navigating, settings.costing, settings.avoidTolls, showToast],
   );
 
   // Ulaşım türü ya da "ücretli yollardan kaçın" değişince mevcut rota yenilenir.
@@ -309,6 +326,7 @@ function AppScreen() {
   }, [route]);
 
   // --- Seyir ---
+  const navRef = useRef({}); // requestRoute'un seyirdeki konumu görebilmesi için (aşağıda doldurulur)
   const progress = useNavigation({
     route,
     location: gpsUsable ? location : null,
@@ -326,6 +344,8 @@ function AppScreen() {
       showToast('Hedefinize vardınız.');
     },
   });
+
+  navRef.current = { route, progress };
 
   // --- Takip kamerası ve yön oku (Google Haritalar'daki gibi) ---
   // Seyirde konum yola oturtulmuş bir okla gösterilir; harita gidiş yönüne döner ve
@@ -434,6 +454,8 @@ function AppScreen() {
       setDestination(null);
       setQuery('');
       selectFrom(null);
+      setStops([]);
+      closeStopField();
       panelExit.setValue(0);
       if (location) {
         mapRef.current?.animateCamera(
@@ -448,7 +470,7 @@ function AppScreen() {
   // --- Arama ---
   const searchSeq = useRef(0);
   const skipAutoSearch = useRef(false);
-  const activeText = activeField === 'from' ? fromText : query;
+  const activeText = activeField === 'from' ? fromText : activeField === 'stop' ? stopText : query;
   const search = async ({ auto = false } = {}) => {
     const q = activeText.trim();
     if (q.length < 2) return;
@@ -494,10 +516,40 @@ function AppScreen() {
       if (destination) requestRoute({ from: place });
       return;
     }
+    if (activeField === 'stop') {
+      if (place.myLocation) return;
+      addRecent(place);
+      addStop(place);
+      return;
+    }
     addRecent(place);
     setQuery(place.name);
     setDestination(place);
     requestRoute({ to: place });
+  };
+
+  const addStop = (place) => {
+    const next = [...stops, place].slice(0, MAX_STOPS);
+    setStops(next);
+    closeStopField();
+    if (destination) requestRoute({ via: next });
+  };
+  const removeStop = (index) => {
+    const next = stops.filter((_, i) => i !== index);
+    setStops(next);
+    if (destination) requestRoute({ via: next });
+  };
+  const openStopField = () => {
+    setAddingStop(true);
+    setStopText('');
+    setActiveField('stop');
+    setTyped(false);
+    setResults([]);
+  };
+  const closeStopField = () => {
+    setAddingStop(false);
+    setStopText('');
+    setActiveField((f) => (f === 'stop' ? 'to' : f));
   };
 
   const chooseMyLocationAsStart = () => {
@@ -524,7 +576,9 @@ function AppScreen() {
     setQuery(newTo.name);
     setDestination(newTo);
     const from = startIsMe ? (gpsUsable ? location : null) : newFrom;
-    if (from) requestRoute({ from, to: newTo });
+    const via = [...stops].reverse(); // duraklar ters sırayla uğranır
+    setStops(via);
+    if (from) requestRoute({ from, to: newTo, via });
   };
 
   // --- Harita etkileşimi ---
@@ -599,6 +653,11 @@ function AppScreen() {
       showToast('Başlangıç seçildi. Şimdi varış noktasını basılı tutun.');
       return;
     }
+    if (addingStop) {
+      setResults([]);
+      addStop({ lat, lon, name: 'Haritada seçilen durak' });
+      return;
+    }
     const place = { lat, lon, name: 'Haritada seçilen nokta' };
     skipAutoSearch.current = true; // kutuya yazılan ad arama başlatmasın
     setResults([]);
@@ -638,6 +697,10 @@ function AppScreen() {
   // Sıradaki talimat varışsa Valhalla'nın "Hedefinize vardınız." cümlesini erkenden göstermeyelim.
   const nextIsArrival = Boolean(route && next && next === route.maneuvers[route.maneuvers.length - 1]);
   const bannerInstruction = next ? (nextIsArrival ? 'Hedefe varış' : next.instruction) : '';
+  // Hız sınırı (OSM'de etiketliyse) ve anlık hız; seyirde yön bandının altında gösterilir.
+  const speedLimit = onRoute ? speedLimitAt(route, progress.snap.index) : null;
+  const speedKph = navigating && location?.speed >= 0 ? Math.round(location.speed * 3.6) : null;
+  const overLimit = speedLimit != null && speedKph != null && speedKph > speedLimit + 3;
   // Kalan süre: seyirde kalan mesafeye oranla, önizlemede rotanın tamamı (yoğun saat tahmini dahil).
   const remainingSec = route
     ? navigating && progress
@@ -726,6 +789,14 @@ function AppScreen() {
         {fromPlace && (
           <Marker coordinate={toLatLng([fromPlace.lat, fromPlace.lon])} pinColor="green" title={fromPlace.name} />
         )}
+        {stops.map((s, i) => (
+          <Marker
+            key={`stop:${i}:${s.lat},${s.lon}`}
+            coordinate={toLatLng([s.lat, s.lon])}
+            pinColor="orange"
+            title={`${i + 1}. durak: ${s.name}`}
+          />
+        ))}
         {destination && <Marker coordinate={toLatLng([destination.lat, destination.lon])} title={destination.name} />}
         {puck && <NavPuck position={puck} bearing={bearing} />}
       </MapView>
@@ -761,22 +832,37 @@ function AppScreen() {
               <Text style={styles.editHint}>Yola dokun: gruba ekle · Turuncu yola dokun: gruptan çıkar</Text>
             </View>
           ) : navigating && next ? (
-            <SlideIn from={-24} style={styles.banner}>
-              <Text style={styles.bannerDistance}>{formatDistance(progress.distanceToNext)}</Text>
-              <Text style={styles.bannerText} numberOfLines={2}>
-                {bannerInstruction}
-              </Text>
-            </SlideIn>
+            <>
+              <SlideIn from={-24} style={styles.banner}>
+                <Text style={styles.bannerDistance}>{formatDistance(progress.distanceToNext)}</Text>
+                <Text style={styles.bannerText} numberOfLines={2}>
+                  {bannerInstruction}
+                </Text>
+              </SlideIn>
+              {(speedLimit != null || speedKph != null) && (
+                <View style={styles.speedRow} pointerEvents="none">
+                  {speedLimit != null && (
+                    <View style={styles.speedSign} accessibilityLabel={`Hız sınırı ${speedLimit}`}>
+                      <Text style={styles.speedSignText}>{speedLimit}</Text>
+                    </View>
+                  )}
+                  {speedKph != null && (
+                    <View style={[styles.speedNow, overLimit && styles.speedNowOver]}>
+                      <Text style={[styles.speedNowValue, overLimit && styles.speedNowOverText]}>{speedKph}</Text>
+                      <Text style={[styles.speedNowUnit, overLimit && styles.speedNowOverText]}>km/sa</Text>
+                    </View>
+                  )}
+                </View>
+              )}
+            </>
           ) : (
             <>
-              <SlideIn from={-12} style={styles.searchRow}>
+              <SlideIn
+                from={-12}
+                style={styles.searchRow}
+                onLayout={(e) => setSearchCardBottom(e.nativeEvent.layout.y + e.nativeEvent.layout.height)}
+              >
                 <View style={styles.routeCard}>
-                  {/* Nereden → Nereye arasındaki noktalı bağlantı */}
-                  <View style={styles.connector} pointerEvents="none">
-                    <View style={styles.connectorDot} />
-                    <View style={styles.connectorDot} />
-                    <View style={styles.connectorDot} />
-                  </View>
                   <View style={styles.fieldRow}>
                     <View style={styles.iconSlot}>
                       <View style={styles.fromDot} />
@@ -808,7 +894,59 @@ function AppScreen() {
                       returnKeyType="search"
                     />
                   </View>
-                  <View style={styles.fieldDivider} />
+                  {stops.map((s, i) => (
+                    <View key={`${i}:${s.lat},${s.lon}`}>
+                      <FieldJoiner />
+                      <View style={styles.fieldRow}>
+                        <View style={styles.iconSlot}>
+                          <View style={styles.stopBadge}>
+                            <Text style={styles.stopBadgeText}>{i + 1}</Text>
+                          </View>
+                        </View>
+                        <Text style={styles.stopName} numberOfLines={1}>
+                          {s.name}
+                        </Text>
+                        <Pressable onPress={() => removeStop(i)} hitSlop={10} accessibilityLabel={`${i + 1}. durağı kaldır`}>
+                          <Text style={styles.stopRemove}>✕</Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  ))}
+                  {addingStop && (
+                    <View>
+                      <FieldJoiner />
+                      <View style={styles.fieldRow}>
+                        <View style={styles.iconSlot}>
+                          <View style={styles.stopBadge}>
+                            <Text style={styles.stopBadgeText}>{stops.length + 1}</Text>
+                          </View>
+                        </View>
+                        <TextInput
+                          style={styles.fieldInput}
+                          value={stopText}
+                          autoFocus
+                          onChangeText={(t) => {
+                            setTyped(true);
+                            setStopText(t);
+                          }}
+                          onSubmitEditing={() => search()}
+                          onFocus={() => {
+                            setActiveField('stop');
+                            setTyped(false);
+                            setResults([]);
+                            setSearchFocused(true);
+                          }}
+                          onBlur={() => setTimeout(() => setSearchFocused(false), 150)}
+                          placeholder="Ara durak ara ya da haritada basılı tut"
+                          returnKeyType="search"
+                        />
+                        <Pressable onPress={closeStopField} hitSlop={10} accessibilityLabel="Durak eklemeyi iptal et">
+                          <Text style={styles.stopRemove}>✕</Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  )}
+                  <FieldJoiner />
                   <View style={styles.fieldRow}>
                     <View style={styles.iconSlot}>
                       <View style={styles.toPin} />
@@ -834,6 +972,11 @@ function AppScreen() {
                       returnKeyType="search"
                     />
                   </View>
+                  {destination && !addingStop && stops.length < MAX_STOPS && (
+                    <Pressable style={styles.addStop} onPress={openStopField} hitSlop={6}>
+                      <Text style={styles.addStopText}>＋ Ara durak ekle</Text>
+                    </Pressable>
+                  )}
                 </View>
                 <View style={styles.cardButtons}>
                   <Pressable style={[styles.iconButton, styles.swapButton]} onPress={swapPlaces} accessibilityLabel="Yer değiştir">
@@ -1041,7 +1184,7 @@ function AppScreen() {
 
       {/* Sağ kenardaki düğme paneli (arama sonuçları açıkken gizlenir). */}
       {!inPip && results.length === 0 && !showRecents && !editing && (
-        <View style={[styles.sidePanel, { top: navigating ? 170 : 200 }]}>
+        <View style={[styles.sidePanel, { top: navigating ? 170 : Math.max(200, TOP_OFFSET + searchCardBottom + 12) }]}>
           <SideButton label="Ayarlar" onPress={() => setSettingsOpen(true)}>
             <Text style={styles.sideGlyph}>⚙︎</Text>
           </SideButton>
@@ -1150,6 +1293,20 @@ function SlideIn({ from = 24, duration = 260, style, children, ...rest }) {
   );
 }
 
+// Kutular arasındaki ayırıcı çizgi ve soldaki noktalı bağlantı (Nereden → duraklar → Nereye).
+function FieldJoiner() {
+  return (
+    <View style={styles.joiner}>
+      <View style={styles.joinerDots} pointerEvents="none">
+        <View style={styles.connectorDot} />
+        <View style={styles.connectorDot} />
+        <View style={styles.connectorDot} />
+      </View>
+      <View style={styles.fieldDivider} />
+    </View>
+  );
+}
+
 // Son aramalar listesindeki küçük saat simgesi.
 function ClockIcon() {
   return (
@@ -1217,6 +1374,8 @@ function KeepScreenOn() {
   return null;
 }
 
+const TOP_OFFSET = 56; // üst alanın (arama kartı / yön bandı) ekranın üstünden uzaklığı
+
 const shadow = {
   shadowColor: '#000',
   shadowOpacity: 0.15,
@@ -1227,7 +1386,7 @@ const shadow = {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#e9e9e9' },
-  top: { position: 'absolute', top: 56, left: 12, right: 12, gap: 8 },
+  top: { position: 'absolute', top: TOP_OFFSET, left: 12, right: 12, gap: 8 },
   searchRow: { flexDirection: 'row', gap: 8 },
   search: { flex: 1, backgroundColor: '#fff', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 16, ...shadow },
   iconButton: { width: 48, backgroundColor: '#fff', borderRadius: 12, alignItems: 'center', justifyContent: 'center', ...shadow },
@@ -1389,7 +1548,32 @@ const styles = StyleSheet.create({
     transform: [{ rotate: '45deg' }],
     marginTop: -2,
   },
-  connector: { position: 'absolute', left: 12, width: 14, top: 30, height: 24, alignItems: 'center', justifyContent: 'space-evenly' },
+  joiner: { justifyContent: 'center' },
+  joinerDots: { position: 'absolute', left: 0, width: 14, top: -12, height: 24, alignItems: 'center', justifyContent: 'space-evenly' },
+  stopBadge: { width: 16, height: 16, borderRadius: 8, backgroundColor: '#f08c00', alignItems: 'center', justifyContent: 'center' },
+  stopBadgeText: { color: '#fff', fontSize: 10, fontWeight: '800' },
+  stopName: { flex: 1, minWidth: 0, paddingVertical: 11, fontSize: 16, color: '#1c1c1e' },
+  stopRemove: { color: '#8e8e93', fontSize: 16, paddingHorizontal: 4 },
+  addStop: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#d1d1d6', marginLeft: 24, paddingVertical: 8 },
+  addStopText: { color: '#0a66d8', fontSize: 14, fontWeight: '600' },
+  speedRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  speedSign: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: 5,
+    borderColor: '#d70015',
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...shadow,
+  },
+  speedSignText: { fontSize: 17, fontWeight: '800', color: '#1c1c1e' },
+  speedNow: { minWidth: 48, height: 48, borderRadius: 12, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6, ...shadow },
+  speedNowOver: { backgroundColor: '#d70015' },
+  speedNowValue: { fontSize: 17, fontWeight: '800', color: '#1c1c1e' },
+  speedNowUnit: { fontSize: 9, color: '#636366', marginTop: -2 },
+  speedNowOverText: { color: '#fff' },
   connectorDot: { width: 3, height: 3, borderRadius: 1.5, backgroundColor: '#aeb4bc' },
   cardButtons: { gap: 8 },
   swapButton: { flex: 1, minHeight: 40 },

@@ -107,3 +107,9 @@ export function formatArrival(sec, now = Date.now()) {
   const t = new Date(now + sec * 1000);
   return `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`;
 }
+
+/** Rotanın `index` numaralı parçasındaki hız sınırı (km/sa); bilinmiyorsa null. */
+export function speedLimitAt(route, index) {
+  const run = route?.speedLimits?.find((r) => r.from <= index && index < r.to);
+  return run ? run.kph : null;
+}

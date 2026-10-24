@@ -82,27 +82,50 @@ function idForShape(shape) {
   return (h >>> 0).toString(16).padStart(8, '0') + shape.length.toString(16);
 }
 
-// server/src/app.js'teki buildRoute ile aynı biçim.
-function buildRoute(trip, periodKey) {
-  const leg = trip.legs[0];
-  const maneuvers = leg.maneuvers.map((m) => ({
-    type: m.type,
-    instruction: fixStreetSuffixes(m.instruction),
-    verbalPre: fixStreetSuffixes(m.verbal_pre_transition_instruction ?? m.instruction),
-    verbalAlert: fixStreetSuffixes(m.verbal_transition_alert_instruction ?? null),
-    streetNames: m.street_names ?? [],
-    distanceKm: m.length,
-    durationSec: Math.round(adjustedTime(m.length, m.time, periodKey)),
-    beginShapeIndex: m.begin_shape_index,
-    endShapeIndex: m.end_shape_index,
-  }));
+// Valhalla'nın varış manevraları (düz, sağda, solda). Ara durakların sonundakiler "Ara durak" olarak yazılır.
+const ARRIVAL_TYPES = new Set([4, 5, 6]);
+export const MAX_STOPS = 3;
+
+// server/src/app.js'teki buildRoute ile aynı biçim: ara duraklı rotanın bacakları tek çizgide birleşir.
+function buildRoute(trip, periodKey, legSpeedLimits = []) {
+  const coordinates = [];
+  const maneuvers = [];
+  const stops = [];
+  const speedLimits = [];
+  trip.legs.forEach((leg, li) => {
+    const offset = coordinates.length;
+    const coords = decodePolyline(leg.shape);
+    coordinates.push(...coords);
+    const lastLeg = li === trip.legs.length - 1;
+    for (const m of leg.maneuvers) {
+      const isStop = !lastLeg && ARRIVAL_TYPES.has(m.type);
+      maneuvers.push({
+        type: m.type,
+        instruction: isStop ? `${li + 1}. ara durağa varış` : fixStreetSuffixes(m.instruction),
+        verbalPre: isStop
+          ? `${li + 1}. ara durağa varmak üzeresiniz.`
+          : fixStreetSuffixes(m.verbal_pre_transition_instruction ?? m.instruction),
+        verbalAlert: isStop ? null : fixStreetSuffixes(m.verbal_transition_alert_instruction ?? null),
+        streetNames: m.street_names ?? [],
+        distanceKm: m.length,
+        durationSec: Math.round(adjustedTime(m.length, m.time, periodKey)),
+        beginShapeIndex: m.begin_shape_index + offset,
+        endShapeIndex: m.end_shape_index + offset,
+        ...(isStop ? { stop: li + 1 } : {}),
+      });
+    }
+    if (!lastLeg) stops.push({ shapeIndex: coordinates.length - 1 });
+    for (const r of legSpeedLimits[li] ?? []) speedLimits.push({ from: r.from + offset, to: r.to + offset, kph: r.kph });
+  });
   return {
     distanceKm: trip.summary.length,
     hasToll: Boolean(trip.summary.has_toll),
     durationSec: maneuvers.reduce((sum, m) => sum + m.durationSec, 0),
     freeFlowDurationSec: Math.round(trip.summary.time),
-    coordinates: decodePolyline(leg.shape),
+    coordinates,
     maneuvers,
+    stops,
+    speedLimits,
   };
 }
 
@@ -189,6 +212,33 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL) {
     }
   }
 
+  // Sunucudaki legSpeedLimits ile aynı: rota bacağının hız sınırları (OSM maxspeed), hata olursa boş.
+  async function legSpeedLimits(leg, costing) {
+    try {
+      const data = await valhalla('trace_attributes', {
+        encoded_polyline: leg.shape,
+        costing,
+        shape_match: 'edge_walk',
+        filters: {
+          attributes: ['edge.speed_limit', 'edge.begin_shape_index', 'edge.end_shape_index', 'shape'],
+          action: 'include',
+        },
+      });
+      if (!data.shape || decodePolyline(data.shape).length !== decodePolyline(leg.shape).length) return [];
+      const runs = [];
+      for (const e of data.edges ?? []) {
+        const kph = e.speed_limit;
+        if (!(kph > 0 && kph < 200)) continue;
+        const prev = runs[runs.length - 1];
+        if (prev && prev.kph === kph && prev.to === e.begin_shape_index) prev.to = e.end_shape_index;
+        else runs.push({ from: e.begin_shape_index, to: e.end_shape_index, kph });
+      }
+      return runs;
+    } catch {
+      return [];
+    }
+  }
+
   // Dokunulan noktadaki yol parçasını (iki kavşak arası) bulur.
   async function locateSegment(lat, lon) {
     const [result] = await valhalla('locate', { locations: [{ lat, lon }], costing: 'auto', verbose: true });
@@ -217,7 +267,8 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL) {
       return { version: st.version, closures: effective(st), zones: st.zones };
     },
 
-    async route({ from, to, costing: requested, heading, alternatives = false, avoidTolls = false }) {
+    async route({ from, to, via = [], costing: requested, heading, alternatives = false, avoidTolls = false }) {
+      if (via.length > MAX_STOPS) throw new Error(`En fazla ${MAX_STOPS} ara durak eklenebilir`);
       const costing = requested === 'motorcycle' ? 'motorcycle' : 'auto';
       const st = await load();
       const { version } = st;
@@ -228,18 +279,32 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL) {
         origin.heading_tolerance = 60;
       }
       const { data, snappedToRoad } = await routeWithFallback(closures.length > 0, {
-        locations: [origin, { lat: to.lat, lon: to.lon, type: 'break' }],
+        locations: [
+          origin,
+          ...via.map((p) => ({ lat: p.lat, lon: p.lon, type: 'break' })),
+          { lat: to.lat, lon: to.lon, type: 'break' },
+        ],
         costing,
         directions_options: { language: 'tr-TR', units: 'kilometers' },
         // Alternatifler de exclude_polygons'a uyar: hiçbiri kapalı yoldan geçmez.
-        ...(alternatives ? { alternates: 2 } : {}),
+        // Valhalla alternatif rotayı yalnızca iki noktalı rotalarda verir.
+        ...(alternatives && !via.length ? { alternates: 2 } : {}),
         ...(avoidTolls ? { costing_options: { [costing]: { use_tolls: 0 } } } : {}),
         ...(closures.length ? { exclude_polygons: closures.map((c) => tinySquareRing(c.midpoint)) } : {}),
       });
       const traffic = trafficPeriod();
       const trips = [data.trip, ...(data.alternates ?? []).map((a) => a.trip)];
+      // Herkese açık sunucuyu yormamak için hız sınırları sırayla istenir.
+      const limits = [];
+      for (const trip of trips) {
+        const legs = [];
+        for (const leg of trip.legs) legs.push(await legSpeedLimits(leg, costing));
+        limits.push(legs);
+      }
       // Sunucudaki gibi: yoğun saat tahminine göre en hızlıdan yavaşa.
-      const routes = trips.map((trip) => buildRoute(trip, traffic.key)).sort((a, b) => a.durationSec - b.durationSec);
+      const routes = trips
+        .map((trip, i) => buildRoute(trip, traffic.key, limits[i]))
+        .sort((a, b) => a.durationSec - b.durationSec);
       return { closuresVersion: version, costing, avoidTolls, snappedToRoad, traffic, ...routes[0], routes };
     },
 

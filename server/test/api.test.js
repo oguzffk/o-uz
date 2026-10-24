@@ -379,3 +379,87 @@ test('rota bulunamazsa hedef en yakın halka açık / ana yola bağlanarak tekra
     assert.equal(normal.body.snappedToRoad, false);
   });
 });
+
+test('ara durak: duraklar Valhalla\'ya "break" olarak gider, bacaklar tek çizgide birleşir', async () => {
+  await withServer(async ({ req, valhalla }) => {
+    const leg = (arrive) => ({
+      shape: SHAPE,
+      maneuvers: [
+        { type: 1, instruction: 'Başla', length: 0.2, time: 20, begin_shape_index: 0, end_shape_index: 1 },
+        { type: arrive, instruction: 'Hedefinize vardınız.', length: 0, time: 0, begin_shape_index: 1, end_shape_index: 1 },
+      ],
+    });
+    valhalla.route = async (body) => {
+      valhalla.calls.push(body);
+      return { trip: { summary: { length: 0.4, time: 40 }, legs: [leg(4), leg(5)] } };
+    };
+    const via = [{ lat: 41.035, lon: 28.985 }];
+    const r = await req('/api/route', {
+      method: 'POST',
+      body: { from: { lat: 41.03, lon: 28.98 }, via, to: { lat: 41.04, lon: 28.99 }, alternatives: true },
+    });
+    assert.equal(r.status, 200);
+    const call = valhalla.calls.at(-1);
+    assert.equal(call.locations.length, 3);
+    assert.deepEqual(call.locations[1], { ...via[0], type: 'break' });
+    assert.equal(call.alternates, undefined); // duraklı rotada alternatif yok
+    assert.equal(r.body.coordinates.length, 4);
+    assert.deepEqual(r.body.stops, [{ shapeIndex: 1 }]);
+    assert.deepEqual(r.body.maneuvers.map((m) => m.beginShapeIndex), [0, 1, 2, 3]);
+    assert.equal(r.body.maneuvers[1].instruction, '1. ara durağa varış');
+    assert.equal(r.body.maneuvers[1].stop, 1);
+    assert.equal(r.body.maneuvers[3].instruction, 'Hedefinize vardınız.'); // son varış dokunulmaz
+
+    const tooMany = await req('/api/route', {
+      method: 'POST',
+      body: { from: { lat: 41.03, lon: 28.98 }, via: [via[0], via[0], via[0], via[0]], to: { lat: 41.04, lon: 28.99 } },
+    });
+    assert.equal(tooMany.status, 400);
+    const outside = await req('/api/route', {
+      method: 'POST',
+      body: { from: { lat: 41.03, lon: 28.98 }, via: [{ lat: 39.9, lon: 32.8 }], to: { lat: 41.04, lon: 28.99 } },
+    });
+    assert.equal(outside.status, 400);
+    assert.match(outside.body.error, /1\. ara durak/);
+  });
+});
+
+test('hız sınırı: yol parçalarının sınırı birleşik çizgi indeksleriyle gelir; servis hatası rotayı bozmaz', async () => {
+  await withServer(async ({ req, valhalla }) => {
+    const shape3 = '_vggmA_qxgv@?gqC?gqC'; // 3 noktalı çizgi
+    const leg = { shape: shape3, maneuvers: [{ type: 1, instruction: 'Başla', length: 0.4, time: 40, begin_shape_index: 0, end_shape_index: 2 }] };
+    valhalla.route = async () => ({ trip: { summary: { length: 0.8, time: 80 }, legs: [leg, leg] } });
+    valhalla.traceAttributes = async (body) => {
+      assert.equal(body.shape_match, 'edge_walk');
+      return {
+        shape: body.encoded_polyline,
+        edges: [
+          { speed_limit: 50, begin_shape_index: 0, end_shape_index: 1 },
+          { speed_limit: 50, begin_shape_index: 1, end_shape_index: 2 },
+        ],
+      };
+    };
+    const body = { from: { lat: 41.03, lon: 28.98 }, via: [{ lat: 41.035, lon: 28.985 }], to: { lat: 41.04, lon: 28.99 } };
+    const r = await req('/api/route', { method: 'POST', body });
+    assert.deepEqual(r.body.speedLimits, [
+      { from: 0, to: 2, kph: 50 },
+      { from: 3, to: 5, kph: 50 },
+    ]);
+
+    // Sınırı bilinmeyen parça atlanır; Valhalla çizgisi rotanınkiyle uyuşmazsa hiç sınır verilmez.
+    valhalla.traceAttributes = async () => ({ shape: shape3, edges: [{ begin_shape_index: 0, end_shape_index: 1 }, { speed_limit: 30, begin_shape_index: 1, end_shape_index: 2 }] });
+    assert.deepEqual((await req('/api/route', { method: 'POST', body })).body.speedLimits, [
+      { from: 1, to: 2, kph: 30 },
+      { from: 4, to: 5, kph: 30 },
+    ]);
+    valhalla.traceAttributes = async () => ({ shape: SHAPE, edges: [{ speed_limit: 30, begin_shape_index: 0, end_shape_index: 1 }] });
+    assert.deepEqual((await req('/api/route', { method: 'POST', body })).body.speedLimits, []);
+
+    valhalla.traceAttributes = async () => {
+      throw new Error('trace_attributes kapalı');
+    };
+    const r2 = await req('/api/route', { method: 'POST', body });
+    assert.equal(r2.status, 200);
+    assert.deepEqual(r2.body.speedLimits, []);
+  });
+});

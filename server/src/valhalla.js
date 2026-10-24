@@ -56,5 +56,6 @@ export function createValhallaClient(baseUrl) {
     },
 
     route: (body) => call('route', body),
+    traceAttributes: (body) => call('trace_attributes', body),
   };
 }

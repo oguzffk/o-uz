@@ -113,9 +113,11 @@ Telefonda Expo Go ile QR kodu okutun, ⚙︎ **Ayarlar → Rota sunucusu → Ken
 | İşlem | Nasıl |
 | --- | --- |
 | Nereden / Nereye | Üstteki iki kutu. **Nereden** varsayılan olarak **Konumum**; başka bir yer de aranabilir (listenin başında "Konumum" seçeneği). **⇅** ikisini yer değiştirir. Haritada **basılı tutmak** varışı seçer |
+| Ara durak | Rota çizilince kartın altındaki **＋ Ara durak ekle** (en fazla 3). Durak aranır ya da haritada basılı tutularak seçilir; **✕** kaldırır, **⇅** durakların sırasını da ters çevirir. Duraklı rotada alternatif rota verilmez. Seyirde durağa yaklaşınca "1. ara durağa varmak üzeresiniz" denir; geçilen duraklar yeniden rota hesaplanırken atlanır |
 | Son aramalar | Bir kutuya dokununca (yazmadan) son seçilen yerler listelenir; cihazda saklanır, **Temizle** ile silinir |
 | Rota seçenekleri | En fazla 3 rota; gri alternatife ya da alttaki karta dokunarak seçin. Her kartta süre, mesafe ve **varış saati** |
 | Seyre başla | **Başla** (yalnızca Nereden = Konumum iken; başka başlangıçta rota önizlemesi). Harita yön okunu arkadan takip eder, talimatlar Türkçe okunur, rotadan çıkınca yeni rota hesaplanır |
+| Hız sınırı | Seyirde yön bandının altında: kırmızı çerçeveli tabela yolun hız sınırı (OpenStreetMap'te `maxspeed` etiketi olan yollarda; etiketsiz yolda gösterilmez), yanındaki kutu anlık hız — sınır aşılınca kırmızı olur |
 | Ortala | Harita konumda değilken (rota gösterilince ya da kaydırınca) sol altta çıkar; basınca konuma döner |
 | Sesli yönlendirme | Sağ paneldeki **Ses** düğmesi; seçim saklanır |
 | Ulaşım türü | Ayarlar → Araç / Motor |
@@ -130,7 +132,7 @@ Telefon İstanbul dışındaysa (ör. emülatör) ilk basılı tutma **başlang�
 
 | Uç nokta | Açıklama |
 | --- | --- |
-| `POST /api/route` `{from:{lat,lon}, to:{lat,lon}, costing?, heading?, alternatives?, avoidTolls?}` | Kapalı yolları dışlayan rota; `alternatives: true` ile en fazla 2 alternatif (hepsi kapalı yollardan kaçar). Süreler İstanbul saatine göre yoğun saat tahminiyle uzatılır (`traffic`, `freeFlowDurationSec`); rotalar bu süreye göre sıralanır |
+| `POST /api/route` `{from:{lat,lon}, to:{lat,lon}, via?:[{lat,lon}], costing?, heading?, alternatives?, avoidTolls?}` | Kapalı yolları dışlayan rota; `alternatives: true` ile en fazla 2 alternatif (hepsi kapalı yollardan kaçar; `via` varken alternatif yok). `via`: en fazla 3 ara durak, sırayla uğranır; cevapta `stops[].shapeIndex` durakların çizgideki yeri. `speedLimits: [{from, to, kph}]` çizgi indeks aralıklarına göre hız sınırları (Valhalla `trace_attributes`, OSM `maxspeed`). Süreler İstanbul saatine göre yoğun saat tahminiyle uzatılır (`traffic`, `freeFlowDurationSec`); rotalar bu süreye göre sıralanır |
 | `GET /api/closures` | `{version, closures[], zones[]}` — `closures` şu an trafiğe kapalı tüm parçalar (gruptakiler `zoneName` taşır); her değişiklikte `version` artar |
 | `GET /api/closures/stream` | Değişiklikler için Server-Sent Events |
 | `POST /api/closures/toggle` `{lat,lon}` 🔒 | Dokunulan noktadaki segmenti kapatır, kapalıysa açar |

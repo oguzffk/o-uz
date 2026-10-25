@@ -79,6 +79,7 @@ export default function SettingsSheet({ visible, settings, user, onClose, onSave
                 autoCorrect={false}
                 keyboardType="url"
                 placeholder="http://192.168.1.20:3000"
+                placeholderTextColor="#8e8e93"
               />
             </>
           )}
@@ -134,7 +135,7 @@ const styles = StyleSheet.create({
   logoutText: { color: '#b0000f', fontWeight: '700', textAlign: 'center' },
   buy: { backgroundColor: '#0a66d8', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 },
   buyText: { color: '#fff', fontWeight: '700', textAlign: 'center' },
-  input: { borderWidth: 1, borderColor: '#d1d1d6', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 16 },
+  input: { borderWidth: 1, borderColor: '#d1d1d6', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 16, color: '#1c1c1e' },
   segment: { flexDirection: 'row', backgroundColor: '#f2f2f7', borderRadius: 10, padding: 3 },
   segmentItem: { flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 8 },
   segmentOn: { backgroundColor: '#fff', shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 3, elevation: 1 },

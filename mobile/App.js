@@ -1007,6 +1007,7 @@ function AppScreen() {
                     onChangeText={(name) => setEditing((e) => ({ ...e, name }))}
                     maxLength={80}
                     placeholder="Grup adı"
+                    placeholderTextColor="#8e8e93"
                   />
                   <Pressable style={styles.editDone} onPress={finishEditing}>
                     <Text style={styles.editDoneText}>Bitti</Text>
@@ -1104,6 +1105,7 @@ function AppScreen() {
                             }}
                             onBlur={() => setTimeout(() => setSearchFocused(false), 150)}
                             placeholder="Ara durak ara ya da haritada basılı tut"
+                            placeholderTextColor="#8e8e93"
                             returnKeyType="search"
                           />
                           <Pressable onPress={closeStopField} hitSlop={10} accessibilityLabel="Durak eklemeyi iptal et">
@@ -1135,6 +1137,7 @@ function AppScreen() {
                         // Listeye dokunma kaybolmadan önce işlensin diye biraz gecikmeli.
                         onBlur={() => setTimeout(() => setSearchFocused(false), 150)}
                         placeholder="Nereye? (ör. Taksim)"
+                        placeholderTextColor="#8e8e93"
                         returnKeyType="search"
                       />
                     </View>
@@ -1788,7 +1791,7 @@ const baseStyles = StyleSheet.create({
   editCard: { backgroundColor: '#fff', borderRadius: 14, padding: 12, gap: 8, borderWidth: 2, borderColor: '#f08c00', ...shadow },
   editLabel: { fontSize: 11, fontWeight: '800', color: '#b35f00', letterSpacing: 0.5 },
   editRow: { flexDirection: 'row', gap: 8 },
-  editInput: { flex: 1, minWidth: 0, borderWidth: 1, borderColor: '#d1d1d6', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, fontSize: 16 },
+  editInput: { flex: 1, minWidth: 0, borderWidth: 1, borderColor: '#d1d1d6', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, fontSize: 16, color: '#1c1c1e' },
   editDone: { backgroundColor: '#f08c00', borderRadius: 10, paddingHorizontal: 18, justifyContent: 'center' },
   editDoneText: { color: '#fff', fontWeight: '800', fontSize: 15 },
   editHint: { fontSize: 12, color: '#6e6e73' },
@@ -1913,7 +1916,7 @@ const baseStyles = StyleSheet.create({
   },
   routeCard: { flex: 1, backgroundColor: '#fff', borderRadius: 14, paddingHorizontal: 12, ...shadow },
   fieldRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  fieldInput: { flex: 1, minWidth: 0, paddingVertical: 11, fontSize: 16 },
+  fieldInput: { flex: 1, minWidth: 0, paddingVertical: 11, fontSize: 16, color: '#1c1c1e' },
   fieldDivider: { height: StyleSheet.hairlineWidth, backgroundColor: '#d1d1d6', marginLeft: 24 },
   fromDot: { width: 12, height: 12, borderRadius: 6, borderWidth: 3, borderColor: '#0a66d8', backgroundColor: '#fff' },
   iconSlot: { width: 14, alignItems: 'center', justifyContent: 'center' },

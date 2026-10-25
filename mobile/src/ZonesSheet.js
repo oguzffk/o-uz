@@ -49,6 +49,7 @@ export default function ZonesSheet({ visible, zones, unsavedCount, closedCount, 
               value={name}
               onChangeText={setName}
               placeholder="Ör. Maraton güzergâhı"
+              placeholderTextColor="#8e8e93"
               maxLength={80}
               returnKeyType="done"
               onSubmitEditing={canSave ? save : undefined}
@@ -151,7 +152,7 @@ const styles = StyleSheet.create({
   done: { fontSize: 16, fontWeight: '600', color: '#0a66d8' },
   label: { color: '#6e6e73', fontSize: 13, marginTop: 14, marginBottom: 6 },
   saveRow: { flexDirection: 'row', gap: 8 },
-  input: { flex: 1, minWidth: 0, borderWidth: 1, borderColor: '#d1d1d6', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 16 },
+  input: { flex: 1, minWidth: 0, borderWidth: 1, borderColor: '#d1d1d6', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 16, color: '#1c1c1e' },
   saveButton: { backgroundColor: '#0a66d8', borderRadius: 10, paddingHorizontal: 16, justifyContent: 'center' },
   saveText: { color: '#fff', fontWeight: '700', fontSize: 15 },
   disabled: { opacity: 0.45 },

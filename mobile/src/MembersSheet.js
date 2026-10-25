@@ -245,6 +245,7 @@ export default function MembersSheet({ visible, api, onClose, showToast }) {
                 <TextInput
                   style={styles.input}
                   placeholder="Ad soyad"
+                  placeholderTextColor="#8e8e93"
                   value={form.name}
                   onChangeText={(name) => setForm((f) => ({ ...f, name }))}
                   maxLength={80}
@@ -252,6 +253,7 @@ export default function MembersSheet({ visible, api, onClose, showToast }) {
                 <TextInput
                   style={styles.input}
                   placeholder="E-posta (giriş kodu buraya gider)"
+                  placeholderTextColor="#8e8e93"
                   value={form.email}
                   onChangeText={(email) => setForm((f) => ({ ...f, email }))}
                   keyboardType="email-address"
@@ -261,6 +263,7 @@ export default function MembersSheet({ visible, api, onClose, showToast }) {
                 <TextInput
                   style={styles.input}
                   placeholder={tab === 'admin' ? 'Telefon (yedek giriş için)' : 'Telefon (isteğe bağlı, WhatsApp için)'}
+                  placeholderTextColor="#8e8e93"
                   value={form.phone}
                   onChangeText={(phone) => setForm((f) => ({ ...f, phone }))}
                   keyboardType="phone-pad"
@@ -276,7 +279,7 @@ export default function MembersSheet({ visible, api, onClose, showToast }) {
               </View>
             ) : (
               <View style={styles.toolbar}>
-                <TextInput style={[styles.input, styles.search]} placeholder="Ad, e-posta ya da telefon ara" value={query} onChangeText={setQuery} />
+                <TextInput style={[styles.input, styles.search]} placeholder="Ad, e-posta ya da telefon ara" placeholderTextColor="#8e8e93" value={query} onChangeText={setQuery} />
                 <Pressable
                   style={styles.btn}
                   onPress={() => {

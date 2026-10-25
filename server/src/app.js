@@ -214,16 +214,23 @@ function createLoginLimiter(now) {
 function createCodeLimiter(now) {
   const sent = new Map(); // anahtar → zaman damgaları
   const recent = (key, windowMs) => (sent.get(key) ?? []).filter((t) => t > now() - windowMs);
-  return {
-    take(email, ip) {
+  const limiter = {
+    check(email, ip) {
       const e = recent(`e:${email}`, 3600000);
       const i = recent(`ip:${ip}`, 3600000);
       if (e.some((t) => t > now() - 60000)) throw new UserError(429, 'Yeni kod için 1 dakika bekleyin.');
       if (e.length >= 5 || i.length >= 30) throw new UserError(429, 'Çok fazla kod istendi. Bir saat sonra tekrar deneyin.');
-      sent.set(`e:${email}`, [...e, now()]);
-      sent.set(`ip:${ip}`, [...i, now()]);
+    },
+    record(email, ip) {
+      sent.set(`e:${email}`, [...recent(`e:${email}`, 3600000), now()]);
+      sent.set(`ip:${ip}`, [...recent(`ip:${ip}`, 3600000), now()]);
+    },
+    take(email, ip) {
+      limiter.check(email, ip);
+      limiter.record(email, ip);
     },
   };
+  return limiter;
 }
 
 export function createApp({
@@ -273,21 +280,46 @@ export function createApp({
   const limiter = createLoginLimiter(now);
   const codeLimiter = createCodeLimiter(now);
 
-  // E-posta ile giriş, 1. adım: kayıtlı adrese 6 haneli kod gönderilir. Adres kayıtlı olmasa da
-  // cevap aynıdır (kimin üye olduğu anlaşılmasın).
+  const sendCode = async (email, code, kind) => {
+    try {
+      await mailer.sendLoginCode(email, code, kind);
+    } catch (err) {
+      console.error('E-posta gönderilemedi:', err.message);
+      throw new UserError(502, 'Kod e-postası gönderilemedi. Biraz sonra tekrar deneyin.');
+    }
+  };
+
+  // Kayıt ol, 1. adım: ad, e-posta, telefon ve şifre denetlenir; e-postaya doğrulama kodu gider.
+  app.post('/api/auth/register', async (req, res, next) => {
+    try {
+      const email = normalizeEmail(req.body.email);
+      codeLimiter.check(email, req.ip);
+      const reg = users.startRegistration(req.body);
+      codeLimiter.record(email, req.ip);
+      await sendCode(reg.email, reg.code, 'register');
+      res.json({ ok: true, email: reg.email });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Kayıt ol, 2. adım: kod doğruysa hesap açılır ve oturum başlar (süre yok; paket satın alınır).
+  app.post('/api/auth/register/verify', (req, res, next) => {
+    try {
+      res.json(users.completeRegistration(req.body.email, req.body.code));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // E-posta ile giriş ya da şifremi unuttum, 1. adım: kayıtlı adrese 6 haneli kod gönderilir.
+  // Adres kayıtlı olmasa da cevap aynıdır (kimin üye olduğu anlaşılmasın).
   app.post('/api/auth/email-code', async (req, res, next) => {
     try {
       const email = normalizeEmail(req.body.email);
       codeLimiter.take(email, req.ip);
       const issued = users.createEmailCode(email);
-      if (issued) {
-        try {
-          await mailer.sendLoginCode(email, issued.code);
-        } catch (err) {
-          console.error('E-posta gönderilemedi:', err.message);
-          throw new UserError(502, 'Kod e-postası gönderilemedi. Biraz sonra tekrar deneyin.');
-        }
-      }
+      if (issued) await sendCode(email, issued.code, req.body.purpose === 'reset' ? 'reset' : 'login');
       res.json({ ok: true });
     } catch (err) {
       next(err);
@@ -304,20 +336,27 @@ export function createApp({
     }
   });
 
-  app.post('/api/auth/login', (req, res, next) => {
-    let phone = '';
+  // Şifremi unuttum, 2. adım: e-postaya gelen kod + yeni şifre; doğruysa oturum açılır.
+  app.post('/api/auth/reset-password', (req, res, next) => {
     try {
-      phone = normalizePhone(req.body.phone);
-    } catch {
-      phone = String(req.body.phone ?? '');
+      res.json(users.resetPasswordWithCode(req.body.email, req.body.code, req.body.newPassword));
+    } catch (err) {
+      next(err);
     }
+  });
+
+  // E-posta ya da telefon + şifre (eski uygulama sürümleri `phone` gönderir).
+  app.post('/api/auth/login', (req, res, next) => {
+    const login = String(req.body.login ?? req.body.phone ?? '').trim();
+    const found = users.findByLogin(login);
+    const key = found ? found.id : login.toLowerCase(); // aynı hesabın e-posta ve telefonu tek sayılır
     try {
-      limiter.check(phone, req.ip);
-      const result = users.login(req.body.phone, req.body.password);
-      limiter.success(phone);
+      limiter.check(key, req.ip);
+      const result = users.login(login, req.body.password);
+      limiter.success(key);
       res.json(result);
     } catch (err) {
-      if (err instanceof UserError && err.status === 401) limiter.fail(phone, req.ip);
+      if (err instanceof UserError && err.status === 401) limiter.fail(key, req.ip);
       next(err);
     }
   });

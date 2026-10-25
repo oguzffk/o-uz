@@ -102,28 +102,100 @@ function Shell({ children, logoTagline = 'Kapalı yolları bilen navigasyon' }) 
   );
 }
 
-/**
- * Giriş: e-postaya gelen 6 haneli kodla (herkes). Sahip ve yöneticiler için telefon + şifre
- * yedek olarak "Telefon ve şifreyle giriş" bağlantısının arkasındadır. Uygulama role göre açılır.
- */
-export function LoginScreen({ onRequestCode, onEmailLogin, onLogin, demoHint, backendLabel, onOpenSettings }) {
-  const [mode, setMode] = useState('email'); // 'email' | 'password'
-  const [email, setEmail] = useState('');
-  const [codeSent, setCodeSent] = useState(false);
-  const [code, setCode] = useState('');
-  const [demoCode, setDemoCode] = useState(null);
+function useCooldown() {
   const [cooldown, setCooldown] = useState(0); // yeni kod için kalan saniye
-  const [phone, setPhone] = useState('');
-  const [password, setPassword] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState(null);
-  const [forgot, setForgot] = useState(false);
-
   useEffect(() => {
     if (cooldown <= 0) return undefined;
     const t = setTimeout(() => setCooldown((c) => c - 1), 1000);
     return () => clearTimeout(t);
   }, [cooldown]);
+  return [cooldown, () => setCooldown(60)];
+}
+
+function Button({ busy, onPress, children }) {
+  return (
+    <Pressable style={[styles.button, busy && styles.buttonBusy]} onPress={onPress} disabled={busy}>
+      {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>{children}</Text>}
+    </Pressable>
+  );
+}
+
+/** E-postaya gönderilen 6 haneli kodun girildiği adım (kayıt, kodla giriş, şifre yenileme). */
+function CodeStep({ email, code, setCode, demoCode, cooldown, busy, onResend, onBack, backLabel, onSubmit, children }) {
+  return (
+    <>
+      <Text style={styles.subtitle}>
+        <Text style={{ fontWeight: '700', color: '#1c1c1e' }}>{email}</Text> adresine 6 haneli bir kod gönderdik. Kod 10 dakika
+        geçerlidir.
+      </Text>
+      <Field
+        label="E-POSTADAKİ KOD"
+        value={code}
+        onChangeText={(t) => setCode(t.replace(/\D/g, '').slice(0, 6))}
+        keyboardType="number-pad"
+        autoComplete="one-time-code"
+        textContentType="oneTimeCode"
+        placeholder="••••••"
+        maxLength={6}
+        onSubmitEditing={onSubmit}
+        style={[styles.input, styles.codeInput]}
+      />
+      {!!demoCode && <Text style={styles.demoHint}>Demo modu: e-posta gönderilmez. Kodunuz: {demoCode}</Text>}
+      {children}
+      <View style={styles.linkRow}>
+        <Pressable onPress={onResend} disabled={cooldown > 0 || busy} hitSlop={8}>
+          <Text style={[styles.linkSmall, cooldown > 0 && styles.linkDisabled]}>
+            {cooldown > 0 ? `Tekrar gönder (${cooldown} sn)` : 'Kodu tekrar gönder'}
+          </Text>
+        </Pressable>
+        <Pressable onPress={onBack} hitSlop={8}>
+          <Text style={styles.linkSmall}>{backLabel}</Text>
+        </Pressable>
+      </View>
+      <Text style={styles.note}>Kod gelmediyse e-postanızın spam (gereksiz) klasörüne bakın.</Text>
+    </>
+  );
+}
+
+const codeOk = (code) => /^\d{6}$/.test(code.trim());
+
+/**
+ * Giriş ve kayıt ekranı.
+ * - Giriş yap: e-posta ya da telefon + şifre. "Şifremi unuttum": e-postaya kod gider, kodla yeni
+ *   şifre belirlenir. "E-posta koduyla giriş": şifresi olmayan eski üyeler ve yöneticiler için.
+ * - Kayıt ol: ad, e-posta, telefon, şifre → e-postaya gelen kod girilince hesap açılır.
+ * Uygulama role göre açılır; yeni üyenin süresi yoktur, açılışta paket seçer.
+ */
+export function LoginScreen({
+  onLogin,
+  onRegister,
+  onVerifyRegistration,
+  onRequestCode,
+  onEmailLogin,
+  onResetPassword,
+  demoHint,
+  backendLabel,
+  onOpenSettings,
+}) {
+  // 'login' | 'register' | 'registerCode' | 'forgot' | 'forgotCode' | 'code' | 'codeSent'
+  const [step, setStep] = useState('login');
+  const [form, setForm] = useState({ name: '', email: '', phone: '', password: '', password2: '' });
+  const [loginId, setLoginId] = useState('');
+  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState(''); // kod gönderilen adres
+  const [code, setCode] = useState('');
+  const [newPw, setNewPw] = useState('');
+  const [demoCode, setDemoCode] = useState(null);
+  const [cooldown, startCooldown] = useCooldown();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const set = (key) => (value) => setForm((f) => ({ ...f, [key]: value }));
+  const tab = step.startsWith('register') ? 'register' : 'login';
+
+  const go = (next) => {
+    setStep(next);
+    setError(null);
+  };
 
   const run = async (fn) => {
     setBusy(true);
@@ -137,102 +209,84 @@ export function LoginScreen({ onRequestCode, onEmailLogin, onLogin, demoHint, ba
     }
   };
 
-  const sendCode = () =>
-    run(async () => {
-      if (!email.trim()) throw new Error('E-posta adresinizi girin.');
-      const r = await onRequestCode(email.trim());
-      setDemoCode(r?.demoCode ?? null);
-      setCodeSent(true);
-      setCode('');
-      setCooldown(60);
-    });
-
-  const submitCode = () =>
-    run(async () => {
-      if (!/^\d{6}$/.test(code.trim())) throw new Error('E-postanıza gelen 6 haneli kodu girin.');
-      await onEmailLogin(email.trim(), code.trim());
-    });
-
-  const submitPassword = () =>
-    run(async () => {
-      if (!phone.trim() || !password) throw new Error('Telefon numaranızı ve şifrenizi girin.');
-      await onLogin(phone, password);
-    });
-
-  const switchMode = (m) => {
-    setMode(m);
-    setError(null);
+  const codeSent = (r, to, next) => {
+    setEmail(to);
+    setDemoCode(r?.demoCode ?? null);
+    setCode('');
+    startCooldown();
+    go(next);
   };
+
+  const submitLogin = () =>
+    run(async () => {
+      if (!loginId.trim() || !password) throw new Error('E-posta ya da telefon numaranızı ve şifrenizi girin.');
+      await onLogin(loginId.trim(), password);
+    });
+
+  const submitRegister = () =>
+    run(async () => {
+      if (!form.name.trim() || !form.email.trim() || !form.phone.trim() || !form.password) throw new Error('Tüm alanları doldurun.');
+      if (form.password.length < 6) throw new Error('Şifre en az 6 karakter olmalı.');
+      if (form.password !== form.password2) throw new Error('İki şifre aynı değil.');
+      const r = await onRegister({ name: form.name.trim(), email: form.email.trim(), phone: form.phone, password: form.password });
+      codeSent(r, r?.email ?? form.email.trim().toLowerCase(), 'registerCode');
+    });
+
+  const submitRegisterCode = () =>
+    run(async () => {
+      if (!codeOk(code)) throw new Error('E-postanıza gelen 6 haneli kodu girin.');
+      await onVerifyRegistration(email, code.trim());
+    });
+
+  const sendCode = (purpose, next) =>
+    run(async () => {
+      const to = (step === 'forgot' || step === 'code' ? loginId : email).trim();
+      if (!to.includes('@')) throw new Error('Geçerli bir e-posta adresi girin.');
+      const r = await onRequestCode(to, purpose);
+      codeSent(r, to.toLowerCase(), next);
+    });
+
+  const submitEmailCode = () =>
+    run(async () => {
+      if (!codeOk(code)) throw new Error('E-postanıza gelen 6 haneli kodu girin.');
+      await onEmailLogin(email, code.trim());
+    });
+
+  const submitReset = () =>
+    run(async () => {
+      if (!codeOk(code)) throw new Error('E-postanıza gelen 6 haneli kodu girin.');
+      if (newPw.length < 6) throw new Error('Yeni şifre en az 6 karakter olmalı.');
+      await onResetPassword(email, code.trim(), newPw);
+    });
+
+  const errorText = !!error && <Text style={styles.error}>{error}</Text>;
 
   return (
     <Shell>
-      <Text style={styles.title}>Hoş geldiniz</Text>
-      {mode === 'email' && !codeSent && (
+      {(step === 'login' || step === 'register') && (
+        <View style={styles.tabs}>
+          {[
+            ['login', 'Giriş yap'],
+            ['register', 'Kayıt ol'],
+          ].map(([key, label]) => (
+            <Pressable key={key} style={[styles.tab, tab === key && styles.tabOn]} onPress={() => go(key)} accessibilityRole="tab">
+              <Text style={[styles.tabText, tab === key && styles.tabTextOn]}>{label}</Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
+
+      {step === 'login' && (
         <>
-          <Text style={styles.subtitle}>E-posta adresinizi yazın, size bir giriş kodu gönderelim.</Text>
           <Field
-            label="E-POSTA"
-            value={email}
-            onChangeText={setEmail}
+            label="E-POSTA YA DA TELEFON"
+            value={loginId}
+            onChangeText={setLoginId}
             keyboardType="email-address"
             autoCapitalize="none"
-            autoComplete="email"
-            placeholder="ornek@mail.com"
-            onSubmitEditing={sendCode}
-            returnKeyType="send"
+            autoComplete="username"
+            placeholder="ornek@mail.com ya da 0532..."
           />
-          {!!error && <Text style={styles.error}>{error}</Text>}
-          <Pressable style={[styles.button, busy && styles.buttonBusy]} onPress={sendCode} disabled={busy}>
-            {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Kod gönder</Text>}
-          </Pressable>
-        </>
-      )}
-      {mode === 'email' && codeSent && (
-        <>
-          <Text style={styles.subtitle}>
-            <Text style={{ fontWeight: '700', color: '#1c1c1e' }}>{email.trim().toLowerCase()}</Text> adresine 6 haneli bir kod gönderdik. Kod 10 dakika
-            geçerlidir.
-          </Text>
-          <Field
-            label="GİRİŞ KODU"
-            value={code}
-            onChangeText={(t) => setCode(t.replace(/\D/g, '').slice(0, 6))}
-            keyboardType="number-pad"
-            autoComplete="one-time-code"
-            textContentType="oneTimeCode"
-            placeholder="••••••"
-            maxLength={6}
-            onSubmitEditing={submitCode}
-            style={[styles.input, styles.codeInput]}
-          />
-          {!!demoCode && <Text style={styles.demoHint}>Demo modu: e-posta gönderilmez. Kodunuz: {demoCode}</Text>}
-          {!!error && <Text style={styles.error}>{error}</Text>}
-          <Pressable style={[styles.button, busy && styles.buttonBusy]} onPress={submitCode} disabled={busy}>
-            {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Giriş yap</Text>}
-          </Pressable>
-          <Text style={styles.note}>Kod gelmediyse e-postanızın spam (gereksiz) klasörüne bakın.</Text>
-          <View style={styles.linkRow}>
-            <Pressable onPress={sendCode} disabled={cooldown > 0 || busy} hitSlop={8}>
-              <Text style={[styles.linkSmall, cooldown > 0 && styles.linkDisabled]}>
-                {cooldown > 0 ? `Tekrar gönder (${cooldown} sn)` : 'Kodu tekrar gönder'}
-              </Text>
-            </Pressable>
-            <Pressable
-              onPress={() => {
-                setCodeSent(false);
-                setError(null);
-              }}
-              hitSlop={8}
-            >
-              <Text style={styles.linkSmall}>E-postayı değiştir</Text>
-            </Pressable>
-          </View>
-        </>
-      )}
-      {mode === 'password' && (
-        <>
-          <Text style={styles.subtitle}>Sahip ve yöneticiler için yedek giriş.</Text>
-          <Field label="TELEFON" value={phone} onChangeText={setPhone} keyboardType="phone-pad" placeholder="0532 123 45 67" autoComplete="tel" />
           <Field
             label="ŞİFRE"
             value={password}
@@ -240,22 +294,158 @@ export function LoginScreen({ onRequestCode, onEmailLogin, onLogin, demoHint, ba
             secureTextEntry
             placeholder="Şifreniz"
             autoCapitalize="none"
-            onSubmitEditing={submitPassword}
+            autoComplete="password"
+            onSubmitEditing={submitLogin}
             returnKeyType="go"
           />
-          {!!error && <Text style={styles.error}>{error}</Text>}
-          <Pressable style={[styles.button, busy && styles.buttonBusy]} onPress={submitPassword} disabled={busy}>
-            {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Giriş yap</Text>}
-          </Pressable>
-          <Pressable onPress={() => setForgot((f) => !f)} hitSlop={8}>
-            <Text style={styles.link}>Şifremi unuttum</Text>
-          </Pressable>
-          {forgot && <Text style={styles.note}>E-posta koduyla girebilirsiniz; ya da sahip size yeni bir geçici şifre verir.</Text>}
+          {errorText}
+          <Button busy={busy} onPress={submitLogin}>
+            Giriş yap
+          </Button>
+          <View style={styles.linkRow}>
+            <Pressable onPress={() => go('forgot')} hitSlop={8}>
+              <Text style={styles.linkSmall}>Şifremi unuttum</Text>
+            </Pressable>
+            <Pressable onPress={() => go('code')} hitSlop={8}>
+              <Text style={styles.linkSmall}>E-posta koduyla giriş</Text>
+            </Pressable>
+          </View>
         </>
       )}
-      <Pressable onPress={() => switchMode(mode === 'email' ? 'password' : 'email')} hitSlop={8}>
-        <Text style={styles.link}>{mode === 'email' ? 'Yönetici misiniz? Telefon ve şifreyle girin' : 'E-posta koduyla giriş'}</Text>
-      </Pressable>
+
+      {step === 'register' && (
+        <>
+          <Field label="AD SOYAD" value={form.name} onChangeText={set('name')} autoComplete="name" autoCapitalize="words" placeholder="Adınız Soyadınız" />
+          <Field
+            label="E-POSTA"
+            value={form.email}
+            onChangeText={set('email')}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoComplete="email"
+            placeholder="ornek@mail.com"
+          />
+          <Field label="CEP TELEFONU" value={form.phone} onChangeText={set('phone')} keyboardType="phone-pad" autoComplete="tel" placeholder="0532 123 45 67" />
+          <Field
+            label="ŞİFRE (EN AZ 6 KARAKTER)"
+            value={form.password}
+            onChangeText={set('password')}
+            secureTextEntry
+            autoCapitalize="none"
+            autoComplete="new-password"
+            placeholder="••••••"
+          />
+          <Field
+            label="ŞİFRE (TEKRAR)"
+            value={form.password2}
+            onChangeText={set('password2')}
+            secureTextEntry
+            autoCapitalize="none"
+            autoComplete="new-password"
+            placeholder="••••••"
+            onSubmitEditing={submitRegister}
+          />
+          {errorText}
+          <Button busy={busy} onPress={submitRegister}>
+            Kayıt ol
+          </Button>
+          <Text style={styles.note}>E-postanıza bir doğrulama kodu göndereceğiz.</Text>
+        </>
+      )}
+
+      {step === 'registerCode' && (
+        <>
+          <Text style={styles.title}>E-postanızı doğrulayın</Text>
+          <CodeStep
+            {...{ email, code, setCode, demoCode, cooldown, busy }}
+            onSubmit={submitRegisterCode}
+            onResend={submitRegister}
+            onBack={() => go('register')}
+            backLabel="Bilgileri değiştir"
+          >
+            {errorText}
+            <Button busy={busy} onPress={submitRegisterCode}>
+              Hesabı oluştur
+            </Button>
+          </CodeStep>
+        </>
+      )}
+
+      {(step === 'forgot' || step === 'code') && (
+        <>
+          <Text style={styles.title}>{step === 'forgot' ? 'Şifremi unuttum' : 'E-posta koduyla giriş'}</Text>
+          <Text style={styles.subtitle}>
+            {step === 'forgot'
+              ? 'Kayıtlı e-posta adresinizi yazın; yeni şifre belirlemeniz için size bir kod gönderelim.'
+              : 'E-posta adresinizi yazın, size bir giriş kodu gönderelim.'}
+          </Text>
+          <Field
+            label="E-POSTA"
+            value={loginId}
+            onChangeText={setLoginId}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoComplete="email"
+            placeholder="ornek@mail.com"
+            onSubmitEditing={() => (step === 'forgot' ? sendCode('reset', 'forgotCode') : sendCode('login', 'codeSent'))}
+            returnKeyType="send"
+          />
+          {errorText}
+          <Button busy={busy} onPress={() => (step === 'forgot' ? sendCode('reset', 'forgotCode') : sendCode('login', 'codeSent'))}>
+            Kod gönder
+          </Button>
+          <Pressable onPress={() => go('login')} hitSlop={8}>
+            <Text style={styles.link}>Girişe dön</Text>
+          </Pressable>
+        </>
+      )}
+
+      {step === 'forgotCode' && (
+        <>
+          <Text style={styles.title}>Yeni şifre belirleyin</Text>
+          <CodeStep
+            {...{ email, code, setCode, demoCode, cooldown, busy }}
+            onSubmit={submitReset}
+            onResend={() => sendCode('reset', 'forgotCode')}
+            onBack={() => go('login')}
+            backLabel="Girişe dön"
+          >
+            <Field
+              label="YENİ ŞİFRE (EN AZ 6 KARAKTER)"
+              value={newPw}
+              onChangeText={setNewPw}
+              secureTextEntry
+              autoCapitalize="none"
+              autoComplete="new-password"
+              placeholder="••••••"
+              onSubmitEditing={submitReset}
+            />
+            {errorText}
+            <Button busy={busy} onPress={submitReset}>
+              Şifreyi kaydet ve giriş yap
+            </Button>
+          </CodeStep>
+        </>
+      )}
+
+      {step === 'codeSent' && (
+        <>
+          <Text style={styles.title}>Giriş kodu</Text>
+          <CodeStep
+            {...{ email, code, setCode, demoCode, cooldown, busy }}
+            onSubmit={submitEmailCode}
+            onResend={() => sendCode('login', 'codeSent')}
+            onBack={() => go('login')}
+            backLabel="Girişe dön"
+          >
+            {errorText}
+            <Button busy={busy} onPress={submitEmailCode}>
+              Giriş yap
+            </Button>
+          </CodeStep>
+        </>
+      )}
+
       {!!demoHint && <Text style={styles.demoHint}>{demoHint}</Text>}
       <Pressable onPress={onOpenSettings} hitSlop={8} style={{ marginTop: 10 }}>
         <Text style={styles.server}>Sunucu: {backendLabel} · değiştir</Text>
@@ -377,4 +567,9 @@ const styles = StyleSheet.create({
   linkRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 12 },
   linkSmall: { color: '#0a66d8', fontSize: 13.5, fontWeight: '600' },
   linkDisabled: { color: '#8e8e93' },
+  tabs: { flexDirection: 'row', backgroundColor: '#f2f2f7', borderRadius: 12, padding: 3, marginBottom: 16 },
+  tab: { flex: 1, paddingVertical: 9, borderRadius: 10, alignItems: 'center' },
+  tabOn: { backgroundColor: '#fff', shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 2 },
+  tabText: { fontSize: 15, fontWeight: '600', color: '#6e6e73' },
+  tabTextOn: { color: '#1c1c1e', fontWeight: '800' },
 });

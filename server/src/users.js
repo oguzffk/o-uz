@@ -10,8 +10,11 @@ import { dirname } from 'node:path';
  * - admin (yönetici): yalnızca yol kapatma ve gruplar.
  * - member (üye): navigasyon; `expiresAt` geçmişse rota alamaz.
  *
- * Giriş: üyeler e-postalarına gelen 6 haneli kodla girer (şifre yok). Sahip ve yöneticiler
- * de e-posta koduyla girebilir; e-posta çalışmazsa diye telefon + şifre yedek olarak kalır.
+ * Kayıt: üye uygulamadan ad, e-posta, telefon ve şifresiyle kaydolur; hesap, e-postasına giden
+ * 6 haneli kod girilince açılır (süresi yoktur, paket satın alır). Sonra e-posta ya da telefon +
+ * şifreyle girer; şifresini unutursa e-postasına gelen kodla yenisini belirler.
+ * Sahip/yöneticinin eklediği eski üyeler şifresizdir, e-posta koduyla girer. Sahip ve
+ * yöneticiler de e-posta koduyla girebilir; telefon + şifre yedek olarak kalır.
  * Şifreler scrypt ile tuzlanıp saklanır, kodların yalnızca özeti tutulur. Oturum anahtarı
  * yalnızca girişte bir kez döner; dosyada sha256 özeti tutulur. Bir hesap aynı anda tek
  * cihazda açıktır: yeni giriş eski oturumu kapatır.
@@ -51,6 +54,9 @@ function verifyPassword(password, stored) {
   return timingSafeEqual(actual, expected);
 }
 
+// Altı haneli doğrulama kodu (e-postayla gider).
+const newCode = () => String(randomInt(0, 1_000_000)).padStart(6, '0');
+
 // Altı haneli geçici şifre (WhatsApp'tan iletilir, ilk girişte değiştirilir).
 const tempPassword = () => String(randomInt(0, 1_000_000)).padStart(6, '0');
 
@@ -77,6 +83,9 @@ export class UserStore {
     this.filePath = filePath;
     this.now = now;
     this.users = new Map();
+    // Doğrulanmayı bekleyen kayıtlar (e-posta → bilgiler + kod). Hesap kod girilince açılır;
+    // bellekte tutulur, sunucu yeniden başlarsa kayıt baştan yapılır.
+    this.pending = new Map();
     this.#load();
   }
 
@@ -200,19 +209,104 @@ export class UserStore {
     return { token, user: this.view(user) };
   }
 
-  /** Telefon + şifre (sahip ve yöneticinin yedek girişi). Doğruysa yeni oturum açar, eskisi kapanır. */
-  login(phone, password) {
-    let user;
+  /** E-posta ya da telefon numarasıyla kullanıcı (hiçbirine uymuyorsa null). */
+  findByLogin(login) {
+    const value = String(login ?? '').trim();
     try {
-      user = this.findByPhone(normalizePhone(phone));
+      return value.includes('@') ? this.findByEmail(normalizeEmail(value)) : this.findByPhone(normalizePhone(value));
     } catch {
-      user = null;
+      return null;
     }
-    if (!user?.passwordHash || !verifyPassword(String(password ?? ''), user.passwordHash)) {
-      throw new UserError(401, 'Telefon numarası ya da şifre hatalı');
+  }
+
+  /** E-posta ya da telefon + şifre. Doğruysa yeni oturum açar, eskisi kapanır. */
+  login(login, password) {
+    const user = this.findByLogin(login);
+    if (user && !user.passwordHash) {
+      throw new UserError(400, 'Bu hesabın şifresi yok. "E-posta koduyla giriş" ile girin ya da "Şifremi unuttum" ile şifre belirleyin.');
     }
-    if (user.role === 'member') throw new UserError(400, 'Üyeler e-postalarına gelen kodla giriş yapar');
+    if (!user || !verifyPassword(String(password ?? ''), user.passwordHash)) {
+      throw new UserError(401, 'E-posta / telefon ya da şifre hatalı');
+    }
     return this.#startSession(user, 'password');
+  }
+
+  /**
+   * Kayıt, 1. adım: bilgiler denetlenir ve doğrulama kodu üretilir; hesap henüz açılmaz.
+   * Aynı e-postayla tekrar istenirse önceki bekleyen kayıt ve kodu geçersiz olur.
+   */
+  startRegistration({ name, email, phone, password }) {
+    const cleanName = String(name ?? '').trim().slice(0, 80);
+    if (!cleanName) throw new UserError(400, 'Ad soyad girin');
+    const cleanEmail = normalizeEmail(email);
+    const cleanPhone = normalizePhone(phone);
+    const pw = String(password ?? '');
+    if (pw.length < MIN_PASSWORD) throw new UserError(400, `Şifre en az ${MIN_PASSWORD} karakter olmalı`);
+    if (this.findByEmail(cleanEmail)) throw new UserError(409, 'Bu e-posta ile kayıtlı bir hesap var. Giriş yapın.');
+    if (this.findByPhone(cleanPhone)) throw new UserError(409, 'Bu telefon numarasıyla kayıtlı bir hesap var. Giriş yapın.');
+    const code = newCode();
+    this.pending.set(cleanEmail, {
+      name: cleanName,
+      email: cleanEmail,
+      phone: cleanPhone,
+      passwordHash: hashPassword(pw),
+      code: { hash: sha256(`reg:${cleanEmail}:${code}`), expiresAt: this.now() + CODE_TTL_MS, attempts: 0 },
+    });
+    return { email: cleanEmail, code };
+  }
+
+  /** Kayıt, 2. adım: kod doğruysa üye hesabı açılır ve oturum başlar. */
+  completeRegistration(email, code) {
+    let cleanEmail;
+    try {
+      cleanEmail = normalizeEmail(email);
+    } catch {
+      cleanEmail = null;
+    }
+    const reg = cleanEmail && this.pending.get(cleanEmail);
+    this.#checkCode(reg, 'code', `reg:${cleanEmail}`, code, () => this.pending.delete(cleanEmail));
+    this.pending.delete(cleanEmail);
+    // Bu arada aynı bilgilerle hesap açıldıysa (ör. sahip ekledi) ikinci hesap açılmaz.
+    if (this.findByEmail(reg.email) || this.findByPhone(reg.phone)) {
+      throw new UserError(409, 'Bu bilgilerle kayıtlı bir hesap var. Giriş yapın.');
+    }
+    const user = {
+      id: randomUUID(),
+      name: reg.name,
+      email: reg.email,
+      phone: reg.phone,
+      role: 'member',
+      passwordHash: reg.passwordHash,
+      mustChangePassword: false,
+      expiresAt: null,
+      session: null,
+      selfRegistered: true,
+      createdAt: new Date(this.now()).toISOString(),
+    };
+    this.users.set(user.id, user);
+    return this.#startSession(user, 'register');
+  }
+
+  /**
+   * Kod denetimi (giriş, kayıt, şifre yenileme). `holder[key]` kod kaydıdır; 10 dakika ve 5
+   * deneme geçerlidir. Geçersizse `drop` ile kod silinir ve hata fırlatılır.
+   */
+  #checkCode(holder, key, prefix, code, drop = () => (holder[key] = null)) {
+    const entry = holder?.[key];
+    if (!entry) throw new UserError(401, 'Kod hatalı ya da süresi dolmuş. Yeni kod isteyin.');
+    if (entry.expiresAt <= this.now()) {
+      drop();
+      this.#save();
+      throw new UserError(401, 'Kodun süresi doldu. Yeni kod isteyin.');
+    }
+    entry.attempts += 1;
+    const clean = String(code ?? '').trim();
+    const ok = /^\d{6}$/.test(clean) && timingSafeEqual(Buffer.from(sha256(`${prefix}:${clean}`)), Buffer.from(entry.hash));
+    if (!ok) {
+      if (entry.attempts >= CODE_MAX_ATTEMPTS) drop();
+      this.#save();
+      throw new UserError(401, entry.attempts >= CODE_MAX_ATTEMPTS ? 'Çok fazla hatalı deneme. Yeni kod isteyin.' : 'Kod hatalı');
+    }
   }
 
   /**
@@ -222,7 +316,7 @@ export class UserStore {
   createEmailCode(email) {
     const user = this.findByEmail(normalizeEmail(email));
     if (!user) return null;
-    const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
+    const code = newCode();
     user.emailCode = { hash: sha256(`${user.id}:${code}`), expiresAt: this.now() + CODE_TTL_MS, attempts: 0 };
     this.#save();
     return { user, code };
@@ -230,28 +324,30 @@ export class UserStore {
 
   /** E-posta + kod doğruysa oturum açar. Kod 10 dakika ve 5 deneme geçerlidir, tek kullanımlıktır. */
   loginWithEmailCode(email, code) {
-    let user;
-    try {
-      user = this.findByEmail(normalizeEmail(email));
-    } catch {
-      user = null;
-    }
-    const entry = user?.emailCode;
-    if (!entry) throw new UserError(401, 'Kod hatalı ya da süresi dolmuş. Yeni kod isteyin.');
-    if (entry.expiresAt <= this.now()) {
-      user.emailCode = null;
-      this.#save();
-      throw new UserError(401, 'Kodun süresi doldu. Yeni kod isteyin.');
-    }
-    entry.attempts += 1;
-    const ok = /^\d{6}$/.test(String(code ?? '').trim()) && timingSafeEqual(Buffer.from(sha256(`${user.id}:${String(code).trim()}`)), Buffer.from(entry.hash));
-    if (!ok) {
-      if (entry.attempts >= CODE_MAX_ATTEMPTS) user.emailCode = null;
-      this.#save();
-      throw new UserError(401, entry.attempts >= CODE_MAX_ATTEMPTS ? 'Çok fazla hatalı deneme. Yeni kod isteyin.' : 'Kod hatalı');
-    }
+    const user = this.#userForCode(email);
+    this.#checkCode(user, 'emailCode', user?.id, code);
     user.emailCode = null;
     return this.#startSession(user, 'email');
+  }
+
+  /** Şifremi unuttum: e-postaya gelen kodla yeni şifre belirlenir ve oturum açılır. */
+  resetPasswordWithCode(email, code, newPassword) {
+    const pw = String(newPassword ?? '');
+    if (pw.length < MIN_PASSWORD) throw new UserError(400, `Şifre en az ${MIN_PASSWORD} karakter olmalı`);
+    const user = this.#userForCode(email);
+    this.#checkCode(user, 'emailCode', user?.id, code);
+    user.emailCode = null;
+    user.passwordHash = hashPassword(pw);
+    user.mustChangePassword = false;
+    return this.#startSession(user, 'password');
+  }
+
+  #userForCode(email) {
+    try {
+      return this.findByEmail(normalizeEmail(email)) ?? null;
+    } catch {
+      return null;
+    }
   }
 
   byToken(token) {
@@ -269,10 +365,9 @@ export class UserStore {
 
   changePassword(id, newPassword) {
     const user = this.users.get(id);
-    if (user.role === 'member') throw new UserError(400, 'Üyeler şifre kullanmaz; e-postalarına gelen kodla girerler');
     const pw = String(newPassword ?? '');
     if (pw.length < MIN_PASSWORD) throw new UserError(400, `Şifre en az ${MIN_PASSWORD} karakter olmalı`);
-    if (/^\d{6}$/.test(pw) && verifyPassword(pw, user.passwordHash)) {
+    if (user.mustChangePassword && verifyPassword(pw, user.passwordHash)) {
       throw new UserError(400, 'Yeni şifre geçici şifreyle aynı olamaz');
     }
     user.passwordHash = hashPassword(pw);

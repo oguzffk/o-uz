@@ -211,6 +211,37 @@ async function saveUsers() {
   await AsyncStorage.setItem(USERS_KEY, JSON.stringify(usersState)).catch(() => {});
 }
 
+// Doğrulanmayı bekleyen kayıtlar (e-posta → bilgiler + kod); sunucudaki gibi yalnızca bellekte.
+const pendingRegistrations = new Map();
+
+function findByLogin(st, login) {
+  const value = String(login ?? '').trim();
+  try {
+    return value.includes('@')
+      ? st.users.find((u) => u.email === normalizeEmail(value))
+      : st.users.find((u) => u.phone === normalizePhone(value));
+  } catch {
+    return null;
+  }
+}
+
+// Sunucudaki #checkCode ile aynı: 10 dakika, 5 deneme, tek kullanımlık. `holder.code` kod kaydıdır.
+function checkCode(holder, code, drop) {
+  const entry = holder?.code;
+  if (!entry) throw new ApiError('Kod hatalı ya da süresi dolmuş. Yeni kod isteyin.', 401);
+  if (entry.expiresAt <= Date.now()) {
+    drop();
+    saveUsers();
+    throw new ApiError('Kodun süresi doldu. Yeni kod isteyin.', 401);
+  }
+  entry.attempts += 1;
+  if (String(code ?? '').trim() !== entry.code) {
+    if (entry.attempts >= 5) drop();
+    saveUsers();
+    throw new ApiError(entry.attempts >= 5 ? 'Çok fazla hatalı deneme. Yeni kod isteyin.' : 'Kod hatalı', 401);
+  }
+}
+
 const isActive = (u) => u.role !== 'member' || (u.expiresAt != null && u.expiresAt > Date.now());
 const viewUser = (u) => ({
   id: u.id,
@@ -573,19 +604,77 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL, token = null) {
     },
 
     // --- Oturum ---
-    async login(phone, password) {
+    // Sunucudaki gibi: e-posta ya da telefon + şifre.
+    async login(login, password) {
+      const st = await loadUsers();
+      const u = findByLogin(st, login);
+      if (u && !u.passwordHash) {
+        throw new ApiError('Bu hesabın şifresi yok. "E-posta koduyla giriş" ile girin ya da "Şifremi unuttum" ile şifre belirleyin.', 400);
+      }
+      if (!u || u.passwordHash !== demoHash(u.salt, String(password ?? ''))) {
+        throw new ApiError('E-posta / telefon ya da şifre hatalı', 401);
+      }
+      return startSession(u, 'password');
+    },
+    // Kayıt ol: demo modunda e-posta gönderilmez; kod cevapta döner ve ekranda gösterilir.
+    async register({ name, email, phone, password }) {
+      const st = await loadUsers();
+      const cleanName = String(name ?? '').trim().slice(0, 80);
+      if (!cleanName) throw new ApiError('Ad soyad girin', 400);
+      const cleanEmail = normalizeEmail(email);
+      const cleanPhone = normalizePhone(phone);
+      if (String(password ?? '').length < 6) throw new ApiError('Şifre en az 6 karakter olmalı', 400);
+      if (st.users.some((u) => u.email === cleanEmail)) throw new ApiError('Bu e-posta ile kayıtlı bir hesap var. Giriş yapın.', 409);
+      if (st.users.some((u) => u.phone === cleanPhone)) throw new ApiError('Bu telefon numarasıyla kayıtlı bir hesap var. Giriş yapın.', 409);
+      const prev = pendingRegistrations.get(cleanEmail);
+      if (prev?.sentAt > Date.now() - 60000) throw new ApiError('Yeni kod için 1 dakika bekleyin.', 429);
+      const salt = randomToken();
+      const code = tempPassword();
+      pendingRegistrations.set(cleanEmail, {
+        name: cleanName,
+        email: cleanEmail,
+        phone: cleanPhone,
+        salt,
+        passwordHash: demoHash(salt, String(password)),
+        code: { code, expiresAt: Date.now() + CODE_TTL_MS, attempts: 0 },
+        sentAt: Date.now(),
+      });
+      return { ok: true, email: cleanEmail, demoCode: code };
+    },
+    async verifyRegistration(email, code) {
       const st = await loadUsers();
       let clean = '';
       try {
-        clean = normalizePhone(phone);
+        clean = normalizeEmail(email);
       } catch {
         clean = '';
       }
-      const u = st.users.find((x) => x.phone === clean);
-      if (!u?.passwordHash || u.passwordHash !== demoHash(u.salt, String(password ?? ''))) {
-        throw new ApiError('Telefon numarası ya da şifre hatalı', 401);
+      const reg = pendingRegistrations.get(clean);
+      checkCode(reg, code, () => pendingRegistrations.delete(clean));
+      pendingRegistrations.delete(clean);
+      if (st.users.some((u) => u.email === reg.email || u.phone === reg.phone)) {
+        throw new ApiError('Bu bilgilerle kayıtlı bir hesap var. Giriş yapın.', 409);
       }
-      if (u.role === 'member') throw new ApiError('Üyeler e-postalarına gelen kodla giriş yapar', 400);
+      const { code: _code, sentAt: _sentAt, ...fields } = reg;
+      const u = { id: randomToken(), ...fields, role: 'member', mustChangePassword: false, expiresAt: null, session: null, createdAt: new Date().toISOString() };
+      st.users.push(u);
+      return startSession(u, 'register');
+    },
+    async resetPasswordWithCode(email, code, newPassword) {
+      const st = await loadUsers();
+      if (String(newPassword ?? '').length < 6) throw new ApiError('Şifre en az 6 karakter olmalı', 400);
+      let clean = '';
+      try {
+        clean = normalizeEmail(email);
+      } catch {
+        clean = '';
+      }
+      const u = st.users.find((x) => x.email === clean);
+      checkCode(u && { code: u.emailCode }, code, () => (u.emailCode = null));
+      u.emailCode = null;
+      u.salt ??= randomToken();
+      u.passwordHash = demoHash(u.salt, String(newPassword));
+      u.mustChangePassword = false;
       return startSession(u, 'password');
     },
     // Demo modunda e-posta gönderilmez: kod cevapta döner ve giriş ekranında gösterilir.
@@ -610,19 +699,7 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL, token = null) {
         clean = '';
       }
       const u = st.users.find((x) => x.email === clean);
-      const entry = u?.emailCode;
-      if (!entry) throw new ApiError('Kod hatalı ya da süresi dolmuş. Yeni kod isteyin.', 401);
-      if (entry.expiresAt <= Date.now()) {
-        u.emailCode = null;
-        await saveUsers();
-        throw new ApiError('Kodun süresi doldu. Yeni kod isteyin.', 401);
-      }
-      entry.attempts += 1;
-      if (String(code ?? '').trim() !== entry.code) {
-        if (entry.attempts >= 5) u.emailCode = null;
-        await saveUsers();
-        throw new ApiError(entry.attempts >= 5 ? 'Çok fazla hatalı deneme. Yeni kod isteyin.' : 'Kod hatalı', 401);
-      }
+      checkCode(u && { code: u.emailCode }, code, () => (u.emailCode = null));
       u.emailCode = null;
       return startSession(u, 'email');
     },
@@ -642,10 +719,10 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL, token = null) {
     async changePassword(newPassword) {
       const u = await currentUser();
       if (!u) throw new ApiError('Oturum açın', 401, 'auth');
-      if (u.role === 'member') throw new ApiError('Üyeler şifre kullanmaz; e-postalarına gelen kodla girerler', 400);
       const pw = String(newPassword ?? '');
       if (pw.length < 6) throw new ApiError('Şifre en az 6 karakter olmalı', 400);
-      if (u.passwordHash === demoHash(u.salt, pw)) throw new ApiError('Yeni şifre eskisiyle aynı olamaz', 400);
+      u.salt ??= randomToken();
+      if (u.mustChangePassword && u.passwordHash === demoHash(u.salt, pw)) throw new ApiError('Yeni şifre eskisiyle aynı olamaz', 400);
       u.passwordHash = demoHash(u.salt, pw);
       u.mustChangePassword = false;
       await saveUsers();

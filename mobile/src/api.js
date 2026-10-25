@@ -40,8 +40,12 @@ export function createApi(baseUrl, token) {
 
   return {
     // Oturum
-    login: (phone, password) => request('/api/auth/login', { method: 'POST', body: { phone, password } }),
-    requestEmailCode: (email) => request('/api/auth/email-code', { method: 'POST', body: { email } }),
+    // login: e-posta ya da telefon. Eski sunucular yalnızca `phone` alanını okur.
+    login: (login, password) => request('/api/auth/login', { method: 'POST', body: { login, phone: login, password } }),
+    register: ({ name, email, phone, password }) => request('/api/auth/register', { method: 'POST', body: { name, email, phone, password } }),
+    verifyRegistration: (email, code) => request('/api/auth/register/verify', { method: 'POST', body: { email, code } }),
+    resetPasswordWithCode: (email, code, newPassword) => request('/api/auth/reset-password', { method: 'POST', body: { email, code, newPassword } }),
+    requestEmailCode: (email, purpose = 'login') => request('/api/auth/email-code', { method: 'POST', body: { email, purpose } }),
     emailLogin: (email, code) => request('/api/auth/email-login', { method: 'POST', body: { email, code } }),
     me: () => request('/api/auth/me'),
     logout: () => request('/api/auth/logout', { method: 'POST' }),

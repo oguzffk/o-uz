@@ -84,7 +84,7 @@ OWNER_PASSWORD=en-az-6-karakterli-bir-sifre
 OWNER_NAME=Adınız
 OWNER_EMAIL=siz@ornek.com
 
-# Giriş kodu e-postaları (ör. Brevo'nun ücretsiz planı: günde 300 e-posta)
+# Kod e-postaları: kayıt doğrulama, giriş ve şifre yenileme (ör. Brevo'nun ücretsiz planı: günde 300 e-posta)
 SMTP_HOST=smtp-relay.brevo.com
 SMTP_PORT=587
 SMTP_USER=brevo-giris-adresiniz
@@ -93,6 +93,15 @@ MAIL_FROM="HERMAPS <kod@alanadiniz.com>"
 ```
 
 SMTP ayarlı değilse e-posta gönderilmez; giriş kodları sunucu kayıtlarına (`docker compose logs api`) yazılır — yalnızca yerel deneme içindir. E-postaların spama düşmemesi için gönderen adres kendi alan adınızda olmalı ve Brevo'nun verdiği SPF/DKIM kayıtları alan adına eklenmeli.
+
+**E-posta gönderimini kurma (Brevo, ücretsiz plan):**
+
+1. [brevo.com](https://www.brevo.com)'da ücretsiz hesap açın (günde 300 e-posta; kayıt + giriş kodları için yeterli).
+2. **Senders, Domains & Dedicated IPs → Domains → Add a domain**: alan adınızı (ör. `hermaps.com.tr`) ekleyin. Brevo'nun verdiği DNS kayıtlarını (Brevo kodu, DKIM, DMARC) alan adını aldığınız firmanın DNS panelinde ekleyip **Verify / Authenticate** deyin. Bu adım yapılmazsa kodlar spama düşer ya da hiç gitmez.
+3. **Senders → Add a sender**: gönderen adresi `kod@alanadiniz.com.tr`, ad `HERMAPS`.
+4. **SMTP & API → SMTP** sekmesi: **Login** değeri `SMTP_USER`'dır; **Generate a new SMTP key** ile üretilen anahtar `SMTP_PASS`'tır. Anahtarı kimseyle paylaşmayın, depoya eklemeyin; yalnızca sunucudaki `.env` dosyasına yazın.
+5. `.env`'e `SMTP_*` ve `MAIL_FROM` değerlerini yazıp API'yi yeniden başlatın: `docker compose up -d api`. Sunucu açılırken "SMTP ayarlı değil" uyarısı çıkmıyorsa ayar okunmuştur.
+6. Uygulamada **Kayıt ol** ile kendi e-postanızı deneyin; kod birkaç saniye içinde gelmelidir.
 
 ```bash
 docker compose up -d
@@ -139,7 +148,8 @@ Telefonda Expo Go ile QR kodu okutun. Giriş ekranının altındaki **Sunucu: �
 
 | İşlem | Nasıl |
 | --- | --- |
-| Giriş | E-posta → **Kod gönder** → e-postaya gelen 6 haneli kod (10 dakika geçerli, 5 deneme; yeni kod için 1 dakika beklenir, saatte en fazla 5 kod). Kayıtlı olmayan adrese kod gitmez ama ekran aynıdır (kimin üye olduğu anlaşılmaz). Sahip ve yöneticiler için **Telefon ve şifreyle giriş** yedektir; geçici şifreyle girene önce kendi şifresini belirletir. Oturum telefonun güvenli kasasında saklanır; **bir hesap aynı anda tek telefonda açıktır** (başka telefonda giriş yapılınca eskisinin oturumu kapanır). Çıkış: ⚙︎ **Ayarlar → Çıkış yap** |
+| Kayıt ol | Giriş ekranında **Kayıt ol** sekmesi: ad soyad, e-posta, cep telefonu, şifre (en az 6 karakter, iki kez). **Kayıt ol** → e-postaya 6 haneli **doğrulama kodu** gider → kod girilince hesap açılır. Yeni üyenin süresi yoktur; "Hoş geldiniz" ekranında paket seçer. Aynı e-posta ya da telefonla ikinci hesap açılmaz |
+| Giriş | **Giriş yap** sekmesi: **e-posta ya da telefon + şifre** (aynı hesaba 5, aynı IP'den 20 hatalı denemede 15 dakika kilit). **Şifremi unuttum:** e-postaya kod gider, kod + yeni şifreyle girilir. **E-posta koduyla giriş:** şifresi olmayanlar (sahibin eklediği eski üyeler) ve yöneticiler için; kod 10 dakika geçerli, 5 deneme; yeni kod için 1 dakika beklenir, saatte en fazla 5 kod. Kayıtlı olmayan adrese kod gitmez ama ekran aynıdır. Yöneticiye verilen geçici şifreyle girene önce kendi şifresini belirletir. Oturum telefonun güvenli kasasında saklanır; **bir hesap aynı anda tek telefonda açıktır** (başka telefonda giriş yapılınca eskisinin oturumu kapanır). Çıkış: ⚙︎ **Ayarlar → Çıkış yap** |
 | Roller | **Üye:** yalnızca navigasyon (girişte şifre sorulmaz); arama kutusunun altında **kalan süre** (son 24 saatte turuncu). Süre bitince rota alınamaz ve **Kullanım süreniz doldu** ekranında paket seçilip **App Store / Google Play ile satın al**ınır (devam eden seyir yarıda kesilmez). Süre bitmeden de kalan süre rozetine ya da ⚙︎ **Ayarlar → Süre satın al**'a dokunarak paket alınır; yeni süre kalanın üstüne eklenir. **Yönetici:** + Yol kapat ve Gruplar. **Sahip:** + **👥 Üyeler** (üyeler ve yöneticiler; web panelindekiyle aynı işlemler) |
 | Süre paketleri | **1 gün 119,99 TL · 3 gün 299,99 TL · 1 hafta 559,99 TL**. Ödeme App Store / Google Play'den alınır (otomatik yenilenmez); fiyatlar mağazadan gelir. Satın alma yalnızca uygulamanın mağaza / APK sürümünde çalışır, Expo Go'da çalışmaz. **Demo modunda** "Satın al (demo)" ile gerçek ödeme olmadan süre eklenir |
 | Nereden / Nereye | Üstteki iki kutu. **Nereden** varsayılan olarak **Konumum**; başka bir yer de aranabilir (listenin başında "Konumum" seçeneği). **⇅** ikisini yer değiştirir. Haritada **basılı tutmak** varışı seçer |
@@ -188,9 +198,12 @@ Uygulama RevenueCat'e kullanıcıyı sunucudaki kullanıcı kimliğiyle tanıtı
 | `DELETE /api/zones/:id` 🔒 | Grubu siler |
 | `POST /api/closures/open-all` 🔒 | Tüm yolları trafiğe açar: kaydedilmemiş kapatmalar silinir, gruplar silinmez ama açılır |
 | `GET /api/search?q=` | İstanbul ile sınırlı adres arama (Nominatim) |
-| `POST /api/auth/email-code` `{email}` | Kayıtlı adrese 6 haneli giriş kodu gönderir (adres kayıtlı olmasa da cevap aynı). Aynı adrese dakikada 1, saatte 5; aynı IP'den saatte 30 istek |
+| `POST /api/auth/register` `{name, email, phone, password}` | Kayıt, 1. adım: bilgiler denetlenir (e-posta/telefon kayıtlıysa `409`), e-postaya 6 haneli doğrulama kodu gider. Hesap henüz açılmaz. Kod sınırları giriş koduyla aynı |
+| `POST /api/auth/register/verify` `{email, code}` | Kayıt, 2. adım: kod doğruysa süresiz üye hesabı açılır, `{token, user}` döner |
+| `POST /api/auth/email-code` `{email, purpose?: "login"\|"reset"}` | Kayıtlı adrese 6 haneli kod gönderir (giriş ya da şifre yenileme; adres kayıtlı olmasa da cevap aynı). Aynı adrese dakikada 1, saatte 5; aynı IP'den saatte 30 istek |
+| `POST /api/auth/reset-password` `{email, code, newPassword}` | Şifremi unuttum: kod doğruysa yeni şifre kaydedilir ve oturum açılır |
 | `POST /api/auth/email-login` `{email, code}` | Kod doğruysa oturum açar: `{token, user}`. Kod 10 dakika ve 5 deneme geçerli, tek kullanımlık. Aynı hesabın önceki oturumu kapanır |
-| `POST /api/auth/login` `{phone, password}` | Yedek giriş (yalnızca sahip ve yönetici). Aynı telefona 5, aynı IP'den 20 hatalı denemede 15 dakika kilit |
+| `POST /api/auth/login` `{login, password}` | E-posta ya da telefon + şifre (eski istemciler `phone` gönderir). Şifresi olmayan hesaba `400`. Aynı hesaba 5, aynı IP'den 20 hatalı denemede 15 dakika kilit |
 | `GET /api/auth/me` · `POST /api/auth/logout` · `POST /api/auth/password` `{newPassword}` | Oturum bilgisi (kalan süre dahil), çıkış, şifre değiştirme (en az 6 karakter) |
 | `GET /api/users?role=member\|admin` 👑 | Üyeler ya da yöneticiler (şifre özeti ve oturum dönmez) |
 | `POST /api/users` `{name, email, phone, role}` 👑 | Üye (`member`: e-posta zorunlu, telefon isteğe bağlı, şifre yok) ya da yönetici (`admin`: e-posta + telefon, 6 haneli yedek geçici şifre döner) ekler |

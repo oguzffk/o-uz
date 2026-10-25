@@ -41,7 +41,7 @@ async function withServer(fn, { now, mailer: customMailer, revenuecat = { webhoo
   const clock = { t: Date.parse('2026-10-25T09:00:00Z') };
   const users = new UserStore(join(dir, 'users.json'), { now: now ?? (() => clock.t) });
   const mail = []; // gönderilen giriş kodları
-  const mailer = customMailer ?? { configured: true, sendLoginCode: async (to, code) => mail.push({ to, code }) };
+  const mailer = customMailer ?? { configured: true, sendLoginCode: async (to, code, kind = 'login') => mail.push({ to, code, kind }) };
   const app = createApp({ valhalla, store, users, mailer, revenuecat, now: now ?? (() => clock.t) });
   const server = app.listen(0);
   const base = `http://localhost:${server.address().port}`;
@@ -527,8 +527,12 @@ test('e-posta ile giriş: kayıtlı adrese kod gider, kod ile oturum açılır; 
     const expired = await raw('/api/route', { method: 'POST', token: login.body.token, body: ROUTE_BODY });
     assert.equal(expired.status, 402);
     assert.equal(expired.body.code, 'expired');
-    // Üye şifreyle giremez, şifre belirleyemez.
-    assert.equal((await raw('/api/auth/password', { method: 'POST', token: login.body.token, body: { newPassword: 'abcdef' } })).status, 400);
+    // Eski (şifresiz) üye şifreyle giremez; isterse sonradan şifre belirler ve e-postasıyla girer.
+    const noPw = await raw('/api/auth/login', { method: 'POST', body: { login: 'ayse@ornek.com', password: 'abcdef' } });
+    assert.equal(noPw.status, 400);
+    assert.match(noPw.body.error, /şifresi yok/);
+    assert.equal((await raw('/api/auth/password', { method: 'POST', token: login.body.token, body: { newPassword: 'abcdef' } })).status, 200);
+    assert.equal((await raw('/api/auth/login', { method: 'POST', body: { login: 'Ayse@Ornek.com', password: 'abcdef' } })).status, 200);
 
     // Kod 10 dakika geçerli.
     clock.t += 61000;
@@ -794,5 +798,95 @@ test('şerit bilgisi: OSRM biçimli istekten manevralara eklenir; eşleşmezse y
     const r3 = await req('/api/route', { method: 'POST', body });
     assert.equal(r3.status, 200);
     assert.ok(r3.body.maneuvers.every((m) => !m.lanes));
+  });
+});
+
+test('kayıt ol: e-postaya doğrulama kodu gider, kod girilince süresiz üye hesabı açılır', async () => {
+  await withServer(async ({ raw, mail, clock, users }) => {
+    const form = { name: 'Mehmet Yılmaz', email: 'Mehmet@Ornek.com', phone: '0532 111 22 33', password: 'gizli123' };
+    const reg = (body) => raw('/api/auth/register', { method: 'POST', body });
+
+    // Eksik ve hatalı bilgiler.
+    assert.equal((await reg({ ...form, name: ' ' })).status, 400);
+    assert.equal((await reg({ ...form, email: 'gecersiz' })).status, 400);
+    assert.equal((await reg({ ...form, phone: '123' })).status, 400);
+    assert.equal((await reg({ ...form, password: '123' })).status, 400);
+    assert.equal(mail.length, 0);
+    // Kayıtlı e-posta / telefon (yönetici: admin@test.tr, 05000000001).
+    assert.equal((await reg({ ...form, email: 'admin@test.tr' })).status, 409);
+    assert.equal((await reg({ ...form, phone: '05000000001' })).status, 409);
+
+    const first = await reg(form);
+    assert.equal(first.status, 200, JSON.stringify(first.body));
+    assert.equal(first.body.email, 'mehmet@ornek.com');
+    assert.deepEqual(mail.map((m) => [m.to, m.kind]), [['mehmet@ornek.com', 'register']]);
+    // Kod girilmeden hesap yok, giriş yapılamaz.
+    assert.equal(users.findByEmail('mehmet@ornek.com'), undefined);
+    assert.equal((await raw('/api/auth/login', { method: 'POST', body: { login: 'mehmet@ornek.com', password: 'gizli123' } })).status, 401);
+    // Bir dakika dolmadan yeniden kod istenemez.
+    assert.equal((await reg(form)).status, 429);
+
+    const verify = (code) => raw('/api/auth/register/verify', { method: 'POST', body: { email: 'mehmet@ornek.com', code } });
+    assert.equal((await verify(mail[0].code === '000000' ? '111111' : '000000')).status, 401);
+    const done = await verify(mail[0].code);
+    assert.equal(done.status, 200, JSON.stringify(done.body));
+    assert.ok(done.body.token);
+    assert.equal(done.body.user.role, 'member');
+    assert.equal(done.body.user.phone, '05321112233');
+    assert.equal(done.body.user.expiresAt, null); // süre yok: paket satın alır
+    assert.equal((await raw('/api/route', { method: 'POST', token: done.body.token, body: ROUTE_BODY })).status, 402);
+    assert.equal((await verify(mail[0].code)).status, 401); // kod tek kullanımlık
+
+    // Aynı bilgilerle ikinci kayıt olmaz.
+    clock.t += 61000;
+    assert.equal((await reg(form)).status, 409);
+
+    // E-posta ya da telefon + şifreyle giriş; yeni giriş eski oturumu kapatır.
+    const byEmail = await raw('/api/auth/login', { method: 'POST', body: { login: 'MEHMET@ornek.com', password: 'gizli123' } });
+    assert.equal(byEmail.status, 200);
+    assert.equal(byEmail.body.user.mustChangePassword, false);
+    const byPhone = await raw('/api/auth/login', { method: 'POST', body: { login: '+90 532 111 22 33', password: 'gizli123' } });
+    assert.equal(byPhone.status, 200);
+    assert.equal((await raw('/api/auth/me', { token: byEmail.body.token })).status, 401);
+    assert.equal((await raw('/api/auth/login', { method: 'POST', body: { login: 'mehmet@ornek.com', password: 'yanlis' } })).status, 401);
+  });
+});
+
+test('kayıt kodu 10 dakika ve 5 deneme geçerli', async () => {
+  await withServer(async ({ raw, mail, clock }) => {
+    const form = { name: 'A', email: 'a@ornek.com', phone: '05321112244', password: 'gizli123' };
+    await raw('/api/auth/register', { method: 'POST', body: form });
+    const verify = (code) => raw('/api/auth/register/verify', { method: 'POST', body: { email: 'a@ornek.com', code } });
+    const wrong = mail[0].code === '000000' ? '111111' : '000000';
+    for (let i = 0; i < 5; i++) assert.equal((await verify(wrong)).status, 401);
+    assert.equal((await verify(mail[0].code)).status, 401); // 5 hatadan sonra doğru kod da geçmez
+
+    clock.t += 61000;
+    await raw('/api/auth/register', { method: 'POST', body: form });
+    clock.t += 11 * 60000;
+    const late = await verify(mail.at(-1).code);
+    assert.equal(late.status, 401);
+    assert.match(late.body.error, /süresi doldu/);
+  });
+});
+
+test('şifremi unuttum: e-postaya kod gider, kodla yeni şifre belirlenir', async () => {
+  await withServer(async ({ raw, mail, clock }) => {
+    await raw('/api/auth/register', { method: 'POST', body: { name: 'B', email: 'b@ornek.com', phone: '05321112255', password: 'eski123' } });
+    await raw('/api/auth/register/verify', { method: 'POST', body: { email: 'b@ornek.com', code: mail[0].code } });
+
+    clock.t += 61000;
+    assert.equal((await raw('/api/auth/email-code', { method: 'POST', body: { email: 'b@ornek.com', purpose: 'reset' } })).status, 200);
+    assert.equal(mail.at(-1).kind, 'reset');
+    const code = mail.at(-1).code;
+    const reset = (body) => raw('/api/auth/reset-password', { method: 'POST', body: { email: 'b@ornek.com', ...body } });
+    assert.equal((await reset({ code, newPassword: '12' })).status, 400); // kısa şifre, kod harcanmaz
+    assert.equal((await reset({ code: code === '000000' ? '111111' : '000000', newPassword: 'yeni123' })).status, 401);
+    const ok = await reset({ code, newPassword: 'yeni123' });
+    assert.equal(ok.status, 200);
+    assert.ok(ok.body.token);
+    assert.equal((await raw('/api/auth/login', { method: 'POST', body: { login: 'b@ornek.com', password: 'eski123' } })).status, 401);
+    assert.equal((await raw('/api/auth/login', { method: 'POST', body: { login: 'b@ornek.com', password: 'yeni123' } })).status, 200);
+    assert.equal((await reset({ code, newPassword: 'baska123' })).status, 401); // kod tek kullanımlık
   });
 });

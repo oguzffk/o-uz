@@ -16,6 +16,9 @@ export default function PurchaseScreen({ visible = true, expired, user, api, dem
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState(null); // { text, error }
   const canBuy = demo || storeAvailable();
+  // Yeni kayıt olan üyenin hiç süresi olmadı: "süreniz doldu" yerine karşılama.
+  const neverHadTime = user.expiresAt == null;
+  const firstName = String(user.name ?? '').trim().split(/\s+/)[0];
 
   useEffect(() => {
     if (!visible || demo || !storeAvailable()) return;
@@ -68,12 +71,14 @@ export default function PurchaseScreen({ visible = true, expired, user, api, dem
   const body = (
     <View style={[styles.card, expired && styles.cardExpired]}>
       <View style={styles.icon}>
-        <Text style={{ fontSize: 24 }}>{expired ? '⏱️' : '🧭'}</Text>
+        <Text style={{ fontSize: 24 }}>{expired && !neverHadTime ? '⏱️' : '🧭'}</Text>
       </View>
-      <Text style={styles.title}>{expired ? 'Kullanım süreniz doldu' : 'Süre ekle'}</Text>
+      <Text style={styles.title}>{expired ? (neverHadTime ? `Hoş geldiniz${firstName ? `, ${firstName}` : ''}` : 'Kullanım süreniz doldu') : 'Süre ekle'}</Text>
       <Text style={styles.subtitle}>
         {expired
-          ? 'Navigasyona devam etmek için bir paket seçin.'
+          ? neverHadTime
+            ? 'Navigasyonu kullanmaya başlamak için bir paket seçin.'
+            : 'Navigasyona devam etmek için bir paket seçin.'
           : `Kalan süre: ${user.expiresAt ? formatRemaining(user.expiresAt - Date.now()) : '—'}. Alacağınız paket bunun üstüne eklenir.`}
       </Text>
       <View style={styles.plans}>

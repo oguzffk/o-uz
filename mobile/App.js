@@ -29,6 +29,7 @@ import { clearSession, formatRemaining, loadSession, saveSession } from './src/s
 import {
   ISTANBUL_REGION,
   bearingDegrees,
+  cumulativeDistances,
   distanceAlong,
   distanceMeters,
   formatArrival,
@@ -37,7 +38,9 @@ import {
   inIstanbul,
   offsetPoint,
   pointAhead,
+  pointAtDistance,
   routeLegs,
+  snapDistance,
   speedLimitAt,
   toLatLng,
 } from './src/geo';
@@ -272,7 +275,7 @@ function AppScreen() {
       if (last) update(last);
       Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }).then(update).catch(() => {});
       sub = await Location.watchPositionAsync(
-        { accuracy: Location.Accuracy.BestForNavigation, timeInterval: 1000, distanceInterval: 3 },
+        { accuracy: Location.Accuracy.BestForNavigation, timeInterval: 1000, distanceInterval: 1 },
         update,
       );
     })().catch((err) => showToast(err.message, 'error'));
@@ -469,18 +472,28 @@ function AppScreen() {
     lastBearing.current = bearing;
     const here = [location.lat, location.lon];
     if (!lastFix.current || distanceMeters(lastFix.current, here) > 8) lastFix.current = here;
-    if (!centered) return;
-    // Hız arttıkça biraz uzaklaş; ok ekranın alt kısmında kalsın diye merkez biraz ileride.
-    const speed = location.speed > 0 ? location.speed : 0;
-    const zoom = speed > 17 ? 16.6 : speed > 8 ? 17.3 : 17.9;
-    const [lat, lon] = offsetPoint(puck, bearing, speed > 17 ? 110 : 55);
-    mapRef.current?.animateCamera(
-      { center: { latitude: lat, longitude: lon }, heading: bearing, pitch: 55, zoom },
-      { duration: 900 },
-    );
-    // bearing ve puck konumdan türetiliyor; konum değişimi yeterli tetikleyici.
+    // bearing konumdan türetiliyor; konum değişimi yeterli tetikleyici.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [navigating, centered, gpsUsable, location, route]);
+  }, [navigating, gpsUsable, location]);
+
+  // Takip başlarken (seyir başı, "Ortala") kamera konuma yumuşakça kayar; sonrasını
+  // NavFollower her karede kendisi sürer.
+  const followStartedAt = useRef(0);
+  useEffect(() => {
+    if (!navigating || !centered || !puck) return;
+    followStartedAt.current = Date.now();
+    const [lat, lon] = offsetPoint(puck, bearing, followOffset(location.speed));
+    mapRef.current?.animateCamera(
+      { center: { latitude: lat, longitude: lon }, heading: bearing, pitch: 55, zoom: followZoom(location.speed) },
+      { duration: 600 },
+    );
+    // yalnızca takip açıldığında
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [navigating, centered, Boolean(puck)]);
+
+  // Rota başından mesafeler: oku ve kalan çizgiyi rota boyunca kaydırmak için.
+  const routeCum = useMemo(() => (route ? cumulativeDistances(route.coordinates) : null), [route]);
+  const travelled = navigating && progress && routeCum ? snapDistance(route.coordinates, routeCum, progress.snap) : null;
 
   // Resim içinde resim: seyir sürerken ana ekrana dönülünce (Android 12+) uygulama
   // küçük pencerede devam eder; küçük pencerede yalnızca harita ve yön bandı görünür.
@@ -932,7 +945,7 @@ function AppScreen() {
                 onPress={() => setRoute(o)}
               />
             ))}
-          {route && (
+          {route && !(puck && travelled != null) && (
             <Polyline coordinates={route.coordinates.map(toLatLng)} strokeColor="#0a66d8" strokeWidth={7} zIndex={1} />
           )}
           {/* Kapalı yollar: kırmızı-beyaz şerit (bariyer bandı) + ortada "girilmez" levhası. */}
@@ -981,7 +994,20 @@ function AppScreen() {
             />
           ))}
           {destination && <Marker coordinate={toLatLng([destination.lat, destination.lon])} title={destination.name} />}
-          {puck && <NavPuck position={puck} bearing={bearing} />}
+          {puck && travelled != null && (
+            <NavFollower
+              mapRef={mapRef}
+              coords={route.coordinates}
+              cum={routeCum}
+              travelled={travelled}
+              onRoute={onRoute}
+              position={puck}
+              bearing={bearing}
+              speed={location.speed}
+              follow={centered}
+              followStartedAt={followStartedAt}
+            />
+          )}
         </MapView>
 
         {/* Küçük pencere (PiP): yalnızca kısa yön bandı. */}
@@ -1649,6 +1675,123 @@ function MyLocationRow({ onPress }) {
       </View>
       <Text style={[styles.resultName, styles.myLocText]}>Konumum</Text>
     </Pressable>
+  );
+}
+
+// Hız arttıkça kamera biraz uzaklaşır; ok ekranın alt kısmında kalsın diye merkez ileride.
+const followZoom = (speed) => (speed > 17 ? 16.6 : speed > 8 ? 17.3 : 17.9);
+const followOffset = (speed) => (speed > 17 ? 110 : 55);
+
+const lerp = (a, b, t) => a + (b - a) * t;
+const lerpAngle = (a, b, t) => {
+  const d = ((b - a + 540) % 360) - 180; // en kısa yönden dön
+  return (a + d * t + 360) % 360;
+};
+
+// Seyirde oku, kalan rota çizgisini ve takip kamerasını her karede günceller.
+// GPS saniyede bir konum verdiği için ok yalnızca o anlarda güncellenirse kesik kesik
+// (dona dona) ilerliyordu. Burada ok, iki ölçüm arasında rota boyunca kayarak gider; yeni
+// ölçüm gecikirse kısa süre aynı hızla devam eder. Kamera da aynı karede oka kilitlenir.
+// Mavi çizgi okun bulunduğu yerden başlar: geride kalan kısım silinir.
+const FRAME_MS = 33;
+const LINE_MS = 100;
+const MAX_COAST_MS = 1500;
+function NavFollower({ mapRef, coords, cum, travelled, onRoute, position, bearing, speed, follow, followStartedAt }) {
+  const anim = useRef(null);
+  const [frame, setFrame] = useState(() => ({ point: position, bearing, dist: travelled }));
+  const [line, setLine] = useState(() => ({ index: -1, coords: [] }));
+  const props = useRef({ mapRef, follow, followStartedAt, speed });
+  useEffect(() => {
+    props.current = { mapRef, follow, followStartedAt, speed };
+  });
+
+  // Yeni ölçüm: animasyon o an gösterilen yerden yeni hedefe doğru yeniden kurulur.
+  useEffect(() => {
+    const now = Date.now();
+    const prev = anim.current;
+    const shown = prev?.shown ?? { point: position, bearing, dist: travelled };
+    const sameRoute = prev?.coords === coords;
+    // Ölçümler arası sürenin ortalaması; ok yeni hedefe bu sürede varır.
+    const interval = prev ? Math.min(2000, Math.max(400, lerp(prev.interval, now - prev.fixAt, 0.5))) : 1000;
+    let fromDist = sameRoute ? shown.dist : travelled;
+    if (Math.abs(travelled - fromDist) > 60) fromDist = travelled; // büyük sıçrama: atla
+    // Tahminle biraz ileri gidilmişse geri yürümesin, araç yetişene kadar beklesin.
+    const toDist = travelled >= fromDist - 15 ? Math.max(travelled, fromDist) : travelled;
+    anim.current = {
+      coords,
+      fixAt: now,
+      interval,
+      fromDist,
+      toDist,
+      onRoute,
+      // Rotadan dışarıdayken ya da rota değişince ok düz çizgide kayar.
+      blendFrom: !onRoute || !sameRoute || !prev?.onRoute ? shown.point : null,
+      toPoint: position,
+      fromBearing: shown.bearing,
+      toBearing: bearing,
+      speed: speed > 0 ? speed : 0,
+      zoom: prev?.zoom ?? followZoom(speed),
+      offset: prev?.offset ?? followOffset(speed),
+      shown,
+    };
+  }, [travelled, position[0], position[1], bearing, coords, onRoute]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    let raf;
+    let lastFrame = 0;
+    let lastLine = 0;
+    let lineIndex = -1;
+    let lineTail = [];
+    let lineDist = null;
+    const tick = () => {
+      raf = requestAnimationFrame(tick);
+      const now = Date.now();
+      if (now - lastFrame < FRAME_MS) return;
+      lastFrame = now;
+      const a = anim.current;
+      if (!a) return;
+      const elapsed = now - a.fixAt;
+      const t = Math.min(1, elapsed / a.interval);
+      // Hedefe varıldıktan sonra yeni ölçüm gelmediyse aynı hızla kısa süre devam et.
+      const coast = elapsed > a.interval ? (Math.min(elapsed - a.interval, MAX_COAST_MS) / 1000) * a.speed : 0;
+      const dist = Math.min(cum[cum.length - 1], lerp(a.fromDist, a.toDist, t) + (a.onRoute ? coast : 0));
+      const target = a.onRoute ? pointAtDistance(coords, cum, dist).point : a.toPoint;
+      const point = a.blendFrom ? [lerp(a.blendFrom[0], target[0], t), lerp(a.blendFrom[1], target[1], t)] : target;
+      const shown = { point, dist, bearing: lerpAngle(a.fromBearing, a.toBearing, Math.min(1, t * 1.5)) };
+      const moved =
+        shown.point[0] !== a.shown.point[0] || shown.point[1] !== a.shown.point[1] || shown.bearing !== a.shown.bearing;
+      a.shown = shown;
+      if (moved) setFrame(shown);
+
+      // Kalan çizgi: okun olduğu yerden rota sonuna (köşe noktası listesi yalnızca değişince kopyalanır).
+      if (now - lastLine >= LINE_MS && dist !== lineDist) {
+        lastLine = now;
+        lineDist = dist;
+        const at = pointAtDistance(coords, cum, dist);
+        if (at.index !== lineIndex) {
+          lineIndex = at.index;
+          lineTail = coords.slice(at.index + 1).map(toLatLng);
+        }
+        setLine({ index: lineIndex, coords: [toLatLng(at.point), ...lineTail] });
+      }
+
+      const { mapRef: map, follow: following, followStartedAt: started, speed: sp } = props.current;
+      if (!following || now - started.current < 650) return;
+      if (!moved && Math.abs(a.zoom - followZoom(sp)) < 0.01) return;
+      a.zoom = lerp(a.zoom, followZoom(sp), 0.05);
+      a.offset = lerp(a.offset, followOffset(sp), 0.05);
+      const [lat, lon] = offsetPoint(point, shown.bearing, a.offset);
+      map.current?.setCamera({ center: { latitude: lat, longitude: lon }, heading: shown.bearing, pitch: 55, zoom: a.zoom });
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [coords, cum]);
+
+  return (
+    <>
+      {line.coords.length > 1 && <Polyline coordinates={line.coords} strokeColor="#0a66d8" strokeWidth={7} zIndex={1} />}
+      <NavPuck position={frame.point} bearing={frame.bearing} />
+    </>
   );
 }
 

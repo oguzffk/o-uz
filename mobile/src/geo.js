@@ -134,3 +134,34 @@ export function routeLegs(route) {
   }
   return legs;
 }
+
+/** Rota başından her köşe noktasına kadar biriken mesafeler (metre). */
+export function cumulativeDistances(coords) {
+  const cum = [0];
+  for (let i = 1; i < coords.length; i++) cum.push(cum[i - 1] + distanceMeters(coords[i - 1], coords[i]));
+  return cum;
+}
+
+/** Oturtulmuş konumun rota başından itibaren mesafesi. */
+export function snapDistance(coords, cum, snap) {
+  return cum[snap.index] + distanceMeters(coords[snap.index], snap.point);
+}
+
+/** Rota başından `d` metre ilerideki nokta ve içinde bulunduğu parçanın başlangıç indeksi. */
+export function pointAtDistance(coords, cum, d) {
+  const last = coords.length - 1;
+  if (d <= 0) return { point: coords[0], index: 0 };
+  if (d >= cum[last]) return { point: coords[last], index: Math.max(0, last - 1) };
+  let lo = 0;
+  let hi = last;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (cum[mid] <= d) lo = mid;
+    else hi = mid;
+  }
+  const seg = cum[lo + 1] - cum[lo];
+  const t = seg === 0 ? 0 : (d - cum[lo]) / seg;
+  const a = coords[lo];
+  const b = coords[lo + 1];
+  return { point: [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t], index: lo };
+}

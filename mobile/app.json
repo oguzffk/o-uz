@@ -46,6 +46,16 @@
           "imageWidth": 220,
           "backgroundColor": "#141a21"
         }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "enableMinifyInReleaseBuilds": false,
+            "enableShrinkResourcesInReleaseBuilds": false,
+            "extraProguardRules": "-keep class * extends androidx.room.RoomDatabase { <init>(); }\n-keep class androidx.work.impl.** { *; }"
+          }
+        }
       ]
     ]
   }

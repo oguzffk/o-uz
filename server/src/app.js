@@ -5,6 +5,7 @@ import { decodePolyline } from './geo.js';
 import { adjustedTime, trafficPeriod } from './traffic.js';
 import { fixStreetSuffixes } from './turkish.js';
 import { ClosureStore } from './closures.js';
+import { UserError, normalizePhone } from './users.js';
 
 // İstanbul il sınırını kabaca kapsayan kutu (indirme betiğiyle aynı).
 export const ISTANBUL_BBOX = { minLon: 27.95, minLat: 40.78, maxLon: 29.95, maxLat: 41.6 };
@@ -139,25 +140,137 @@ class HttpError extends Error {
   }
 }
 
-export function createApp({ valhalla, store, adminToken, nominatimUrl = 'https://nominatim.openstreetmap.org' }) {
+// Şifre deneme sınırı: aynı telefona 5, aynı IP'den 20 hatalı denemeden sonra 15 dakika bekleme.
+const LOGIN_LIMITS = { phone: 5, ip: 20 };
+const LOGIN_LOCK_MS = 15 * 60 * 1000;
+
+function createLoginLimiter(now) {
+  const fails = new Map(); // anahtar → { count, until }
+  const keys = (phone, ip) => [
+    [`p:${phone}`, LOGIN_LIMITS.phone],
+    [`ip:${ip}`, LOGIN_LIMITS.ip],
+  ];
+  return {
+    check(phone, ip) {
+      for (const [k] of keys(phone, ip)) {
+        if ((fails.get(k)?.until ?? 0) > now()) {
+          throw new UserError(429, 'Çok fazla hatalı deneme. 15 dakika sonra tekrar deneyin.');
+        }
+      }
+    },
+    fail(phone, ip) {
+      for (const [k, limit] of keys(phone, ip)) {
+        const e = fails.get(k) ?? { count: 0, until: 0 };
+        if (e.until && e.until <= now()) Object.assign(e, { count: 0, until: 0 });
+        e.count += 1;
+        if (e.count >= limit) e.until = now() + LOGIN_LOCK_MS;
+        fails.set(k, e);
+      }
+    },
+    success(phone) {
+      fails.delete(`p:${phone}`);
+    },
+  };
+}
+
+export function createApp({ valhalla, store, users, nominatimUrl = 'https://nominatim.openstreetmap.org', now = () => Date.now() }) {
   const app = express();
   app.use(express.json({ limit: '100kb' }));
 
   // Mobil uygulama ve yönetici sayfası farklı adreslerden erişebilsin.
   app.use((req, res, next) => {
     res.set('access-control-allow-origin', '*');
-    res.set('access-control-allow-headers', 'content-type, x-admin-token');
+    res.set('access-control-allow-headers', 'content-type, authorization');
     res.set('access-control-allow-methods', 'GET, POST, PATCH, DELETE, OPTIONS');
     if (req.method === 'OPTIONS') return res.sendStatus(204);
     next();
   });
 
-  const requireAdmin = (req, res, next) => {
-    if (req.get('x-admin-token') !== adminToken) {
-      return res.status(401).json({ error: 'Yönetici anahtarı geçersiz' });
-    }
+  // --- Oturum ve yetki ---
+  // Oturum anahtarı "Authorization: Bearer ..." başlığıyla gelir (SSE için ?token= de kabul edilir).
+  app.use((req, res, next) => {
+    const header = req.get('authorization') ?? '';
+    const token = header.startsWith('Bearer ') ? header.slice(7) : typeof req.query.token === 'string' ? req.query.token : null;
+    req.user = users.byToken(token);
+    next();
+  });
+  // Giriş yapmış, şifresini belirlemiş ve (üyeyse) süresi devam eden kullanıcı.
+  const requireActive = (req, res, next) => {
+    if (!req.user) return res.status(401).json({ error: 'Oturum açın', code: 'auth' });
+    if (req.user.mustChangePassword) return res.status(403).json({ error: 'Önce kendi şifrenizi belirleyin', code: 'password' });
+    if (!users.isActive(req.user)) return res.status(402).json({ error: 'Kullanım süreniz doldu', code: 'expired' });
     next();
   };
+  const requireRole =
+    (...roles) =>
+    (req, res, next) => {
+      if (!roles.includes(req.user.role)) return res.status(403).json({ error: 'Bu işlem için yetkiniz yok', code: 'forbidden' });
+      next();
+    };
+  const staff = [requireActive, requireRole('owner', 'admin')]; // yol kapatma ve gruplar
+  const owner = [requireActive, requireRole('owner')]; // üyeler, süreler, yöneticiler
+  const limiter = createLoginLimiter(now);
+
+  app.post('/api/auth/login', (req, res, next) => {
+    let phone = '';
+    try {
+      phone = normalizePhone(req.body.phone);
+    } catch {
+      phone = String(req.body.phone ?? '');
+    }
+    try {
+      limiter.check(phone, req.ip);
+      const result = users.login(req.body.phone, req.body.password);
+      limiter.success(phone);
+      res.json({ ...result, settings: users.settings });
+    } catch (err) {
+      if (err instanceof UserError && err.status === 401) limiter.fail(phone, req.ip);
+      next(err);
+    }
+  });
+
+  app.get('/api/auth/me', (req, res) => {
+    if (!req.user) return res.status(401).json({ error: 'Oturum açın', code: 'auth' });
+    res.json({ user: users.view(req.user), settings: users.settings });
+  });
+
+  app.post('/api/auth/logout', (req, res) => {
+    if (req.user) users.logout(req.user.id);
+    res.json({ ok: true });
+  });
+
+  app.post('/api/auth/password', (req, res, next) => {
+    try {
+      if (!req.user) throw new UserError(401, 'Oturum açın', 'auth');
+      res.json({ user: users.changePassword(req.user.id, req.body.newPassword) });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // --- Üyeler ve yöneticiler (yalnızca sahip) ---
+  const userAction = (fn) => (req, res, next) => {
+    try {
+      res.json(fn(req));
+    } catch (err) {
+      next(err);
+    }
+  };
+  app.get('/api/users', ...owner, userAction((req) => ({ users: users.list(req.query.role) })));
+  app.post(
+    '/api/users',
+    ...owner,
+    userAction((req) => users.create({ name: req.body.name, phone: req.body.phone, role: req.body.role === 'admin' ? 'admin' : 'member' })),
+  );
+  app.post('/api/users/:id/extend', ...owner, userAction((req) => ({ user: users.extend(req.params.id, Number(req.body.days)) })));
+  app.post('/api/users/:id/expire', ...owner, userAction((req) => ({ user: users.expire(req.params.id) })));
+  app.post('/api/users/:id/reset-password', ...owner, userAction((req) => users.resetPassword(req.params.id)));
+  app.delete('/api/users/:id', ...owner, userAction((req) => ({ user: users.remove(req.params.id) })));
+  app.get('/api/settings', (req, res) => {
+    if (!req.user) return res.status(401).json({ error: 'Oturum açın', code: 'auth' });
+    res.json({ settings: users.settings });
+  });
+  app.put('/api/settings', ...owner, userAction((req) => ({ settings: users.updateSettings(req.body ?? {}) })));
 
   app.get('/api/health', async (req, res) => {
     let valhallaStatus = null;
@@ -171,12 +284,12 @@ export function createApp({ valhalla, store, adminToken, nominatimUrl = 'https:/
 
   // closures: şu an trafiğe kapalı tüm segmentler (tekil + aktif gruplar).
   // zones: kayıtlı gruplar, kapalı olsun olmasın segmentleriyle birlikte.
-  app.get('/api/closures', (req, res) => {
+  app.get('/api/closures', requireActive, (req, res) => {
     res.json({ version: store.version, closures: store.effectiveClosures(), zones: store.listZones() });
   });
 
   // Yönetici sayfası için canlı değişiklik akışı (Server-Sent Events).
-  app.get('/api/closures/stream', (req, res) => {
+  app.get('/api/closures/stream', ...staff, (req, res) => {
     res.set({ 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
     res.flushHeaders();
     const send = (evt) => res.write(`data: ${JSON.stringify(evt)}\n\n`);
@@ -189,10 +302,8 @@ export function createApp({ valhalla, store, adminToken, nominatimUrl = 'https:/
     });
   });
 
-  app.post('/api/admin/check', requireAdmin, (req, res) => res.json({ ok: true }));
-
   // Haritada dokunulan noktadaki sokak segmentini kapatır; zaten kapalıysa açar.
-  app.post('/api/closures/toggle', requireAdmin, async (req, res, next) => {
+  app.post('/api/closures/toggle', ...staff, async (req, res, next) => {
     try {
       const point = parsePoint(req.body, 'Nokta');
       const edge = await valhalla.locateEdge(point);
@@ -216,11 +327,11 @@ export function createApp({ valhalla, store, adminToken, nominatimUrl = 'https:/
   });
 
   // Tüm yolları tek seferde trafiğe açar (gruplar silinmez, yalnızca açılır).
-  app.post('/api/closures/open-all', requireAdmin, (req, res) => {
+  app.post('/api/closures/open-all', ...staff, (req, res) => {
     res.json({ ...store.openAll(), version: store.version });
   });
 
-  app.delete('/api/closures/:id', requireAdmin, (req, res) => {
+  app.delete('/api/closures/:id', ...staff, (req, res) => {
     const closure = store.remove(req.params.id);
     if (!closure) return res.status(404).json({ error: 'Kapatma bulunamadı' });
     res.json({ action: 'opened', closure, version: store.version });
@@ -234,7 +345,7 @@ export function createApp({ valhalla, store, adminToken, nominatimUrl = 'https:/
   };
 
   // Şu anki tekil kapatmaları (ya da closureIds ile seçilenleri) isimli bir grup olarak kaydeder.
-  app.post('/api/zones', requireAdmin, (req, res, next) => {
+  app.post('/api/zones', ...staff, (req, res, next) => {
     try {
       const name = parseZoneName(req.body.name);
       const ids = Array.isArray(req.body.closureIds) ? req.body.closureIds.map(String) : undefined;
@@ -247,7 +358,7 @@ export function createApp({ valhalla, store, adminToken, nominatimUrl = 'https:/
   });
 
   // { active: true } grubu trafiğe kapatır, { active: false } açar; { name } yeniden adlandırır.
-  app.patch('/api/zones/:id', requireAdmin, (req, res, next) => {
+  app.patch('/api/zones/:id', ...staff, (req, res, next) => {
     try {
       const patch = {};
       if (req.body.active !== undefined) patch.active = Boolean(req.body.active);
@@ -261,7 +372,7 @@ export function createApp({ valhalla, store, adminToken, nominatimUrl = 'https:/
   });
 
   // Grup düzenleme: dokunulan yol gruptaysa çıkarılır, değilse eklenir.
-  app.post('/api/zones/:id/toggle-segment', requireAdmin, async (req, res, next) => {
+  app.post('/api/zones/:id/toggle-segment', ...staff, async (req, res, next) => {
     try {
       if (!store.getZone(req.params.id)) throw new HttpError(404, 'Grup bulunamadı');
       const point = parsePoint(req.body, 'Nokta');
@@ -275,14 +386,14 @@ export function createApp({ valhalla, store, adminToken, nominatimUrl = 'https:/
     }
   });
 
-  app.delete('/api/zones/:id', requireAdmin, (req, res) => {
+  app.delete('/api/zones/:id', ...staff, (req, res) => {
     const zone = store.deleteZone(req.params.id);
     if (!zone) return res.status(404).json({ error: 'Grup bulunamadı' });
     res.json({ zone, version: store.version });
   });
 
   // Rota: kapalı segmentler her istekte exclude_polygons olarak Valhalla'ya gider.
-  app.post('/api/route', async (req, res, next) => {
+  app.post('/api/route', requireActive, async (req, res, next) => {
     try {
       const from = parsePoint(req.body.from, 'Başlangıç');
       const to = parsePoint(req.body.to, 'Varış');
@@ -332,7 +443,7 @@ export function createApp({ valhalla, store, adminToken, nominatimUrl = 'https:/
 
   // Adres arama: Nominatim, İstanbul kutusuyla sınırlı. (Prototip; yoğun kullanımda
   // kendi geocoder'ınızı kurun — Nominatim kullanım politikası saniyede 1 istek.)
-  app.get('/api/search', async (req, res, next) => {
+  app.get('/api/search', requireActive, async (req, res, next) => {
     try {
       const q = String(req.query.q ?? '').trim();
       if (q.length < 2) return res.json({ results: [] });
@@ -368,6 +479,8 @@ export function createApp({ valhalla, store, adminToken, nominatimUrl = 'https:/
 
   // eslint-disable-next-line no-unused-vars
   app.use((err, req, res, next) => {
+    if (err instanceof UserError) return res.status(err.status).json({ error: err.message, ...(err.code ? { code: err.code } : {}) });
+    if (err.type === 'entity.parse.failed') return res.status(400).json({ error: 'Geçersiz istek' });
     const status = err.status ?? (err instanceof ValhallaError ? 502 : 500);
     if (status >= 500) console.error(err);
     let message = err.message;

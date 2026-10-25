@@ -20,7 +20,11 @@ import { useKeepAwake } from 'expo-keep-awake';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createApi, defaultApiUrl } from './src/api';
-import { MAX_STOPS, createDemoApi } from './src/demoApi';
+import { DEMO_OWNER, MAX_STOPS, PUBLIC_VALHALLA_URL, createDemoApi } from './src/demoApi';
+import { ChangePasswordScreen, ExpiredScreen, LoginScreen } from './src/AuthScreens';
+import HermapLogo from './src/HermapLogo';
+import MembersSheet from './src/MembersSheet';
+import { clearSession, formatRemaining, loadSession, saveSession } from './src/session';
 import {
   ISTANBUL_REGION,
   bearingDegrees,
@@ -47,7 +51,9 @@ const MAX_RECENTS = 8;
 const CLOSURE_POLL_MS = 5000;
 
 // Demo modu kendi sunucumuz olmadan herkese açık Valhalla'yı kullanır (bkz. src/demoApi.js).
-const apiFor = (s) => (s.backend === 'demo' ? createDemoApi() : createApi(s.apiUrl, s.adminToken));
+// Oturum hangi sunucuya aitse onu belirten anahtar (sunucu değişince oturum geçersiz).
+const backendKey = (s) => (s.backend === 'demo' ? 'demo' : `server:${s.apiUrl}`);
+const apiFor = (s, token) => (s.backend === 'demo' ? createDemoApi(PUBLIC_VALHALLA_URL, token) : createApi(s.apiUrl, token));
 
 export default function App() {
   return (
@@ -65,13 +71,18 @@ function AppScreen() {
   const [settings, setSettings] = useState({
     backend: process.env.EXPO_PUBLIC_API_URL ? 'server' : 'demo',
     apiUrl: defaultApiUrl(),
-    adminToken: '',
     costing: 'auto',
     avoidTolls: false,
     voice: true,
     night: false,
   });
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
+  // Oturum: { token, user, settings } — user.role: 'owner' (sahip) | 'admin' (yönetici) | 'member' (üye).
+  const [session, setSession] = useState(null);
+  const [sessionReady, setSessionReady] = useState(false);
+  const [membersOpen, setMembersOpen] = useState(false);
+  const [now, setNow] = useState(Date.now()); // kalan süre göstergesi için
   const [adminMode, setAdminMode] = useState(false);
 
   const [location, setLocation] = useState(null); // { lat, lon, heading }
@@ -118,7 +129,16 @@ function AppScreen() {
   // Temizle'de alt panel aşağı kayarak kaybolsun diye: 0 = yerinde, 1 = ekran dışında.
   const panelExit = useRef(new Animated.Value(0)).current;
 
-  const api = useMemo(() => apiFor(settings), [settings]);
+  const token = session?.token ?? null;
+  const api = useMemo(() => apiFor(settings, token), [settings, token]);
+  const user = session?.user ?? null;
+  const isStaff = user?.role === 'owner' || user?.role === 'admin'; // yol kapatma ve gruplar
+  const isOwner = user?.role === 'owner'; // üyeler, süreler, yöneticiler
+  const isMember = user?.role === 'member';
+  const remainingMs = isMember && user.expiresAt != null ? user.expiresAt - now : 0;
+  const expired = isMember && remainingMs <= 0;
+  // API hatası oturumla ilgiliyse (oturum kapandı, süre doldu) burada ele alınır; true dönerse bildirim gösterilmez.
+  const onApiError = useRef(() => false);
   const night = Boolean(settings.night);
   const styles = night ? nightStyles : baseStyles;
   const demo = settings.backend === 'demo';
@@ -138,10 +158,67 @@ function AppScreen() {
         const saved = JSON.parse(raw);
         // Bisiklet/yaya seçenekleri kaldırıldı; eskiden kaydedilmişse araca dön.
         if (!['auto', 'motorcycle'].includes(saved.costing)) saved.costing = 'auto';
+        delete saved.adminToken; // eski sürümden kalan ortak yönetici anahtarı artık kullanılmıyor
         setSettings((s) => ({ ...s, ...saved }));
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setSettingsLoaded(true));
   }, []);
+
+  // --- Oturum ---
+  // Kayıtlı oturum aynı sunucuya aitse doğrulanır; geçersizse giriş ekranı açılır.
+  useEffect(() => {
+    if (!settingsLoaded) return;
+    let cancelled = false;
+    (async () => {
+      const stored = await loadSession();
+      if (stored?.token && stored.backend === backendKey(settings)) {
+        try {
+          const me = await apiFor(settings, stored.token).me();
+          if (!cancelled) setSession({ token: stored.token, ...me });
+        } catch (err) {
+          if (err.status === 401) await clearSession();
+          // Sunucuya ulaşılamadıysa oturum korunur ama ekrana giriş istenir; bir sonraki açılışta tekrar denenir.
+        }
+      }
+      if (!cancelled) setSessionReady(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // yalnızca ilk açılışta
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settingsLoaded]);
+
+  const login = async (phone, password) => {
+    const r = await apiFor(settings, null).login(phone, password);
+    await saveSession({ token: r.token, backend: backendKey(settings) });
+    setNow(Date.now());
+    setSession({ token: r.token, user: r.user, settings: r.settings });
+  };
+
+  const refreshMe = useCallback(async () => {
+    if (!token) return;
+    try {
+      const me = await api.me();
+      setNow(Date.now());
+      setSession((s) => (s && s.token === token ? { ...s, ...me } : s));
+    } catch (err) {
+      onApiError.current(err);
+    }
+  }, [api, token]);
+
+  // Süre, rol ve oturum her dakika sunucudan tazelenir (sahip süre ekleyince ya da hesap başka
+  // telefonda açılınca hemen yansısın).
+  useEffect(() => {
+    if (!token) return undefined;
+    const id = setInterval(() => {
+      setNow(Date.now());
+      refreshMe();
+    }, 60000);
+    return () => clearInterval(id);
+  }, [token, refreshMe]);
+
 
   useEffect(() => {
     AsyncStorage.getItem(RECENTS_KEY)
@@ -162,6 +239,8 @@ function AppScreen() {
   };
 
   const saveSettings = (next) => {
+    // Sunucu değişince oturum o sunucuya ait olmadığından çıkış yapılır.
+    if (session && backendKey(next) !== backendKey(settings)) logout();
     setSettings(next);
     setSettingsOpen(false);
     AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(next)).catch(() => {});
@@ -277,7 +356,7 @@ function AppScreen() {
         }
         if (!quiet) Keyboard.dismiss();
       } catch (err) {
-        if (reqId === routeRequest.current) showToast(err.message, 'error');
+        if (reqId === routeRequest.current && !onApiError.current(err)) showToast(err.message, 'error');
       } finally {
         if (reqId === routeRequest.current) setBusy(false);
       }
@@ -312,8 +391,9 @@ function AppScreen() {
           showToast('Yol durumu değişti, rota güncelleniyor…');
           rr({ quiet: true });
         }
-      } catch {
+      } catch (err) {
         // Sunucu geçici olarak erişilemezse sessizce tekrar denenir.
+        onApiError.current(err);
       }
     };
     syncClosures.current = tick;
@@ -488,7 +568,7 @@ function AppScreen() {
       setResults(r);
       if (!r.length && !auto) showToast(`"${q}" için İstanbul'da sonuç bulunamadı.`);
     } catch (err) {
-      if (seq === searchSeq.current) showToast(err.message, 'error');
+      if (seq === searchSeq.current && !onApiError.current(err)) showToast(err.message, 'error');
     } finally {
       if (seq === searchSeq.current) setSearching(false);
     }
@@ -617,7 +697,7 @@ function AppScreen() {
       if (message) showToast(message);
       return true;
     } catch (err) {
-      showToast(err.message, 'error');
+      if (!onApiError.current(err)) showToast(err.message, 'error');
       return false;
     }
   };
@@ -692,24 +772,44 @@ function AppScreen() {
   };
 
   const toggleAdmin = () => {
+    if (!isStaff) return;
     if (adminMode) return setAdminMode(false);
-    if (!demo && !settings.adminToken) {
-      setSettingsOpen(true);
-      return showToast('Önce Ayarlar\'dan yönetici anahtarını girin.');
-    }
-    onAdminModeChange(true, settings);
+    setAdminMode(true);
+    showToast('Yol kapatma açık: kapatmak/açmak için bir sokağa dokunun.');
   };
 
-  const onAdminModeChange = async (enabled, draft) => {
-    if (!enabled) return setAdminMode(false);
-    try {
-      await apiFor(draft).checkAdmin();
-      saveSettings(draft);
-      setAdminMode(true);
-      showToast('Yönetici modu açık: kapatmak/açmak için bir sokağa dokunun.');
-    } catch (err) {
-      showToast(err.message, 'error');
+  // Çıkış: oturum sunucuda da kapatılır, yolculuk ve yönetim ekranları sıfırlanır.
+  const logout = async () => {
+    const current = api;
+    setSession(null);
+    setAdminMode(false);
+    setEditing(null);
+    setSettingsOpen(false);
+    setMembersOpen(false);
+    setZonesOpen(false);
+    stopNavigation();
+    setRoute(null);
+    setRouteOptions([]);
+    setDestination(null);
+    setStops([]);
+    setQuery('');
+    selectFrom(null);
+    await clearSession();
+    current.logout().catch(() => {});
+  };
+
+  onApiError.current = (err) => {
+    if (!session) return false;
+    if (err?.status === 401) {
+      logout();
+      showToast('Oturumunuz kapandı. Hesabınız başka bir telefonda açılmış olabilir.', 'error');
+      return true;
     }
+    if (err?.code === 'expired') {
+      refreshMe();
+      return true;
+    }
+    return false;
   };
 
   const next = progress?.next;
@@ -741,6 +841,47 @@ function AppScreen() {
     (!typed || activeText.trim().length < 3) &&
     results.length === 0 &&
     (recents.length > 0 || activeField === 'from');
+
+  // --- Giriş kapısı: ayarlar/oturum yüklenene kadar açılış ekranı, oturum yoksa giriş ekranı ---
+  if (!settingsLoaded || !sessionReady) {
+    return (
+      <View style={[styles.splash]}>
+        <StatusBar style="light" />
+        <HermapLogo size={44} />
+        <ActivityIndicator color="#fff" style={{ marginTop: 24 }} />
+      </View>
+    );
+  }
+  if (!session) {
+    return (
+      <>
+        <StatusBar style="light" />
+        <LoginScreen
+          onLogin={login}
+          demoHint={demo ? `Demo hesabı (sahip): ${DEMO_OWNER.phone.replace(/^(\d{4})(\d{3})(\d{2})(\d{2})$/, '$1 $2 $3 $4')} · şifre: ${DEMO_OWNER.password}` : null}
+          backendLabel={demo ? 'Demo (bu telefon)' : settings.apiUrl}
+          onOpenSettings={() => setSettingsOpen(true)}
+        />
+        <SettingsSheet visible={settingsOpen} settings={settings} user={null} onClose={() => setSettingsOpen(false)} onSave={saveSettings} />
+      </>
+    );
+  }
+  if (user.mustChangePassword) {
+    return (
+      <>
+        <StatusBar style="light" />
+        <ChangePasswordScreen
+          user={user}
+          onLogout={logout}
+          onSubmit={async (pw) => {
+            const r = await api.changePassword(pw);
+            setSession((s) => ({ ...s, user: r.user }));
+            showToast('Şifreniz kaydedildi.');
+          }}
+        />
+      </>
+    );
+  }
 
   return (
     <NightContext.Provider value={night}>
@@ -1003,6 +1144,12 @@ function AppScreen() {
                     </Pressable>
                   </View>
                 </SlideIn>
+                {isMember && !expired && !showRecents && results.length === 0 && (
+                  <View style={[styles.timeBadge, remainingMs < 24 * 3600000 && styles.timeBadgeWarn]} accessibilityLabel="Kalan süre">
+                    <View style={[styles.timeDot, remainingMs < 24 * 3600000 && styles.timeDotWarn]} />
+                    <Text style={[styles.timeText, remainingMs < 24 * 3600000 && styles.timeTextWarn]}>{formatRemaining(remainingMs)} kaldı</Text>
+                  </View>
+                )}
                 {showRecents && (
                   <View style={styles.results}>
                     {activeField === 'from' && <MyLocationRow onPress={chooseMyLocationAsStart} />}
@@ -1209,12 +1356,19 @@ function AppScreen() {
             <SideButton label="Ayarlar" onPress={() => setSettingsOpen(true)}>
               <Text style={styles.sideGlyph}>⚙︎</Text>
             </SideButton>
-            <SideButton label={adminMode ? 'Kapatma\nAÇIK' : 'Yol\nkapat'} active={adminMode} onPress={toggleAdmin}>
-              <View style={[styles.noEntry, adminMode && styles.noEntryOn]}>
-                <View style={[styles.noEntryBar, adminMode && styles.noEntryBarOn]} />
-              </View>
-            </SideButton>
-            {adminMode && (
+            {isOwner && (
+              <SideButton label="Üyeler" onPress={() => setMembersOpen(true)}>
+                <Text style={styles.sideGlyph}>👥</Text>
+              </SideButton>
+            )}
+            {isStaff && (
+              <SideButton label={adminMode ? 'Kapatma\nAÇIK' : 'Yol\nkapat'} active={adminMode} onPress={toggleAdmin}>
+                <View style={[styles.noEntry, adminMode && styles.noEntryOn]}>
+                  <View style={[styles.noEntryBar, adminMode && styles.noEntryBarOn]} />
+                </View>
+              </SideButton>
+            )}
+            {isStaff && adminMode && (
               <SideButton label={`Gruplar${closures.zones.length ? ` (${closures.zones.length})` : ''}`} onPress={() => setZonesOpen(true)}>
                 <Text style={styles.sideGlyph}>☰</Text>
               </SideButton>
@@ -1285,11 +1439,25 @@ function AppScreen() {
         <SettingsSheet
           visible={settingsOpen}
           settings={settings}
-          adminMode={adminMode}
+          user={user}
           onClose={() => setSettingsOpen(false)}
           onSave={saveSettings}
-          onAdminModeChange={onAdminModeChange}
+          onLogout={logout}
         />
+
+        {isOwner && (
+          <MembersSheet
+            visible={membersOpen}
+            api={api}
+            settings={session.settings}
+            onSettingsSaved={(saved) => setSession((s) => ({ ...s, settings: saved }))}
+            onClose={() => setMembersOpen(false)}
+            showToast={showToast}
+          />
+        )}
+
+        {/* Üyenin süresi bittiyse: rota alınamaz, ödeme bilgisi gösterilir (devam eden seyir yarıda kesilmez). */}
+        {expired && !navigating && <ExpiredScreen user={user} settings={session.settings} onRefresh={refreshMe} onLogout={logout} />}
       </View>
     </NightContext.Provider>
   );
@@ -1615,6 +1783,24 @@ const baseStyles = StyleSheet.create({
   sideLabel: { fontSize: 10, fontWeight: '600', color: '#3a3a3c', textAlign: 'center' },
   sideLabelActive: { color: '#d70015', fontWeight: '800' },
   sideLabelHighlight: { color: '#0a66d8', fontWeight: '800' },
+  splash: { flex: 1, backgroundColor: '#1c2230', alignItems: 'center', justifyContent: 'center' },
+  timeBadge: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    backgroundColor: '#fff',
+    borderRadius: 999,
+    paddingVertical: 6,
+    paddingLeft: 9,
+    paddingRight: 12,
+    ...shadow,
+  },
+  timeBadgeWarn: { backgroundColor: '#fff8e1' },
+  timeDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: '#30a14e' },
+  timeDotWarn: { backgroundColor: '#f08c00' },
+  timeText: { fontSize: 12.5, fontWeight: '700', color: '#1c1c1e' },
+  timeTextWarn: { color: '#8a5a00' },
   noEntrySign: {
     width: 28,
     height: 28,
@@ -1836,6 +2022,8 @@ const nightOverrides = StyleSheet.create({
   previewNote: { color: NIGHT.sub },
   myLocIcon: { backgroundColor: '#10284a' },
   myLocText: { color: NIGHT.blue },
+  timeBadge: { backgroundColor: NIGHT.surface },
+  timeText: { color: NIGHT.text },
   attribution: { color: '#d1d1d6', backgroundColor: 'rgba(0,0,0,0.5)' },
 });
 const nightStyles = Object.fromEntries(

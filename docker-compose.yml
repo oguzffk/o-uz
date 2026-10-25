@@ -3,8 +3,10 @@ services:
   # sonraki açılışlarda hazır grafiği kullanır.
   valhalla:
     image: ghcr.io/valhalla/valhalla-scripted:latest
+    # Rota motoru dışarıya açılmaz: yalnızca bu bilgisayardan ve API'den erişilir
+    # (kapalı yol kuralları ve giriş kontrolü atlanamasın).
     ports:
-      - "8002:8002"
+      - "127.0.0.1:8002:8002"
     volumes:
       - ./valhalla/custom_files:/custom_files
     environment:
@@ -24,8 +26,11 @@ services:
       - "3000:3000"
     environment:
       - VALHALLA_URL=http://valhalla:8002
-      - ADMIN_TOKEN=${ADMIN_TOKEN:-istanbul-admin}
+      # İlk açılışta sahip hesabı (sonra panelden yönetilir). .env dosyasında tanımlayın.
+      - OWNER_PHONE=${OWNER_PHONE:?OWNER_PHONE tanımlayın (ör. .env dosyasında)}
+      - OWNER_PASSWORD=${OWNER_PASSWORD:-}
       - CLOSURES_FILE=/data/closures.json
+      - USERS_FILE=/data/users.json
     volumes:
       - ./server/data:/data
     depends_on:

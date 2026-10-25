@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ISTANBUL_BBOX, distanceMeters } from './geo';
 import { adjustedTime, trafficPeriod } from './traffic';
 import { fixStreetSuffixes } from './turkish';
+import { ApiError } from './api';
 
 /**
  * Demo modu: kendi sunucumuz yerine OpenStreetMap topluluğunun herkese açık
@@ -129,7 +130,102 @@ function buildRoute(trip, periodKey, legSpeedLimits = []) {
   };
 }
 
-export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL) {
+// --- Demo hesapları ---
+// Demo modunda sunucu olmadığı için hesaplar da bu telefonda tutulur (yalnızca deneme içindir;
+// gerçek kullanımda hesaplar sunucuda, şifreler scrypt ile saklanır). İlk açılışta bir sahip
+// hesabı hazır gelir; giriş ekranında yazar.
+const USERS_KEY = 'demo-users-v1';
+const DAY_MS = 24 * 60 * 60 * 1000;
+export const DEMO_OWNER = { phone: '05000000000', password: 'hermap' };
+const DEFAULT_SETTINGS = { iban: '', accountName: '', whatsapp: '', prices: { day1: '119,99 TL', day3: '299,99 TL', week1: '559,99 TL' } };
+let usersState = null; // { users, settings } — tüm demo API örnekleri aynı listeyi kullanır
+
+const demoHash = (salt, password) => idForShape(`${salt}:${password}`) + idForShape(`${password}:${salt}`);
+const randomToken = () => Array.from({ length: 4 }, () => Math.random().toString(36).slice(2)).join('');
+const tempPassword = () => String(Math.floor(Math.random() * 1_000_000)).padStart(6, '0');
+
+export function normalizePhone(value) {
+  let digits = String(value ?? '').replace(/\D/g, '');
+  if (digits.startsWith('90') && digits.length === 12) digits = digits.slice(2);
+  if (digits.length === 10) digits = `0${digits}`;
+  if (!/^0\d{10}$/.test(digits)) throw new ApiError('Geçerli bir telefon numarası girin (ör. 0532 123 45 67)', 400);
+  return digits;
+}
+
+async function loadUsers() {
+  if (usersState) return usersState;
+  try {
+    usersState = JSON.parse(await AsyncStorage.getItem(USERS_KEY)) || null;
+  } catch {
+    usersState = null;
+  }
+  if (!usersState) {
+    const salt = randomToken();
+    usersState = {
+      users: [
+        {
+          id: 'owner',
+          name: 'Sahip (demo)',
+          phone: DEMO_OWNER.phone,
+          role: 'owner',
+          salt,
+          passwordHash: demoHash(salt, DEMO_OWNER.password),
+          mustChangePassword: false,
+          expiresAt: null,
+          session: null,
+          createdAt: new Date().toISOString(),
+        },
+      ],
+      settings: DEFAULT_SETTINGS,
+    };
+    await saveUsers();
+  }
+  return usersState;
+}
+
+async function saveUsers() {
+  await AsyncStorage.setItem(USERS_KEY, JSON.stringify(usersState)).catch(() => {});
+}
+
+const isActive = (u) => u.role !== 'member' || (u.expiresAt != null && u.expiresAt > Date.now());
+const viewUser = (u) => ({
+  id: u.id,
+  name: u.name,
+  phone: u.phone,
+  role: u.role,
+  expiresAt: u.expiresAt ?? null,
+  mustChangePassword: u.mustChangePassword,
+  active: isActive(u),
+  createdAt: u.createdAt,
+  lastLoginAt: u.lastLoginAt ?? null,
+});
+
+export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL, token = null) {
+  // Sunucudaki yetki kontrollerinin aynısı.
+  async function currentUser() {
+    const st = await loadUsers();
+    return (token && st.users.find((u) => u.session === token)) || null;
+  }
+  async function requireActive() {
+    const u = await currentUser();
+    if (!u) throw new ApiError('Oturum açın', 401, 'auth');
+    if (u.mustChangePassword) throw new ApiError('Önce kendi şifrenizi belirleyin', 403, 'password');
+    if (!isActive(u)) throw new ApiError('Kullanım süreniz doldu', 402, 'expired');
+    return u;
+  }
+  async function requireRole(...roles) {
+    const u = await requireActive();
+    if (!roles.includes(u.role)) throw new ApiError('Bu işlem için yetkiniz yok', 403, 'forbidden');
+    return u;
+  }
+  const requireStaff = () => requireRole('owner', 'admin');
+  async function userById(id) {
+    await requireRole('owner');
+    const u = usersState.users.find((x) => x.id === id);
+    if (!u) throw new ApiError('Kullanıcı bulunamadı', 404);
+    return u;
+  }
+
   let state = null; // { version, closures (kaydedilmemiş), zones } — sunucudaki ClosureStore'un küçük kopyası
 
   async function load() {
@@ -263,11 +359,13 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL) {
     isDemo: true,
 
     async closures() {
+      await requireActive();
       const st = await load();
       return { version: st.version, closures: effective(st), zones: st.zones };
     },
 
     async route({ from, to, via = [], costing: requested, heading, alternatives = false, avoidTolls = false }) {
+      await requireActive();
       if (via.length > MAX_STOPS) throw new Error(`En fazla ${MAX_STOPS} ara durak eklenebilir`);
       const costing = requested === 'motorcycle' ? 'motorcycle' : 'auto';
       const st = await load();
@@ -309,6 +407,7 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL) {
     },
 
     async search(q) {
+      await requireActive();
       const b = ISTANBUL_BBOX;
       const params = new URLSearchParams({
         q,
@@ -333,10 +432,8 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL) {
       };
     },
 
-    // Demo modunda anahtar gerekmez; kapatmalar zaten yalnızca bu cihazdadır.
-    checkAdmin: async () => ({ ok: true }),
-
     async toggleClosure({ lat, lon }) {
+      await requireStaff();
       const closure = await locateSegment(lat, lon);
       const { id } = closure;
       const current = await load();
@@ -352,6 +449,7 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL) {
     },
 
     async saveZone(name) {
+      await requireStaff();
       const current = await load();
       if (!name?.trim()) throw new Error('Grup için bir isim girin');
       if (!current.closures.length) throw new Error('Kaydedilecek kapalı yol yok. Önce haritada yolları kapatın.');
@@ -362,6 +460,7 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL) {
     },
 
     async setZoneActive(id, active) {
+      await requireStaff();
       await update((st) => ({
         ...st,
         zones: st.zones.map((z) => (z.id === id ? { ...z, active, updatedAt: new Date().toISOString() } : z)),
@@ -371,6 +470,7 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL) {
 
     // Tüm yolları aç: kaydedilmemiş kapatmalar silinir, gruplar kalır ama pasif olur.
     async openAll() {
+      await requireStaff();
       const current = await load();
       const removed = current.closures.length;
       const zonesOpened = current.zones.filter((z) => z.active).length;
@@ -382,6 +482,7 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL) {
 
     // Grup düzenleme: dokunulan yol gruptaysa çıkarılır, değilse eklenir.
     async toggleZoneSegment(zoneId, { lat, lon }) {
+      await requireStaff();
       const segment = await locateSegment(lat, lon);
       const current = await load();
       const zone = current.zones.find((z) => z.id === zoneId);
@@ -404,6 +505,7 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL) {
     },
 
     async renameZone(id, name) {
+      await requireStaff();
       if (!name?.trim()) throw new Error('Grup için bir isim girin');
       await update((st) => ({
         ...st,
@@ -413,8 +515,130 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL) {
     },
 
     async deleteZone(id) {
+      await requireStaff();
       await update((st) => ({ ...st, zones: st.zones.filter((z) => z.id !== id) }));
       return { version: state.version };
+    },
+
+    // --- Oturum ---
+    async login(phone, password) {
+      const st = await loadUsers();
+      let clean = '';
+      try {
+        clean = normalizePhone(phone);
+      } catch {
+        clean = '';
+      }
+      const u = st.users.find((x) => x.phone === clean);
+      if (!u || u.passwordHash !== demoHash(u.salt, String(password ?? ''))) {
+        throw new ApiError('Telefon numarası ya da şifre hatalı', 401);
+      }
+      u.session = randomToken(); // tek cihaz: yeni giriş eski oturumu kapatır
+      u.lastLoginAt = new Date().toISOString();
+      await saveUsers();
+      return { token: u.session, user: viewUser(u), settings: st.settings };
+    },
+    async me() {
+      const u = await currentUser();
+      if (!u) throw new ApiError('Oturum açın', 401, 'auth');
+      return { user: viewUser(u), settings: usersState.settings };
+    },
+    async logout() {
+      const u = await currentUser();
+      if (u) {
+        u.session = null;
+        await saveUsers();
+      }
+      return { ok: true };
+    },
+    async changePassword(newPassword) {
+      const u = await currentUser();
+      if (!u) throw new ApiError('Oturum açın', 401, 'auth');
+      const pw = String(newPassword ?? '');
+      if (pw.length < 6) throw new ApiError('Şifre en az 6 karakter olmalı', 400);
+      if (u.passwordHash === demoHash(u.salt, pw)) throw new ApiError('Yeni şifre eskisiyle aynı olamaz', 400);
+      u.passwordHash = demoHash(u.salt, pw);
+      u.mustChangePassword = false;
+      await saveUsers();
+      return { user: viewUser(u) };
+    },
+
+    // --- Üyeler, yöneticiler, ödeme bilgisi (yalnızca sahip) ---
+    async users(role) {
+      await requireRole('owner');
+      return {
+        users: usersState.users
+          .filter((u) => u.role === role)
+          .sort((a, b) => a.name.localeCompare(b.name, 'tr'))
+          .map(viewUser),
+      };
+    },
+    async createUser({ name, phone, role }) {
+      await requireRole('owner');
+      const cleanName = String(name ?? '').trim().slice(0, 80);
+      if (!cleanName) throw new ApiError('Ad soyad girin', 400);
+      const cleanPhone = normalizePhone(phone);
+      if (usersState.users.some((u) => u.phone === cleanPhone)) throw new ApiError('Bu telefon numarasıyla kayıtlı biri var', 409);
+      const password = tempPassword();
+      const salt = randomToken();
+      const u = {
+        id: randomToken().slice(0, 12),
+        name: cleanName,
+        phone: cleanPhone,
+        role: role === 'admin' ? 'admin' : 'member',
+        salt,
+        passwordHash: demoHash(salt, password),
+        mustChangePassword: true,
+        expiresAt: null,
+        session: null,
+        createdAt: new Date().toISOString(),
+      };
+      usersState.users.push(u);
+      await saveUsers();
+      return { user: viewUser(u), tempPassword: password };
+    },
+    async extendUser(id, days) {
+      const u = await userById(id);
+      if (u.role !== 'member') throw new ApiError('Süre yalnızca üyelere tanımlanır', 400);
+      if (![1, 3, 7].includes(days)) throw new ApiError('Süre 1, 3 ya da 7 gün olabilir', 400);
+      u.expiresAt = Math.max(Date.now(), u.expiresAt ?? 0) + days * DAY_MS;
+      await saveUsers();
+      return { user: viewUser(u) };
+    },
+    async expireUser(id) {
+      const u = await userById(id);
+      u.expiresAt = Date.now();
+      await saveUsers();
+      return { user: viewUser(u) };
+    },
+    async resetPassword(id) {
+      const u = await userById(id);
+      const password = tempPassword();
+      u.passwordHash = demoHash(u.salt, password);
+      u.mustChangePassword = true;
+      u.session = null;
+      await saveUsers();
+      return { user: viewUser(u), tempPassword: password };
+    },
+    async deleteUser(id) {
+      const u = await userById(id);
+      if (u.role === 'owner') throw new ApiError('Sahip hesabı silinemez', 400);
+      usersState.users = usersState.users.filter((x) => x.id !== id);
+      await saveUsers();
+      return { user: viewUser(u) };
+    },
+    async updateSettings(patch) {
+      await requireRole('owner');
+      const s = usersState.settings;
+      const str = (v, max) => String(v ?? '').trim().slice(0, max);
+      if (patch.iban !== undefined) s.iban = str(patch.iban, 40);
+      if (patch.accountName !== undefined) s.accountName = str(patch.accountName, 80);
+      if (patch.whatsapp !== undefined) s.whatsapp = patch.whatsapp ? normalizePhone(patch.whatsapp) : '';
+      for (const k of Object.keys(DEFAULT_SETTINGS.prices)) {
+        if (patch.prices?.[k] !== undefined) s.prices[k] = str(patch.prices[k], 20);
+      }
+      await saveUsers();
+      return { settings: s };
     },
   };
 }

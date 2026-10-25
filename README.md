@@ -1,4 +1,4 @@
-# İstanbul Navigasyon — prototip
+# HERMAP — İstanbul navigasyon (prototip)
 
 Telefon odaklı, İstanbul'a özel bir navigasyon uygulaması:
 
@@ -6,6 +6,7 @@ Telefon odaklı, İstanbul'a özel bir navigasyon uygulaması:
 - **Yol kapatma:** Yönetici haritada herhangi bir sokağa dokunarak o segmenti kapatır / tekrar açar. Kapalı yollar **tüm kullanıcıların** rotalarından anında çıkarılır; seyirdeki telefonlar da birkaç saniye içinde yeni rotaya geçer.
 - **Kayıtlı gruplar:** Kapatılan yollar bir isimle kaydedilir ("Maraton güzergâhı" gibi). Sonra menüden tek dokunuşla o grubun tamamı trafiğe kapatılır ya da açılır.
 - **Mobil uygulama:** Expo (React Native) — arama, rota önizleme, sesli Türkçe yönlendirme, rotadan çıkınca yeniden hesaplama.
+- **Hesaplar ve süreli kullanım:** Herkes telefon numarası + şifreyle girer. **Sahip** üyeleri ekler, onlara 1 gün / 3 gün / 1 hafta süre verir ya da süreyi bitirir; **yönetici** yalnızca yol kapatır ve gruplara erişir; **üye** süresi bitene kadar navigasyonu kullanır.
 
 ```
  ┌─────────────┐   /api/route, /api/closures   ┌──────────────┐  route + exclude_polygons  ┌──────────────┐
@@ -29,6 +30,7 @@ npx expo start
 
 Telefonda Expo Go ile QR kodu okutun. Uygulama varsayılan olarak **demo modunda** açılır: rotaları OpenStreetMap topluluğunun herkese açık Valhalla sunucusundan (`valhalla1.openstreetmap.de`) alır; gerçek İstanbul sokakları, Türkçe sesli yönlendirme ve yol kapatma çalışır. Farkları:
 
+- Giriş ekranında yazan **demo sahip hesabıyla** girin: `0500 000 00 00` / `hermap`. Demo modunda hesaplar da yalnızca o telefonda tutulur; sahip olarak **👥 Üyeler**'den üye ve yönetici ekleyip çıkış yaparak onların ekranlarını deneyebilirsiniz.
 - Kapattığınız yollar **yalnızca o telefonda** geçerlidir, diğer kullanıcılara yansımaz.
 - Herkese açık sunucu adil kullanım içindir; yalnızca deneme amaçlı kullanın.
 
@@ -74,8 +76,16 @@ Geofabrik'ten Türkiye özütünü (~600 MB) indirir, İstanbul il sınırını 
 
 ### 2) Rota motorunu ve API'yi başlat
 
+Proje klasöründe bir `.env` dosyası oluşturup **sahip hesabını** yazın (bu dosya GitHub'a gönderilmez):
+
 ```bash
-ADMIN_TOKEN=gizli-bir-anahtar docker compose up -d
+OWNER_PHONE=05321234567
+OWNER_PASSWORD=en-az-6-karakterli-bir-sifre
+OWNER_NAME=Adınız
+```
+
+```bash
+docker compose up -d
 docker compose logs -f valhalla   # ilk açılışta grafik kurulur (birkaç dakika)
 ```
 
@@ -85,18 +95,26 @@ Hazır olduğunu kontrol edin:
 curl http://localhost:3000/api/health
 ```
 
-`ADMIN_TOKEN` vermezseniz geliştirme anahtarı `istanbul-admin` kullanılır.
+Sahip hesabı ilk açılışta bir kez oluşturulur; sonra şifre ve üyeler panelden yönetilir. `OWNER_PASSWORD` vermezseniz rastgele bir şifre üretilip **yalnızca o açılışta** loglara yazılır ve ilk girişte değiştirmeniz istenir. Sabit bir varsayılan şifre yoktur; `OWNER_PHONE` olmadan sunucu açılmaz. Hesaplar `server/data/users.json` dosyasında, şifreler scrypt ile tuzlanmış olarak tutulur.
 
-> API'yi Docker yerine doğrudan çalıştırmak isterseniz: `cd server && npm install && ADMIN_TOKEN=... npm run dev` (Valhalla'yı yine `docker compose up -d valhalla` ile açın).
+Rota motoru (Valhalla, 8002) yalnızca bu bilgisayardan erişilebilir; dışarıdan herkes API'yi (3000) kullanır, böylece giriş ve kapalı yol kuralları atlanamaz.
+
+> API'yi Docker yerine doğrudan çalıştırmak isterseniz: `cd server && npm install && OWNER_PHONE=05321234567 OWNER_PASSWORD=... npm run dev` (Valhalla'yı yine `docker compose up -d valhalla` ile açın).
 
 ### 3) Yönetici paneli (masaüstü)
 
-Tarayıcıda **http://localhost:3000/admin/** açın, yönetici anahtarını girin:
+Tarayıcıda **http://localhost:3000/admin/** açın, telefon numarası ve şifreyle girin (üyeler bu panele giremez):
 
-- **Yol kapat / aç:** Bir sokağa tıklayın → iki kavşak arasındaki o segment kırmızı olur ve kapanır. Kırmızı çizgiye tekrar tıklamak (veya listedeki **Aç**) yolu açar.
+- **Sahip:** Üstte **Yollar · Üyeler · Yöneticiler · Ödeme** sekmeleri.
+  - **Üyeler:** **＋ Üye ekle** (ad + telefon) → 6 haneli **geçici şifre** çıkar, **WhatsApp'a gönder** ile iletilir; üye ilk girişte kendi şifresini belirler. Her üyede **+1 gün / +3 gün / +1 hafta** (süre devam ediyorsa üstüne eklenir), **Süreyi bitir**, **Şifre sıfırla**, **Sil**.
+  - **Yöneticiler:** Ekle / şifre sıfırla / sil. Yöneticiler üye listesini göremez, süre veremez.
+  - **Ödeme:** Alıcı adı, IBAN, WhatsApp numarası ve fiyatlar — süresi biten üyenin ekranında görünür.
+- **Yönetici:** Yalnızca yollar ve gruplar:
+
+- **Yol kapat / aç:** Bir sokağa tıklayın → iki kavşak arasındaki o segment kırmızı-beyaz şerit ve girilmez levhasıyla kapanır. Şeride ya da levhaya tekrar tıklamak (veya listedeki **Aç**) yolu açar.
 - **Rota dene:** İki nokta seçip rotanın kapalı yolların etrafından dolaştığını görün.
 
-- **Kayıtlı gruplar:** Yolları kapattıktan sonra bir isim yazıp **Kaydet**'e basın. Grup listede görünür; **Trafiğe aç / Trafiğe kapat** ile tüm yollar tek seferde açılıp kapanır. Trafiğe açık grupların yolları haritada kesik kırmızı çizgiyle gösterilir.
+- **Kayıtlı gruplar:** Yolları kapattıktan sonra bir isim yazıp **Kaydet**'e basın. Grup listede görünür; **Trafiğe aç / Trafiğe kapat** ile tüm yollar tek seferde açılıp kapanır. Trafiğe açık grupların yolları haritada gri kesik çizgiyle gösterilir.
 
 Panel değişiklikleri canlı izler; başka bir yöneticinin kapattığı yol da anında görünür.
 
@@ -108,10 +126,12 @@ npm install
 npx expo start
 ```
 
-Telefonda Expo Go ile QR kodu okutun, ⚙︎ **Ayarlar → Rota sunucusu → Kendi sunucum** seçin. Uygulama API adresini otomatik olarak Expo'yu çalıştıran bilgisayarın IP'si üzerinden bulur (`http://<bilgisayar-ip>:3000`). Gerekirse ⚙︎ **Ayarlar**'dan değiştirin ya da `EXPO_PUBLIC_API_URL=http://192.168.1.20:3000 npx expo start` kullanın.
+Telefonda Expo Go ile QR kodu okutun. Giriş ekranının altındaki **Sunucu: … · değiştir**'den **Kendi sunucum**'u seçin. Uygulama API adresini otomatik olarak Expo'yu çalıştıran bilgisayarın IP'si üzerinden bulur (`http://<bilgisayar-ip>:3000`). Gerekirse oradan değiştirin ya da `EXPO_PUBLIC_API_URL=http://192.168.1.20:3000 npx expo start` kullanın.
 
 | İşlem | Nasıl |
 | --- | --- |
+| Giriş | Telefon + şifre. Geçici şifreyle girene önce kendi şifresini belirletir. Oturum telefonun güvenli kasasında saklanır; **bir hesap aynı anda tek telefonda açıktır** (başka telefonda giriş yapılınca eskisinin oturumu kapanır). Çıkış: ⚙︎ **Ayarlar → Çıkış yap** |
+| Roller | **Üye:** yalnızca navigasyon; arama kutusunun altında **kalan süre** (son 24 saatte turuncu). Süre bitince rota alınamaz, **Kullanım süreniz doldu** ekranı fiyatları, IBAN'ı ve **WhatsApp ile yaz** düğmesini gösterir (devam eden seyir yarıda kesilmez). **Yönetici:** + Yol kapat ve Gruplar. **Sahip:** + **👥 Üyeler** (üyeler, yöneticiler, ödeme bilgisi; web panelindekiyle aynı işlemler) |
 | Nereden / Nereye | Üstteki iki kutu. **Nereden** varsayılan olarak **Konumum**; başka bir yer de aranabilir (listenin başında "Konumum" seçeneği). **⇅** ikisini yer değiştirir. Haritada **basılı tutmak** varışı seçer |
 | Ara durak | Rota çizilince kartın altındaki **＋ Ara durak ekle** (en fazla 3). Durak aranır ya da haritada basılı tutularak seçilir; **✕** kaldırır, sağdaki **≡** tutamağından sürükleyerek sırası değiştirilir (rota yeni sırayla yeniden hesaplanır), **⇅** durakların sırasını da ters çevirir. Duraklı rotada alternatif rota verilmez. Alt paneldeki süre, mesafe ve varış saati sıradaki durağa göredir ("1. DURAĞA · Market"); durak geçilince bir sonrakine, duraklar bitince hedefe geçer. Seyirde durağa yaklaşınca "1. ara durağa varmak üzeresiniz" denir; geçilen duraklar yeniden rota hesaplanırken atlanır |
 | Son aramalar | Bir kutuya dokununca (yazmadan) son seçilen yerler listelenir; cihazda saklanır, **Temizle** ile silinir |
@@ -124,7 +144,7 @@ Telefonda Expo Go ile QR kodu okutun, ⚙︎ **Ayarlar → Rota sunucusu → Ken
 | Ulaşım türü | Ayarlar → Araç / Motor |
 | Ücretli yollardan kaçın | Rota panelindeki anahtar ya da Ayarlar. Yasaklamaz, mümkünse kaçınır; ücretsiz yol yoksa rota ücretli yolu kullanır ve bunu belirtir (Boğaz geçişlerinin çoğu ücretli) |
 | Küçük pencere (resim içinde resim) | Yalnızca Android APK'da (Expo Go'da yok). Seyir sırasında ana ekran tuşuna basınca (Android 12+) ya da sağ paneldeki **Küçült** ile uygulama köşede küçük pencerede yönlendirmeye devam eder |
-| Yol kapatma | Sağ paneldeki **Yol kapat** (sunucu modunda önce Ayarlar'dan yönetici anahtarı) → sokağa **dokunun** = kapat/aç. Kapalı yollar haritada kırmızı-beyaz şerit ve ortasında **girilmez** levhasıyla görünür; yönetici modunda levhaya dokunmak da yolu açar. Trafiğe açık kayıtlı gruplar yöneticiye gri kesik çizgiyle gösterilir |
+| Yol kapatma | Sahip ve yöneticide sağ paneldeki **Yol kapat** → sokağa **dokunun** = kapat/aç. Kapalı yollar haritada kırmızı-beyaz şerit ve ortasında **girilmez** levhasıyla görünür; yönetici modunda levhaya dokunmak da yolu açar. Trafiğe açık kayıtlı gruplar yöneticiye gri kesik çizgiyle gösterilir |
 | Grup kaydet / aç / kapat / düzenle | Sağ panelde **Yol kapat** → **Gruplar**; **Düzenle** ile haritada yol ekleyip çıkarın, adını değiştirin; **Tüm yolları trafiğe aç** hepsini birden açar |
 
 Telefon İstanbul dışındaysa (ör. emülatör) ilk basılı tutma **başlangıç**, ikincisi **varış** noktasını seçer; böylece rota önizlemesini her yerden deneyebilirsiniz.
@@ -144,8 +164,15 @@ Telefon İstanbul dışındaysa (ör. emülatör) ilk basılı tutma **başlang�
 | `DELETE /api/zones/:id` 🔒 | Grubu siler |
 | `POST /api/closures/open-all` 🔒 | Tüm yolları trafiğe açar: kaydedilmemiş kapatmalar silinir, gruplar silinmez ama açılır |
 | `GET /api/search?q=` | İstanbul ile sınırlı adres arama (Nominatim) |
+| `POST /api/auth/login` `{phone, password}` | Oturum açar: `{token, user, settings}`. Aynı hesabın önceki oturumu kapanır. Aynı telefona 5, aynı IP'den 20 hatalı denemede 15 dakika kilit |
+| `GET /api/auth/me` · `POST /api/auth/logout` · `POST /api/auth/password` `{newPassword}` | Oturum bilgisi (kalan süre dahil), çıkış, şifre değiştirme (en az 6 karakter) |
+| `GET /api/users?role=member\|admin` 👑 | Üyeler ya da yöneticiler (şifre özeti ve oturum dönmez) |
+| `POST /api/users` `{name, phone, role}` 👑 | Üye (`member`) ya da yönetici (`admin`) ekler; 6 haneli geçici şifre döner |
+| `POST /api/users/:id/extend` `{days: 1\|3\|7}` 👑 · `POST /api/users/:id/expire` 👑 | Üyeye süre ekler (devam eden sürenin üstüne) · süreyi hemen bitirir |
+| `POST /api/users/:id/reset-password` 👑 · `DELETE /api/users/:id` 👑 | Yeni geçici şifre (açık oturum kapanır) · siler (sahip silinemez) |
+| `GET /api/settings` · `PUT /api/settings` 👑 | Ödeme bilgisi: `iban`, `accountName`, `whatsapp`, `prices` |
 
-🔒 = `x-admin-token` başlığı gerekir.
+Oturum `Authorization: Bearer <token>` başlığıyla gönderilir. Rota, arama ve kapalı yol listesi için giriş yapmış, şifresini belirlemiş ve (üyeyse) süresi devam eden bir hesap gerekir; süresi biten üyeye `402 {code: "expired"}` döner. 🔒 = sahip ya da yönetici, 👑 = yalnızca sahip.
 
 ## Testler
 
@@ -158,7 +185,7 @@ cd server && npm test
 - **Kapatma birimi** iki kavşak arası segmenttir. Uzun bir caddeyi kapatmak için birkaç segmente dokunmak gerekir. Sonraki adım: "tüm caddeyi kapat" (aynı OSM `way_id`'ye sahip segmentler) ve süreli / zamanlanmış kapatmalar (ör. grubu her pazar 08:00–14:00 kapat).
 - **Kapatma sayısı:** Valhalla'nın varsayılan `max_exclude_polygons_length` (10 km) sınırıyla yaklaşık 2.500 eşzamanlı kapalı segment desteklenir; daha fazlası için Valhalla yapılandırmasında bu sınır artırılmalı.
 - **Kapatmalar** `server/data/closures.json` dosyasında tutulur; çok sunuculu kurulumda PostgreSQL/Redis'e taşınmalı.
-- **Yönetici kimlik doğrulaması** tek bir paylaşılan anahtardır; gerçek kullanımda kullanıcı hesapları + rol yönetimi gerekir.
+- **Hesaplar** `server/data/users.json` dosyasında tutulur; yedeklenmesi gerekir (kapatmalar dosyasıyla birlikte). Ödeme otomatik değildir: üye havale/EFT ile öder, sahip süreyi panelden tanımlar.
 - **Harita karoları ve arama** OpenStreetMap'in ücretsiz sunucularından gelir (`tile.openstreetmap.org`, Nominatim). Bunlar yoğun kullanım için değildir; yayına çıkmadan önce kendi karo sunucunuzu / ticari bir sağlayıcıyı ve kendi geocoder'ınızı kullanın.
 - **Canlı trafik verisi yok:** Süreler, İstanbul'un saate ve güne göre tipik yoğunluğuyla tahmin edilir (`server/src/traffic.js`: hafta içi 07–10 ve 17–20:30 yoğun saat; hızlı yollar en çok yavaşlar). Gerçek trafik için HERE/TomTom gibi bir kaynak eklenebilir.
 - Expo Go yerine kalıcı bir uygulama için `npx expo run:android|ios` veya EAS Build ile development build alın. Üretimde API HTTPS arkasında olmalı (iOS/Android düz HTTP'yi engeller).

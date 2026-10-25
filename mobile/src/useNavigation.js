@@ -97,6 +97,8 @@ export function useNavigation({ route, location, active, voice = true, onOffRout
     };
     if (distanceToNext < PRE_METERS) once(`${nextIdx}:pre`, next.verbalPre);
     else if (distanceToNext < ALERT_METERS && next.verbalAlert) once(`${nextIdx}:alert`, next.verbalAlert);
+    // konum ve rota `progress` ile birlikte değişir
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [progress, active]);
 
   return progress;

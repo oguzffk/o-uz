@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createApp } from '../src/app.js';
 import { ClosureStore } from '../src/closures.js';
+import { UserStore } from '../src/users.js';
 import { decodePolyline, midpointAlong } from '../src/geo.js';
 
 // Valhalla'nın gerçek locate cevabından alınmış bir kenar geometrisi.
@@ -31,20 +32,36 @@ function fakeValhalla() {
   };
 }
 
-async function withServer(fn) {
+// Her test kendi sunucusunu kurar: bir sahip ve bir yönetici hesabı açılır, istekler varsayılan
+// olarak yöneticinin oturumuyla gider (`token: null` oturumsuz, `token: x` başka oturum).
+async function withServer(fn, { now } = {}) {
   const valhalla = fakeValhalla();
-  const store = new ClosureStore(join(mkdtempSync(join(tmpdir(), 'nav-')), 'closures.json'));
-  const app = createApp({ valhalla, store, adminToken: 'secret' });
+  const dir = mkdtempSync(join(tmpdir(), 'nav-'));
+  const store = new ClosureStore(join(dir, 'closures.json'));
+  const clock = { t: Date.parse('2026-10-25T09:00:00Z') };
+  const users = new UserStore(join(dir, 'users.json'), { now: now ?? (() => clock.t) });
+  const app = createApp({ valhalla, store, users, now: now ?? (() => clock.t) });
   const server = app.listen(0);
   const base = `http://localhost:${server.address().port}`;
-  const req = (path, { method = 'GET', body, token } = {}) =>
+  const raw = (path, { method = 'GET', body, token } = {}) =>
     fetch(base + path, {
       method,
-      headers: { 'content-type': 'application/json', ...(token ? { 'x-admin-token': token } : {}) },
+      headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
       body: body && JSON.stringify(body),
     }).then(async (r) => ({ status: r.status, body: await r.json() }));
+  // Hesap açıp ilk şifreyi değiştirerek oturum anahtarı döndürür.
+  const account = async (role, phone) => {
+    const created = role === 'owner' ? users.ensureOwner({ phone, password: 'sahip-sifre' }) : users.create({ name: role, phone, role });
+    const password = created.tempPassword ?? 'sahip-sifre';
+    const { body } = await raw('/api/auth/login', { method: 'POST', body: { phone, password } });
+    if (body.user.mustChangePassword) await raw('/api/auth/password', { method: 'POST', token: body.token, body: { newPassword: 'yeni-sifre' } });
+    return body.token;
+  };
+  const ownerToken = await account('owner', '05000000000');
+  const adminToken = await account('admin', '05000000001');
+  const req = (path, opts = {}) => raw(path, { ...opts, token: 'token' in opts ? opts.token : adminToken });
   try {
-    await fn({ req, valhalla, store });
+    await fn({ req, valhalla, store, users, ownerToken, adminToken, clock, raw });
   } finally {
     server.close();
   }
@@ -61,16 +78,16 @@ test('polyline6 çözümü ve orta nokta', () => {
   assert.equal(lon, 28.98234);
 });
 
-test('kapatma yönetici anahtarı ister', async () => {
+test('kapatma oturum ister', async () => {
   await withServer(async ({ req }) => {
-    const r = await req('/api/closures/toggle', { method: 'POST', body: { lat: 41.03, lon: 28.98 } });
+    const r = await req('/api/closures/toggle', { method: 'POST', token: null, body: { lat: 41.03, lon: 28.98 } });
     assert.equal(r.status, 401);
   });
 });
 
 test('dokun → kapat, tekrar dokun → aç; rota kapalı segmenti dışlar', async () => {
   await withServer(async ({ req, valhalla }) => {
-    const closed = await req('/api/closures/toggle', { method: 'POST', token: 'secret', body: { lat: 41.031, lon: 28.9823 } });
+    const closed = await req('/api/closures/toggle', { method: 'POST', body: { lat: 41.031, lon: 28.9823 } });
     assert.equal(closed.status, 200);
     assert.equal(closed.body.action, 'closed');
     assert.equal(closed.body.closure.name, 'Test Sk.');
@@ -86,7 +103,7 @@ test('dokun → kapat, tekrar dokun → aç; rota kapalı segmenti dışlar', as
     assert.equal(sent.exclude_polygons.length, 1);
     assert.equal(sent.directions_options.language, 'tr-TR');
 
-    const opened = await req('/api/closures/toggle', { method: 'POST', token: 'secret', body: { lat: 41.031, lon: 28.9823 } });
+    const opened = await req('/api/closures/toggle', { method: 'POST', body: { lat: 41.031, lon: 28.9823 } });
     assert.equal(opened.body.action, 'opened');
     await req('/api/route', { method: 'POST', body: { from: { lat: 41.03, lon: 28.98 }, to: { lat: 41.04, lon: 28.99 } } });
     assert.equal(valhalla.calls.at(-1).exclude_polygons, undefined);
@@ -95,7 +112,7 @@ test('dokun → kapat, tekrar dokun → aç; rota kapalı segmenti dışlar', as
 
 test('yola uzak dokunuş ve İstanbul dışı noktalar reddedilir', async () => {
   await withServer(async ({ req }) => {
-    const far = await req('/api/closures/toggle', { method: 'POST', token: 'secret', body: { lat: 41.55, lon: 28.9 } });
+    const far = await req('/api/closures/toggle', { method: 'POST', body: { lat: 41.55, lon: 28.9 } });
     assert.equal(far.status, 404);
     const ankara = await req('/api/route', { method: 'POST', body: { from: { lat: 39.93, lon: 32.85 }, to: { lat: 41.04, lon: 28.99 } } });
     assert.equal(ankara.status, 400);
@@ -126,13 +143,13 @@ test('kayıtlı grup: kaydet → trafiğe aç → tekrar kapat → sil', async (
       return valhalla.calls.at(-1).exclude_polygons?.length ?? 0;
     };
 
-    const empty = await req('/api/zones', { method: 'POST', token: 'secret', body: { name: 'Boş' } });
+    const empty = await req('/api/zones', { method: 'POST', body: { name: 'Boş' } });
     assert.equal(empty.status, 400);
 
     for (const lon of [29.01, 29.02, 29.03]) {
-      await req('/api/closures/toggle', { method: 'POST', token: 'secret', body: { lat: 40.97, lon } });
+      await req('/api/closures/toggle', { method: 'POST', body: { lat: 40.97, lon } });
     }
-    const created = await req('/api/zones', { method: 'POST', token: 'secret', body: { name: 'Maraton güzergâhı' } });
+    const created = await req('/api/zones', { method: 'POST', body: { name: 'Maraton güzergâhı' } });
     assert.equal(created.status, 201);
     assert.equal(created.body.zone.segments.length, 3);
     assert.equal(created.body.zone.active, true);
@@ -143,23 +160,23 @@ test('kayıtlı grup: kaydet → trafiğe aç → tekrar kapat → sil', async (
     assert.equal(await route(), 3);
 
     // Grubun bir segmentine tek tek dokunmak onu açmaz; grup üzerinden yönetilir.
-    const tap = await req('/api/closures/toggle', { method: 'POST', token: 'secret', body: { lat: 40.97, lon: 29.01 } });
+    const tap = await req('/api/closures/toggle', { method: 'POST', body: { lat: 40.97, lon: 29.01 } });
     assert.equal(tap.status, 409);
 
     const id = created.body.zone.id;
-    const opened = await req(`/api/zones/${id}`, { method: 'PATCH', token: 'secret', body: { active: false } });
+    const opened = await req(`/api/zones/${id}`, { method: 'PATCH', body: { active: false } });
     assert.equal(opened.body.zone.active, false);
     state = await req('/api/closures');
     assert.equal(state.body.closures.length, 0);
     assert.equal(state.body.zones.length, 1);
     assert.equal(await route(), 0);
 
-    await req(`/api/zones/${id}`, { method: 'PATCH', token: 'secret', body: { active: true } });
+    await req(`/api/zones/${id}`, { method: 'PATCH', body: { active: true } });
     assert.equal(await route(), 3);
 
-    const noAuth = await req(`/api/zones/${id}`, { method: 'DELETE' });
+    const noAuth = await req(`/api/zones/${id}`, { token: null, method: 'DELETE' });
     assert.equal(noAuth.status, 401);
-    await req(`/api/zones/${id}`, { method: 'DELETE', token: 'secret' });
+    await req(`/api/zones/${id}`, { method: 'DELETE' });
     state = await req('/api/closures');
     assert.equal(state.body.zones.length, 0);
     assert.equal(await route(), 0);
@@ -188,18 +205,18 @@ test('tüm yolları tek seferde aç: tekiller silinir, gruplar kalır ama açıl
       names: ['Test Cd.'],
       distanceMeters: 2,
     });
-    const tap = (lon) => req('/api/closures/toggle', { method: 'POST', token: 'secret', body: { lat: 40.97, lon } });
+    const tap = (lon) => req('/api/closures/toggle', { method: 'POST', body: { lat: 40.97, lon } });
     await tap(29.01);
     await tap(29.02);
-    await req('/api/zones', { method: 'POST', token: 'secret', body: { name: 'Grup' } });
+    await req('/api/zones', { method: 'POST', body: { name: 'Grup' } });
     await tap(29.03);
     let state = await req('/api/closures');
     assert.equal(state.body.closures.length, 3);
 
-    const noAuth = await req('/api/closures/open-all', { method: 'POST' });
+    const noAuth = await req('/api/closures/open-all', { token: null, method: 'POST' });
     assert.equal(noAuth.status, 401);
 
-    const r = await req('/api/closures/open-all', { method: 'POST', token: 'secret' });
+    const r = await req('/api/closures/open-all', { method: 'POST' });
     assert.deepEqual([r.body.removed, r.body.zonesOpened], [1, 1]);
     state = await req('/api/closures');
     assert.equal(state.body.closures.length, 0);
@@ -219,17 +236,17 @@ test('grup düzenleme: yol ekle, çıkar, yeniden adlandır', async () => {
       names: ['Pazar Sk.'],
       distanceMeters: 2,
     });
-    await req('/api/closures/toggle', { method: 'POST', token: 'secret', body: { lat: 40.97, lon: 29.01 } });
-    const { body } = await req('/api/zones', { method: 'POST', token: 'secret', body: { name: 'Pazar' } });
+    await req('/api/closures/toggle', { method: 'POST', body: { lat: 40.97, lon: 29.01 } });
+    const { body } = await req('/api/zones', { method: 'POST', body: { name: 'Pazar' } });
     const id = body.zone.id;
-    const edit = (lon) => req(`/api/zones/${id}/toggle-segment`, { method: 'POST', token: 'secret', body: { lat: 40.97, lon } });
+    const edit = (lon) => req(`/api/zones/${id}/toggle-segment`, { method: 'POST', body: { lat: 40.97, lon } });
 
     const added = await edit(29.02);
     assert.equal(added.body.action, 'added');
     assert.equal(added.body.zone.segments.length, 2);
 
     // Kaydedilmemiş bir kapatma gruba eklenirse tekil listeden çıkar.
-    await req('/api/closures/toggle', { method: 'POST', token: 'secret', body: { lat: 40.97, lon: 29.03 } });
+    await req('/api/closures/toggle', { method: 'POST', body: { lat: 40.97, lon: 29.03 } });
     await edit(29.03);
     let state = await req('/api/closures');
     assert.equal(state.body.closures.length, 3);
@@ -239,12 +256,12 @@ test('grup düzenleme: yol ekle, çıkar, yeniden adlandır', async () => {
     assert.equal(removed.body.action, 'removed');
     assert.equal(removed.body.zone.segments.length, 2);
 
-    const renamed = await req(`/api/zones/${id}`, { method: 'PATCH', token: 'secret', body: { name: 'Bağcılar pazarı' } });
+    const renamed = await req(`/api/zones/${id}`, { method: 'PATCH', body: { name: 'Bağcılar pazarı' } });
     assert.equal(renamed.body.zone.name, 'Bağcılar pazarı');
 
-    const missing = await req('/api/zones/yok/toggle-segment', { method: 'POST', token: 'secret', body: { lat: 40.97, lon: 29.01 } });
+    const missing = await req('/api/zones/yok/toggle-segment', { method: 'POST', body: { lat: 40.97, lon: 29.01 } });
     assert.equal(missing.status, 404);
-    const noAuth = await req(`/api/zones/${id}/toggle-segment`, { method: 'POST', body: { lat: 40.97, lon: 29.01 } });
+    const noAuth = await req(`/api/zones/${id}/toggle-segment`, { token: null, method: 'POST', body: { lat: 40.97, lon: 29.01 } });
     assert.equal(noAuth.status, 401);
   });
 });
@@ -275,7 +292,7 @@ test('alternatif rotalar: istenirse gelir, yoğun saat süresine göre sıralan�
       // Ana rota otoyol (hızlı ama yoğun saatte çok yavaşlar), alternatif ara yol.
       return { trip: trip(10, 600), ...(body.alternates ? { alternates: [{ trip: trip(6, 720) }] } : {}) };
     };
-    await req('/api/closures/toggle', { method: 'POST', token: 'secret', body: { lat: 41.031, lon: 28.9823 } });
+    await req('/api/closures/toggle', { method: 'POST', body: { lat: 41.031, lon: 28.9823 } });
     const body = { from: { lat: 41.03, lon: 28.98 }, to: { lat: 41.04, lon: 28.99 } };
 
     const single = await req('/api/route', { method: 'POST', body });
@@ -366,7 +383,7 @@ test('rota bulunamazsa hedef en yakın halka açık / ana yola bağlanarak tekra
     assert.equal(valhalla.calls.at(-1).locations[1].search_filter.min_road_class, 'tertiary');
 
     // Kapalı yol varsa mesaj onları da anar.
-    await req('/api/closures/toggle', { method: 'POST', token: 'secret', body: { lat: 41.031, lon: 28.9823 } });
+    await req('/api/closures/toggle', { method: 'POST', body: { lat: 41.031, lon: 28.9823 } });
     const fail2 = await req('/api/route', { method: 'POST', body });
     assert.match(fail2.body.error, /Kapalı yollar/);
 
@@ -461,5 +478,144 @@ test('hız sınırı: yol parçalarının sınırı birleşik çizgi indeksleriy
     const r2 = await req('/api/route', { method: 'POST', body });
     assert.equal(r2.status, 200);
     assert.deepEqual(r2.body.speedLimits, []);
+  });
+});
+
+// --- Giriş, roller ve üyelik süresi ---
+
+const ROUTE_BODY = { from: { lat: 41.03, lon: 28.98 }, to: { lat: 41.04, lon: 28.99 } };
+
+test('giriş: yanlış şifre reddedilir, geçici şifreyle girene önce şifre değiştirtilir', async () => {
+  await withServer(async ({ raw, ownerToken }) => {
+    const created = await raw('/api/users', { method: 'POST', token: ownerToken, body: { name: 'Ayşe Kaya', phone: '0532 111 22 33' } });
+    assert.equal(created.status, 200);
+    assert.match(created.body.tempPassword, /^\d{6}$/);
+    assert.equal(created.body.user.phone, '05321112233');
+    assert.equal(created.body.user.passwordHash, undefined);
+
+    const wrong = await raw('/api/auth/login', { method: 'POST', body: { phone: '05321112233', password: '000000x' } });
+    assert.equal(wrong.status, 401);
+    // Telefon farklı yazılsa da (+90, boşluklu) aynı hesap.
+    const login = await raw('/api/auth/login', { method: 'POST', body: { phone: '+90 532 111 22 33', password: created.body.tempPassword } });
+    assert.equal(login.status, 200);
+    assert.equal(login.body.user.mustChangePassword, true);
+    assert.equal((await raw('/api/route', { method: 'POST', token: login.body.token, body: ROUTE_BODY })).body.code, 'password');
+
+    const short = await raw('/api/auth/password', { method: 'POST', token: login.body.token, body: { newPassword: '123' } });
+    assert.equal(short.status, 400);
+    const same = await raw('/api/auth/password', { method: 'POST', token: login.body.token, body: { newPassword: created.body.tempPassword } });
+    assert.equal(same.status, 400);
+    const changed = await raw('/api/auth/password', { method: 'POST', token: login.body.token, body: { newPassword: 'gizli123' } });
+    assert.equal(changed.body.user.mustChangePassword, false);
+    // Süresi olmayan üye rota alamaz.
+    const expired = await raw('/api/route', { method: 'POST', token: login.body.token, body: ROUTE_BODY });
+    assert.equal(expired.status, 402);
+    assert.equal(expired.body.code, 'expired');
+  });
+});
+
+test('roller: üye yol kapatamaz, yönetici üyeleri göremez ve süre veremez, sahip hepsini yapar', async () => {
+  await withServer(async ({ raw, ownerToken, adminToken, users }) => {
+    const { user: member, tempPassword } = users.create({ name: 'Üye', phone: '05320000001' });
+    users.extend(member.id, 1);
+    const login = await raw('/api/auth/login', { method: 'POST', body: { phone: '05320000001', password: tempPassword } });
+    await raw('/api/auth/password', { method: 'POST', token: login.body.token, body: { newPassword: 'uye-sifre' } });
+    const memberToken = login.body.token;
+
+    assert.equal((await raw('/api/closures/toggle', { method: 'POST', token: memberToken, body: { lat: 41.031, lon: 28.9823 } })).status, 403);
+    assert.equal((await raw('/api/zones', { method: 'POST', token: memberToken, body: { name: 'x' } })).status, 403);
+    assert.equal((await raw('/api/route', { method: 'POST', token: memberToken, body: ROUTE_BODY })).status, 200);
+    assert.equal((await raw('/api/closures', { token: memberToken })).status, 200);
+
+    assert.equal((await raw('/api/users', { token: adminToken })).status, 403);
+    assert.equal((await raw(`/api/users/${member.id}/extend`, { method: 'POST', token: adminToken, body: { days: 1 } })).status, 403);
+    assert.equal((await raw(`/api/users/${member.id}/expire`, { method: 'POST', token: adminToken })).status, 403);
+    assert.equal((await raw('/api/users', { method: 'POST', token: adminToken, body: { name: 'x', phone: '05320000009' } })).status, 403);
+    assert.equal((await raw('/api/closures/toggle', { method: 'POST', token: adminToken, body: { lat: 41.031, lon: 28.9823 } })).status, 200);
+
+    const list = await raw('/api/users?role=member', { token: ownerToken });
+    assert.equal(list.status, 200);
+    assert.deepEqual(list.body.users.map((u) => u.name), ['Üye']);
+    assert.ok(list.body.users.every((u) => u.passwordHash === undefined && u.session === undefined));
+    const admins = await raw('/api/users?role=admin', { token: ownerToken });
+    assert.equal(admins.body.users.length, 1);
+    const newAdmin = await raw('/api/users', { method: 'POST', token: ownerToken, body: { name: 'Ali', phone: '05330000000', role: 'admin' } });
+    assert.equal(newAdmin.body.user.role, 'admin');
+    const ownerUser = users.list('owner')[0];
+    assert.equal((await raw(`/api/users/${ownerUser.id}`, { method: 'DELETE', token: ownerToken })).status, 400);
+    assert.equal((await raw(`/api/users/${newAdmin.body.user.id}`, { method: 'DELETE', token: ownerToken })).status, 200);
+    assert.equal((await raw('/api/users', { method: 'POST', token: ownerToken, body: { name: 'Tekrar', phone: '0532 000 00 01' } })).status, 409);
+  });
+});
+
+test('süre: +1/+3/+7 gün üst üste eklenir, dolunca rota kesilir, "Süreyi bitir" hemen kapatır', async () => {
+  await withServer(async ({ raw, ownerToken, users, clock }) => {
+    const { user: member, tempPassword } = users.create({ name: 'Üye', phone: '05320000002' });
+    const login = await raw('/api/auth/login', { method: 'POST', body: { phone: '05320000002', password: tempPassword } });
+    await raw('/api/auth/password', { method: 'POST', token: login.body.token, body: { newPassword: 'uye-sifre' } });
+    const t = login.body.token;
+    const route = async () => (await raw('/api/route', { method: 'POST', token: t, body: ROUTE_BODY })).status;
+    const extend = (days) => raw(`/api/users/${member.id}/extend`, { method: 'POST', token: ownerToken, body: { days } });
+
+    assert.equal(await route(), 402);
+    assert.equal((await extend(2)).status, 400);
+    const start = clock.t;
+    assert.equal((await extend(1)).body.user.expiresAt, start + 86400000);
+    assert.equal(await route(), 200);
+    clock.t += 25 * 3600000; // süre doldu
+    assert.equal(await route(), 402);
+    assert.equal((await raw('/api/auth/me', { token: t })).body.user.active, false);
+    // Süresi bitmiş üyeye eklenen gün şimdiden başlar; devam eden süreye ise üstüne eklenir.
+    assert.equal((await extend(3)).body.user.expiresAt, clock.t + 3 * 86400000);
+    assert.equal((await extend(7)).body.user.expiresAt, clock.t + 10 * 86400000);
+    assert.equal(await route(), 200);
+    await raw(`/api/users/${member.id}/expire`, { method: 'POST', token: ownerToken });
+    assert.equal(await route(), 402);
+  });
+});
+
+test('tek cihaz: yeni giriş eski oturumu kapatır; şifre sıfırlama oturumu kapatır', async () => {
+  await withServer(async ({ raw, ownerToken, users }) => {
+    const { user, tempPassword } = users.create({ name: 'Üye', phone: '05320000003' });
+    const first = await raw('/api/auth/login', { method: 'POST', body: { phone: '05320000003', password: tempPassword } });
+    const second = await raw('/api/auth/login', { method: 'POST', body: { phone: '05320000003', password: tempPassword } });
+    assert.equal((await raw('/api/auth/me', { token: first.body.token })).status, 401);
+    assert.equal((await raw('/api/auth/me', { token: second.body.token })).status, 200);
+
+    const reset = await raw(`/api/users/${user.id}/reset-password`, { method: 'POST', token: ownerToken });
+    assert.match(reset.body.tempPassword, /^\d{6}$/);
+    assert.equal((await raw('/api/auth/me', { token: second.body.token })).status, 401);
+    const again = await raw('/api/auth/login', { method: 'POST', body: { phone: '05320000003', password: reset.body.tempPassword } });
+    assert.equal(again.body.user.mustChangePassword, true);
+    await raw('/api/auth/logout', { method: 'POST', token: again.body.token });
+    assert.equal((await raw('/api/auth/me', { token: again.body.token })).status, 401);
+  });
+});
+
+test('şifre deneme sınırı: 5 hatalı denemeden sonra 15 dakika kilit', async () => {
+  await withServer(async ({ raw, users, clock }) => {
+    const { tempPassword } = users.create({ name: 'Üye', phone: '05320000004' });
+    const login = (password) => raw('/api/auth/login', { method: 'POST', body: { phone: '05320000004', password } });
+    for (let i = 0; i < 5; i++) assert.equal((await login('yanlis')).status, 401);
+    const locked = await login(tempPassword);
+    assert.equal(locked.status, 429);
+    clock.t += 16 * 60000;
+    assert.equal((await login(tempPassword)).status, 200);
+  });
+});
+
+test('ayarlar: ödeme bilgisini sahip değiştirir, herkes okur', async () => {
+  await withServer(async ({ raw, ownerToken, adminToken }) => {
+    const put = await raw('/api/settings', {
+      method: 'PUT',
+      token: ownerToken,
+      body: { iban: 'TR12 0006 4000 0011 2345 6789 01', accountName: 'Hermap', whatsapp: '0532 999 88 77', prices: { day1: '129,99 TL' } },
+    });
+    assert.equal(put.body.settings.whatsapp, '05329998877');
+    assert.equal(put.body.settings.prices.day1, '129,99 TL');
+    assert.equal(put.body.settings.prices.week1, '559,99 TL');
+    assert.equal((await raw('/api/settings', { method: 'PUT', token: adminToken, body: { iban: 'x' } })).status, 403);
+    assert.equal((await raw('/api/settings', { token: adminToken })).body.settings.accountName, 'Hermap');
+    assert.equal((await raw('/api/settings')).status, 401);
   });
 });

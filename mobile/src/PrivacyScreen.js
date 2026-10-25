@@ -1,8 +1,11 @@
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { PRIVACY } from './legal';
+import { LEGAL_DOCS } from './legal';
 
-/** Gizlilik Politikası ve KVKK Aydınlatma Metni (kayıt ekranından ve Ayarlar'dan açılır). */
+/**
+ * Gizlilik Politikası / KVKK Aydınlatma Metni ve altında Kullanım Koşulları / Sorumluluk Reddi
+ * (kayıt ekranından, giriş ekranının altından ve Ayarlar'dan açılır).
+ */
 export default function PrivacyScreen({ visible, onClose }) {
   const insets = useSafeAreaInsets();
   return (
@@ -15,18 +18,22 @@ export default function PrivacyScreen({ visible, onClose }) {
           </Pressable>
         </View>
         <ScrollView contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 32 }]}>
-          <Text style={styles.title}>{PRIVACY.title}</Text>
-          <Text style={styles.meta}>
-            Sürüm {PRIVACY.version} · Son güncelleme: {PRIVACY.updated}
-          </Text>
-          <Text style={styles.text}>{PRIVACY.intro}</Text>
-          {PRIVACY.sections.map((sec) => (
-            <View key={sec.title}>
-              <Text style={styles.heading}>{sec.title}</Text>
-              {sec.body.map((line) => (
-                <View key={line} style={styles.item}>
-                  <Text style={styles.bullet}>•</Text>
-                  <Text style={[styles.text, { flex: 1 }]}>{line}</Text>
+          {LEGAL_DOCS.map((doc, i) => (
+            <View key={doc.id} style={i > 0 && styles.doc}>
+              <Text style={styles.title}>{doc.title}</Text>
+              <Text style={styles.meta}>
+                Sürüm {doc.version} · Son güncelleme: {doc.updated}
+              </Text>
+              <Text style={styles.text}>{doc.intro}</Text>
+              {doc.sections.map((sec) => (
+                <View key={sec.title}>
+                  <Text style={styles.heading}>{sec.title}</Text>
+                  {sec.body.map((line) => (
+                    <View key={line} style={styles.item}>
+                      <Text style={styles.bullet}>•</Text>
+                      <Text style={[styles.text, { flex: 1 }]}>{line}</Text>
+                    </View>
+                  ))}
                 </View>
               ))}
             </View>
@@ -51,6 +58,7 @@ const styles = StyleSheet.create({
   brand: { fontSize: 15, fontWeight: '900', letterSpacing: 2, color: '#1c1c1e' },
   close: { color: '#0a66d8', fontSize: 16, fontWeight: '700' },
   body: { padding: 18 },
+  doc: { marginTop: 32, paddingTop: 24, borderTopWidth: 2, borderTopColor: '#e5e5ea' },
   title: { fontSize: 22, fontWeight: '800', color: '#1c1c1e' },
   meta: { fontSize: 12.5, color: '#6e6e73', marginTop: 4, marginBottom: 12 },
   heading: { fontSize: 16.5, fontWeight: '800', color: '#1c1c1e', marginTop: 20, marginBottom: 6 },

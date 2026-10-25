@@ -236,8 +236,8 @@ export class UserStore {
    * Kayıt, 1. adım: bilgiler denetlenir ve doğrulama kodu üretilir; hesap henüz açılmaz.
    * Aynı e-postayla tekrar istenirse önceki bekleyen kayıt ve kodu geçersiz olur.
    */
-  startRegistration({ name, email, phone, password, acceptPrivacy, privacyVersion = null }) {
-    if (acceptPrivacy !== true) throw new UserError(400, 'Kayıt için Gizlilik Politikası ve KVKK Aydınlatma Metni\'ni kabul edin');
+  startRegistration({ name, email, phone, password, acceptPrivacy, privacyVersion = null, termsVersion = null }) {
+    if (acceptPrivacy !== true) throw new UserError(400, 'Kayıt için Gizlilik Politikası, KVKK Aydınlatma Metni ve Kullanım Koşulları\'nı kabul edin');
     const cleanName = String(name ?? '').trim().slice(0, 80);
     if (!cleanName) throw new UserError(400, 'Ad soyad girin');
     const cleanEmail = normalizeEmail(email);
@@ -252,7 +252,7 @@ export class UserStore {
       email: cleanEmail,
       phone: cleanPhone,
       passwordHash: hashPassword(pw),
-      privacy: { version: privacyVersion, acceptedAt: new Date(this.now()).toISOString() },
+      privacy: { version: privacyVersion, terms: termsVersion, acceptedAt: new Date(this.now()).toISOString() },
       code: { hash: sha256(`reg:${cleanEmail}:${code}`), expiresAt: this.now() + CODE_TTL_MS, attempts: 0 },
     });
     return { email: cleanEmail, code };

@@ -1,7 +1,9 @@
-// Gizlilik Politikası ve KVKK Aydınlatma Metni. Aynı metin mobile/src/legal.js'te de var
-// (uygulama demo modunda sunucusuz çalışır); ikisinin aynı kaldığını testler denetler.
-// Köşeli parantezli yerler yayından önce gerçek bilgilerle doldurulmalı.
+// Gizlilik Politikası / KVKK Aydınlatma Metni ve Kullanım Koşulları / Sorumluluk Reddi.
+// Aynı metinler mobile/src/legal.js'te de var (uygulama demo modunda sunucusuz çalışır);
+// ikisinin aynı kaldığını testler denetler. Köşeli parantezli yerler yayından önce
+// gerçek bilgilerle doldurulmalı.
 export const PRIVACY = {
+  id: 'gizlilik',
   version: '1.0',
   updated: '25 Ekim 2026',
   title: 'Gizlilik Politikası ve KVKK Aydınlatma Metni',
@@ -99,31 +101,144 @@ export const PRIVACY = {
   ],
 };
 
+export const TERMS = {
+  id: 'kullanim-kosullari',
+  version: '1.0',
+  updated: '25 Ekim 2026',
+  title: 'Kullanım Koşulları ve Sorumluluk Reddi',
+  intro:
+    'Bu koşullar, HERMAPS uygulamasını ("Uygulama") kullanımınıza ilişkin kuralları belirler. Uygulamaya kayıt olarak veya uygulamayı kullanarak bu koşulları kabul etmiş olursunuz. Lütfen özellikle 5. ve 6. maddeleri dikkatle okuyun.',
+  sections: [
+    {
+      title: '1. Taraflar',
+      body: [
+        'Hizmet sağlayıcı: [VERİ SORUMLUSU ADI / ŞİRKET UNVANI], [ADRES], [İLETİŞİM E-POSTASI] ("HERMAPS", "biz").',
+        'Kullanıcı: Uygulamaya kayıt olan ve uygulamayı kullanan kişi ("siz").',
+      ],
+    },
+    {
+      title: '2. Hizmetin tanımı',
+      body: [
+        'Uygulama, İstanbul için rota hesaplayan, sesli yönlendirme yapan ve yetkili yöneticilerin girdiği kapalı yol bilgilerini rotada dikkate almaya çalışan bir navigasyon hizmetidir.',
+        'Hizmet, satın alınan kullanım süresi boyunca sunulur. Hizmetin kapsamını, özelliklerini ve görünümünü önceden bildirmeksizin geliştirebilir veya değiştirebiliriz.',
+      ],
+    },
+    {
+      title: '3. Üyelik ve hesap güvenliği',
+      body: [
+        'Uygulamayı kullanmak için 18 yaşından büyük olmanız ve kayıt sırasında doğru bilgi vermeniz gerekir.',
+        'Hesabınız kişiseldir; başkasıyla paylaşılamaz, devredilemez veya satılamaz. Bir hesap aynı anda yalnızca bir telefonda açık kalır.',
+        'Şifrenizin gizliliğinden siz sorumlusunuz. Hesabınızın izinsiz kullanıldığını düşünüyorsanız şifrenizi hemen değiştirin ve bize bildirin.',
+      ],
+    },
+    {
+      title: '4. Kullanım süresi paketleri ve ödeme',
+      body: [
+        'Paketler: 1 gün, 3 gün ve 1 hafta. Güncel fiyatlar satın alma ekranında gösterilir.',
+        'Ödemeler App Store veya Google Play üzerinden alınır; paketler otomatik olarak yenilenmez. Satın aldığınız süre, kalan sürenizin üzerine eklenir ve satın alma anında başlar.',
+        'Kullanım süresi, elektronik ortamda anında ifa edilen bir hizmettir. Bu nedenle Mesafeli Sözleşmeler Yönetmeliği m.15 uyarınca cayma hakkı bulunmamaktadır; satın alma ekranındaki onayınızla bu durumu kabul etmiş olursunuz.',
+        'İade talepleri Apple ve Google\'ın iade kurallarına göre ilgili mağaza üzerinden yapılır. Mağaza tarafından iade edilen bir satın alımın süresi hesabınızdan düşülür.',
+        'Kullanılmayan süre, hesap silinmesi veya bu koşulların ihlali nedeniyle hesabın kapatılması halinde iade edilmez.',
+      ],
+    },
+    {
+      title: '5. Trafik kuralları ve sürüş güvenliği',
+      body: [
+        'Araç kullanırken her zaman 2918 sayılı Karayolları Trafik Kanunu\'na, trafik işaretlerine, yol çizgilerine, ışıklara ve trafik görevlilerinin talimatlarına uymak zorundasınız. Uygulamanın yönlendirmesi hiçbir durumda bunların önüne geçmez.',
+        'Uygulamanın gösterdiği yol, yasak bir dönüş, tek yön, kapalı yol veya tehlikeli bir güzergah içeriyorsa uygulamayı değil, yoldaki işaret ve kuralları dikkate alın.',
+        'Sürüş sırasında telefonu elinizde tutmayın ve ekranla uğraşmayın. Telefonu sabit bir araç tutucuya yerleştirin; varış noktasını ve ayarları yola çıkmadan önce girin.',
+        'Hız sınırı göstergesi bilgilendirme amaçlıdır. Geçerli hız sınırı, yoldaki levhada yazan sınırdır.',
+      ],
+    },
+    {
+      title: '6. Sorumluluk reddi',
+      body: [
+        'Rota, varış süresi, mesafe, kapalı yol, hız sınırı, şerit ve trafik tahmini bilgileri yalnızca bilgilendirme amaçlıdır. Harita verileri OpenStreetMap ve diğer üçüncü taraf kaynaklardan gelir; eksik, hatalı veya güncel olmayan bilgiler içerebilir.',
+        'Kapalı yol bilgileri yetkili yöneticiler tarafından girilir. Bir yolun uygulamada açık görünmesi gerçekte açık olduğu, kapalı görünmesi de gerçekte kapalı olduğu anlamına gelmez.',
+        'GPS sinyali; tünel, köprü altı, yüksek binalar veya telefonunuzdan kaynaklanan nedenlerle zayıflayabilir ya da hatalı olabilir. Bu durumda konumunuz ve yönlendirme yanlış olabilir.',
+        'Hizmet "olduğu gibi" sunulur. Hizmetin kesintisiz, hatasız veya her zaman erişilebilir olacağını garanti etmeyiz; bakım, internet bağlantısı, sunucu veya üçüncü taraf hizmetlerinden kaynaklanan kesintiler yaşanabilir.',
+        'Mevzuatın izin verdiği ölçüde; uygulamanın kullanımından veya kullanılamamasından doğan trafik kazaları, trafik cezaları, gecikmeler, randevu veya iş kayıpları, yakıt ve diğer doğrudan veya dolaylı zararlardan sorumlu değiliz. Kast veya ağır kusurumuzdan doğan zararlara ilişkin sorumluluğumuz saklıdır.',
+        'Araç kullanırken alınan tüm kararların ve sürüş güvenliğinin sorumluluğu sürücüye aittir.',
+      ],
+    },
+    {
+      title: '7. Yasak kullanımlar',
+      body: [
+        'Uygulamayı kanuna aykırı amaçlarla kullanmak',
+        'Hesabınızı başkalarıyla paylaşmak veya hesap bilgilerini satmak',
+        'Uygulamanın ya da sunucuların işleyişini bozmaya, güvenlik önlemlerini aşmaya veya izinsiz erişim sağlamaya çalışmak',
+        'Uygulamayı kopyalamak, tersine mühendislik yapmak, verilerini otomatik yollarla toplamak',
+        'Bu durumlarda hesabınızı önceden bildirmeksizin askıya alabilir veya kapatabiliriz.',
+      ],
+    },
+    {
+      title: '8. Fikri mülkiyet',
+      body: [
+        'Uygulamanın adı, logosu, tasarımı ve yazılımı üzerindeki tüm haklar bize aittir; size yalnızca kişisel kullanım için, devredilemez ve münhasır olmayan bir kullanım hakkı tanınır.',
+        'Harita verileri © OpenStreetMap katkıcıları (ODbL lisansı); harita görüntüleri Google / Apple\'a aittir.',
+      ],
+    },
+    {
+      title: '9. Hesabın sona ermesi',
+      body: [
+        'Hesabınızı istediğiniz zaman Ayarlar → Hesabımı sil ile kapatabilirsiniz.',
+        'Bu koşulları ihlal etmeniz halinde hesabınızı askıya alabilir veya kapatabiliriz.',
+      ],
+    },
+    {
+      title: '10. Değişiklikler',
+      body: [
+        'Bu koşulları güncelleyebiliriz. Önemli değişiklikleri uygulama içinde duyururuz; değişiklikten sonra uygulamayı kullanmaya devam etmeniz güncel koşulları kabul ettiğiniz anlamına gelir.',
+      ],
+    },
+    {
+      title: '11. Uygulanacak hukuk ve uyuşmazlıklar',
+      body: [
+        'Bu koşullara Türkiye Cumhuriyeti hukuku uygulanır.',
+        'Tüketici işlemlerinden doğan uyuşmazlıklarda, Ticaret Bakanlığı\'nca her yıl belirlenen parasal sınırlar dahilinde Tüketici Hakem Heyetleri, bu sınırları aşan uyuşmazlıklarda Tüketici Mahkemeleri yetkilidir.',
+      ],
+    },
+    {
+      title: '12. İletişim',
+      body: ['Sorularınız ve talepleriniz için: [İLETİŞİM E-POSTASI]'],
+    },
+  ],
+};
+
+/** Uygulama içinde ve web sayfasında sırayla gösterilen yasal metinler. */
+export const LEGAL_DOCS = [PRIVACY, TERMS];
+
 const escapeHtml = (t) => String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
-/** Metnin web sayfası (/gizlilik): mağaza başvurularında gizlilik ve hesap silme adresi olarak verilir. */
-export function privacyHtml(p = PRIVACY) {
-  const sections = p.sections
-    .map((sec) => {
-      const id = sec.title.includes('silme') ? ' id="hesap-silme"' : '';
-      const items = sec.body.map((line) => `<li>${escapeHtml(line)}</li>`).join('');
-      return `<section${id}><h2>${escapeHtml(sec.title)}</h2><ul>${items}</ul></section>`;
-    })
-    .join('');
+/**
+ * Yasal metinlerin web sayfası (/gizlilik): mağaza başvurularında gizlilik adresi, hesap silme
+ * adresi (#hesap-silme) ve kullanım koşulları adresi (#kullanim-kosullari) olarak verilir.
+ */
+export function privacyHtml(docs = LEGAL_DOCS) {
+  const card = (p) => {
+    const sections = p.sections
+      .map((sec) => {
+        const id = p.id === 'gizlilik' && sec.title.includes('silme') ? ' id="hesap-silme"' : '';
+        const items = sec.body.map((line) => `<li>${escapeHtml(line)}</li>`).join('');
+        return `<section${id}><h2>${escapeHtml(sec.title)}</h2><ul>${items}</ul></section>`;
+      })
+      .join('');
+    return `<div class="card" id="${p.id}"><h1>${escapeHtml(p.title)}</h1>
+<div class="meta">Sürüm ${escapeHtml(p.version)} · Son güncelleme: ${escapeHtml(p.updated)}</div>
+<p>${escapeHtml(p.intro)}</p>${sections}</div>`;
+  };
   return `<!doctype html>
 <html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>HERMAPS · ${escapeHtml(p.title)}</title>
+<title>HERMAPS · Gizlilik ve Kullanım Koşulları</title>
 <style>
 body{margin:0;background:#f2f2f7;color:#1c1c1e;font:16px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}
 main{max-width:760px;margin:0 auto;padding:28px 16px 48px}
 h1{font-size:26px;margin:8px 0 4px}h2{font-size:18px;margin:26px 0 6px}
 .meta{color:#6e6e73;font-size:14px}ul{padding-left:20px;margin:0}li{margin:4px 0}
-.card{background:#fff;border-radius:16px;padding:20px 22px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
-.brand{font-weight:900;letter-spacing:2px}
+.card{background:#fff;border-radius:16px;padding:20px 22px;box-shadow:0 1px 3px rgba(0,0,0,.08);margin-bottom:20px}
+.brand{font-weight:900;letter-spacing:2px;margin-bottom:10px}
 </style></head><body><main>
 <div class="brand">HERMAPS</div>
-<div class="card"><h1>${escapeHtml(p.title)}</h1>
-<div class="meta">Sürüm ${escapeHtml(p.version)} · Son güncelleme: ${escapeHtml(p.updated)}</div>
-<p>${escapeHtml(p.intro)}</p>${sections}</div>
+${docs.map(card).join('\n')}
 </main></body></html>`;
 }

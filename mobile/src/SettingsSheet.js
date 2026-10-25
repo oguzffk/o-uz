@@ -51,7 +51,7 @@ export default function SettingsSheet({ visible, settings, user, onClose, onSave
           {user && (
             <View style={styles.links}>
               <Pressable onPress={() => setPrivacyOpen(true)} hitSlop={6}>
-                <Text style={styles.linkText}>Gizlilik Politikası</Text>
+                <Text style={styles.linkText}>Gizlilik ve Kullanım Koşulları</Text>
               </Pressable>
               {user.role !== 'owner' && (
                 <Pressable onPress={() => setDeleting(true)} hitSlop={6}>

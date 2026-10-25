@@ -892,9 +892,9 @@ test('şifremi unuttum: e-postaya kod gider, kodla yeni şifre belirlenir', asyn
 });
 
 test('gizlilik: kayıtta onay zorunlu, sayfa yayında, uygulamadaki metinle aynı', async () => {
-  const { PRIVACY } = await import('../src/privacy.js');
-  const { PRIVACY: APP_PRIVACY } = await import('../../mobile/src/legal.js');
-  assert.deepEqual(APP_PRIVACY, PRIVACY); // mobile/src/legal.js, server/src/privacy.js ile aynı olmalı
+  const { PRIVACY, LEGAL_DOCS } = await import('../src/privacy.js');
+  const app = await import('../../mobile/src/legal.js');
+  assert.deepEqual(app.LEGAL_DOCS, LEGAL_DOCS); // mobile/src/legal.js, server/src/privacy.js ile aynı olmalı
 
   await withServer(async ({ raw, base, mail, users }) => {
     const form = { name: 'C', email: 'c@ornek.com', phone: '05321112266', password: 'gizli123' };
@@ -913,6 +913,9 @@ test('gizlilik: kayıtta onay zorunlu, sayfa yayında, uygulamadaki metinle ayn�
     assert.match(html, /KVKK Aydınlatma Metni/);
     assert.match(html, /id="hesap-silme"/);
     assert.match(html, /Ayarlar → Hesabımı sil/);
+    assert.match(html, /id="kullanim-kosullari"/);
+    assert.match(html, /Sorumluluk reddi/);
+    assert.equal(users.findByEmail('c@ornek.com').privacyAccepted.terms, LEGAL_DOCS[1].version);
   });
 });
 

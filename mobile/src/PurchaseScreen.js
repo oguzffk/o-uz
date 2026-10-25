@@ -106,7 +106,7 @@ export default function PurchaseScreen({ visible = true, expired, user, api, dem
       <Text style={styles.legal}>
         {demo
           ? 'Demo modu: gerçek ödeme alınmaz, süre yalnızca bu telefonda tanımlanır.'
-          : `Ödeme ${STORE_NAME} hesabınızdan alınır, otomatik yenilenmez. Süre hesabınıza (${user.email ?? user.phone}) tanımlanır; başka telefonda aynı hesapla girince de geçerlidir.`}
+          : `Ödeme ${STORE_NAME} hesabınızdan alınır, otomatik yenilenmez. Süre hesabınıza (${user.email ?? user.phone}) tanımlanır; başka telefonda aynı hesapla girince de geçerlidir. Süre satın alındığı anda başladığı için cayma hakkı yoktur (Mesafeli Sözleşmeler Yönetmeliği m.15); iadeler ${STORE_NAME} kurallarına tabidir.`}
       </Text>
       {expired ? (
         <Pressable onPress={onLogout} hitSlop={8}>

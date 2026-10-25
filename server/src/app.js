@@ -7,7 +7,7 @@ import { adjustedTime, trafficPeriod } from './traffic.js';
 import { fixStreetSuffixes } from './turkish.js';
 import { ClosureStore } from './closures.js';
 import { PRODUCTS, UserError, normalizeEmail, normalizePhone } from './users.js';
-import { PRIVACY, privacyHtml } from './privacy.js';
+import { PRIVACY, TERMS, privacyHtml } from './privacy.js';
 
 // İstanbul il sınırını kabaca kapsayan kutu (indirme betiğiyle aynı).
 export const ISTANBUL_BBOX = { minLon: 27.95, minLat: 40.78, maxLon: 29.95, maxLat: 41.6 };
@@ -295,7 +295,7 @@ export function createApp({
     try {
       const email = normalizeEmail(req.body.email);
       codeLimiter.check(email, req.ip);
-      const reg = users.startRegistration({ ...req.body, privacyVersion: PRIVACY.version });
+      const reg = users.startRegistration({ ...req.body, privacyVersion: PRIVACY.version, termsVersion: TERMS.version });
       codeLimiter.record(email, req.ip);
       await sendCode(reg.email, reg.code, 'register');
       res.json({ ok: true, email: reg.email });
@@ -383,8 +383,8 @@ export function createApp({
     }
   });
 
-  // Gizlilik Politikası ve KVKK metni (mağaza sayfalarına bu adres yazılır).
-  app.get(['/gizlilik', '/privacy'], (req, res) => {
+  // Gizlilik Politikası / KVKK ve Kullanım Koşulları (mağaza sayfalarına bu adres yazılır).
+  app.get(['/gizlilik', '/privacy', '/kosullar'], (req, res) => {
     res.type('html').send(privacyHtml());
   });
 

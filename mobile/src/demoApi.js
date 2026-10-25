@@ -3,7 +3,7 @@ import { ISTANBUL_BBOX, distanceMeters } from './geo';
 import { adjustedTime, trafficPeriod } from './traffic';
 import { fixStreetSuffixes } from './turkish';
 import { ApiError } from './api';
-import { PRIVACY } from './legal';
+import { PRIVACY, TERMS } from './legal';
 
 /**
  * Demo modu: kendi sunucumuz yerine OpenStreetMap topluluğunun herkese açık
@@ -621,7 +621,7 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL, token = null) {
     // Kayıt ol: demo modunda e-posta gönderilmez; kod cevapta döner ve ekranda gösterilir.
     async register({ name, email, phone, password, acceptPrivacy }) {
       const st = await loadUsers();
-      if (acceptPrivacy !== true) throw new ApiError("Kayıt için Gizlilik Politikası ve KVKK Aydınlatma Metni'ni kabul edin", 400);
+      if (acceptPrivacy !== true) throw new ApiError("Kayıt için Gizlilik Politikası, KVKK Aydınlatma Metni ve Kullanım Koşulları'nı kabul edin", 400);
       const cleanName = String(name ?? '').trim().slice(0, 80);
       if (!cleanName) throw new ApiError('Ad soyad girin', 400);
       const cleanEmail = normalizeEmail(email);
@@ -639,7 +639,7 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL, token = null) {
         phone: cleanPhone,
         salt,
         passwordHash: demoHash(salt, String(password)),
-        privacyAccepted: { version: PRIVACY.version, acceptedAt: new Date().toISOString() },
+        privacyAccepted: { version: PRIVACY.version, terms: TERMS.version, acceptedAt: new Date().toISOString() },
         code: { code, expiresAt: Date.now() + CODE_TTL_MS, attempts: 0 },
         sentAt: Date.now(),
       });

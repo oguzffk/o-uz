@@ -237,7 +237,7 @@ export function LoginScreen({
       if (!form.name.trim() || !form.email.trim() || !form.phone.trim() || !form.password) throw new Error('Tüm alanları doldurun.');
       if (form.password.length < 6) throw new Error('Şifre en az 6 karakter olmalı.');
       if (form.password !== form.password2) throw new Error('İki şifre aynı değil.');
-      if (!accepted) throw new Error("Devam etmek için Gizlilik Politikası ve KVKK Aydınlatma Metni'ni kabul edin.");
+      if (!accepted) throw new Error("Devam etmek için Gizlilik Politikası, KVKK Aydınlatma Metni ve Kullanım Koşulları'nı kabul edin.");
       const r = await onRegister({
         name: form.name.trim(),
         email: form.email.trim(),
@@ -375,9 +375,9 @@ export function LoginScreen({
             </Pressable>
             <Text style={styles.consentText} onPress={toggleAccepted}>
               <Text style={styles.consentLink} onPress={() => setPrivacyOpen(true)}>
-                Gizlilik Politikası ve KVKK Aydınlatma Metni
+                Gizlilik Politikası, KVKK Aydınlatma Metni ve Kullanım Koşulları
               </Text>
-              {"'ni okudum, kabul ediyorum."}
+              {"'nı okudum, kabul ediyorum."}
             </Text>
           </View>
           {errorText}
@@ -484,7 +484,7 @@ export function LoginScreen({
       {!!demoHint && <Text style={styles.demoHint}>{demoHint}</Text>}
       <View style={styles.footer}>
         <Pressable onPress={() => setPrivacyOpen(true)} hitSlop={8}>
-          <Text style={styles.server}>Gizlilik Politikası</Text>
+          <Text style={styles.server}>Gizlilik ve Kullanım Koşulları</Text>
         </Pressable>
         <Text style={styles.server}>·</Text>
         <Pressable onPress={onOpenSettings} hitSlop={8}>

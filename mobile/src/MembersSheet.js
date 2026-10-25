@@ -127,8 +127,8 @@ export default function MembersSheet({ visible, api, onClose, showToast }) {
   const shareMessage = !issued
     ? ''
     : issued.tempPassword
-      ? `HERMAP ${issued.reset ? 'yeni geçici şifreniz' : 'yönetici hesabınız açıldı'}.\nE-posta ile giriş: ${issued.user.email}\nYedek giriş — telefon: ${formatPhone(issued.user.phone)}, geçici şifre: ${issued.tempPassword}`
-      : `HERMAP hesabınız açıldı.\nUygulamayı açın, e-posta adresinizi (${issued.user.email}) yazın ve e-postanıza gelen 6 haneli kodla giriş yapın.`;
+      ? `HERMAPS ${issued.reset ? 'yeni geçici şifreniz' : 'yönetici hesabınız açıldı'}.\nE-posta ile giriş: ${issued.user.email}\nYedek giriş — telefon: ${formatPhone(issued.user.phone)}, geçici şifre: ${issued.tempPassword}`
+      : `HERMAPS hesabınız açıldı.\nUygulamayı açın, e-posta adresinizi (${issued.user.email}) yazın ve e-postanıza gelen 6 haneli kodla giriş yapın.`;
 
   const renderUser = ({ item: u }) => {
     const rem = remainingOf(u, now);

@@ -1,14 +1,14 @@
 {
   "expo": {
-    "name": "HERMAP",
-    "slug": "istanbul-navigasyon",
+    "name": "HERMAPS",
+    "slug": "hermaps",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.example.istanbulnav",
+      "bundleIdentifier": "com.hermaps.app",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "Rota hesaplamak ve seyir sırasında yönlendirme yapmak için konumunuz kullanılır."
       }
@@ -19,7 +19,7 @@
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png"
       },
-      "package": "com.example.istanbulnav",
+      "package": "com.hermaps.app",
       "permissions": [
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION"

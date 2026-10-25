@@ -1,4 +1,4 @@
-# HERMAP — İstanbul navigasyon (prototip)
+# HERMAPS — İstanbul navigasyon (prototip)
 
 Telefon odaklı, İstanbul'a özel bir navigasyon uygulaması:
 
@@ -89,7 +89,7 @@ SMTP_HOST=smtp-relay.brevo.com
 SMTP_PORT=587
 SMTP_USER=brevo-giris-adresiniz
 SMTP_PASS=brevo-smtp-anahtariniz
-MAIL_FROM="HERMAP <kod@alanadiniz.com>"
+MAIL_FROM="HERMAPS <kod@alanadiniz.com>"
 ```
 
 SMTP ayarlı değilse e-posta gönderilmez; giriş kodları sunucu kayıtlarına (`docker compose logs api`) yazılır — yalnızca yerel deneme içindir. E-postaların spama düşmemesi için gönderen adres kendi alan adınızda olmalı ve Brevo'nun verdiği SPF/DKIM kayıtları alan adına eklenmeli.

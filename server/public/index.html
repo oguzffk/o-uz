@@ -610,8 +610,8 @@
       const list = rows.filter((u) => !q || u.name.toLocaleLowerCase('tr').includes(q) || (u.email ?? '').includes(q) || (digits && (u.phone ?? '').includes(digits)));
       // Üyeye şifre verilmez (e-posta koduyla girer); yöneticiye yedek geçici şifre de iletilir.
       const message = !issued ? '' : issued.tempPassword
-        ? `HERMAP ${issued.reset ? 'yeni geçici şifreniz' : 'yönetici hesabınız açıldı'}.\nE-posta ile giriş: ${issued.user.email}\nYedek giriş — telefon: ${fmtPhone(issued.user.phone)}, geçici şifre: ${issued.tempPassword}`
-        : `HERMAP hesabınız açıldı.\nUygulamayı açın, e-posta adresinizi (${issued.user.email}) yazın ve e-postanıza gelen 6 haneli kodla giriş yapın.`;
+        ? `HERMAPS ${issued.reset ? 'yeni geçici şifreniz' : 'yönetici hesabınız açıldı'}.\nE-posta ile giriş: ${issued.user.email}\nYedek giriş — telefon: ${fmtPhone(issued.user.phone)}, geçici şifre: ${issued.tempPassword}`
+        : `HERMAPS hesabınız açıldı.\nUygulamayı açın, e-posta adresinizi (${issued.user.email}) yazın ve e-postanıza gelen 6 haneli kodla giriş yapın.`;
       const wa = issued?.user.phone ? `https://wa.me/90${issued.user.phone.slice(1)}?text=${encodeURIComponent(message)}` : null;
       manage.innerHTML = `
         <h3>${isMember ? 'Üyeler' : 'Yöneticiler'} <span style="color:#8e8e93;font-weight:600;font-size:14px">(${rows.length})</span></h3>
@@ -658,8 +658,8 @@
       if (act === 'close-issued') { issued = null; return renderUsers(); }
       if (act === 'copy-msg') {
         const msg = issued.tempPassword
-          ? `HERMAP yönetici hesabınız: e-posta ile giriş ${issued.user.email}; yedek giriş telefon ${fmtPhone(issued.user.phone)}, geçici şifre ${issued.tempPassword}`
-          : `HERMAP hesabınız açıldı. Uygulamayı açın, e-posta adresinizi (${issued.user.email}) yazın ve e-postanıza gelen 6 haneli kodla giriş yapın.`;
+          ? `HERMAPS yönetici hesabınız: e-posta ile giriş ${issued.user.email}; yedek giriş telefon ${fmtPhone(issued.user.phone)}, geçici şifre ${issued.tempPassword}`
+          : `HERMAPS hesabınız açıldı. Uygulamayı açın, e-posta adresinizi (${issued.user.email}) yazın ve e-postanıza gelen 6 haneli kodla giriş yapın.`;
         navigator.clipboard?.writeText(msg).then(() => setStatus('Mesaj kopyalandı.'), () => setStatus(msg));
         return;
       }

@@ -39,6 +39,7 @@ function projectOnSegment(p, a, b) {
  * (seyir sırasında geriye atlamayı önler).
  */
 export function snapToRoute(p, coords, fromIndex = 0) {
+  fromIndex = Math.max(0, Math.min(fromIndex, coords.length - 2));
   let best = { index: fromIndex, point: coords[fromIndex] ?? p, distance: Infinity, t: 0 };
   for (let i = Math.max(0, fromIndex); i < coords.length - 1; i++) {
     const r = projectOnSegment(p, coords[i], coords[i + 1]);

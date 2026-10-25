@@ -21,7 +21,10 @@ const speak = (text) => {
  * sesli yönlendirme yapar. Rotadan çıkılırsa onOffRoute, varışta onArrive çağrılır.
  */
 export function useNavigation({ route, location, active, voice = true, onOffRoute, onArrive }) {
-  const lastIndex = useRef(0);
+  // Konumun rotada en son oturtulduğu nokta. Hangi rotaya ait olduğu da tutulur: rotadan çıkınca
+  // gelen yeni rota daha kısa olur; eski rotanın indeksiyle aranırsa konum rotanın sonunu aşıyor,
+  // "hedefe 10 m, 1 dk" gösteriliyordu.
+  const tracked = useRef({ route: null, index: 0 });
   const offRouteCount = useRef(0);
   const spoken = useRef(new Set());
   const callbacks = useRef({ onOffRoute, onArrive });
@@ -39,7 +42,7 @@ export function useNavigation({ route, location, active, voice = true, onOffRout
 
   // Yeni rota geldiğinde takip durumu sıfırlanır ve ilk talimat okunur.
   useEffect(() => {
-    lastIndex.current = 0;
+    tracked.current = { route, index: 0 };
     offRouteCount.current = 0;
     spoken.current = new Set();
     if (active && route) say(route.maneuvers[0]?.verbalPre);
@@ -48,7 +51,8 @@ export function useNavigation({ route, location, active, voice = true, onOffRout
   const progress = useMemo(() => {
     if (!route || !location) return null;
     const coords = route.coordinates;
-    const snap = snapToRoute([location.lat, location.lon], coords, active ? lastIndex.current : 0);
+    const fromIndex = active && tracked.current.route === route ? tracked.current.index : 0;
+    const snap = snapToRoute([location.lat, location.lon], coords, fromIndex);
     const nextIdx = route.maneuvers.findIndex((m) => m.beginShapeIndex > snap.index);
     const next = nextIdx >= 0 ? route.maneuvers[nextIdx] : route.maneuvers[route.maneuvers.length - 1];
     return {
@@ -62,14 +66,14 @@ export function useNavigation({ route, location, active, voice = true, onOffRout
 
   useEffect(() => {
     if (!active || !progress) return;
-    lastIndex.current = progress.snap.index;
+    tracked.current = { route, index: progress.snap.index };
     // Ara durağa varıldıysa takip durağın ötesinden sürer. Durak sonrası aynı sokaktan geri
     // dönülüyorsa (U dönüşü) konum, üst üste binen önceki bacağa oturtulmasın.
     const here = [location.lat, location.lon];
     // Yalnızca sıradaki durak: rota sonraki bir durağın yanından erken geçerse o durak atlanmasın.
-    const nextStop = (route.stops ?? []).find((st) => st.shapeIndex > lastIndex.current);
+    const nextStop = (route.stops ?? []).find((st) => st.shapeIndex > tracked.current.index);
     if (nextStop && distanceMeters(here, route.coordinates[nextStop.shapeIndex]) < ARRIVE_METERS) {
-      lastIndex.current = nextStop.shapeIndex;
+      tracked.current.index = nextStop.shapeIndex;
     }
 
     if (progress.snap.distance > OFF_ROUTE_METERS) {

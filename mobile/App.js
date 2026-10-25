@@ -837,6 +837,9 @@ function AppScreen() {
   // Sıradaki talimat varışsa Valhalla'nın "Hedefinize vardınız." cümlesini erkenden göstermeyelim.
   const nextIsArrival = Boolean(route && next && next === route.maneuvers[route.maneuvers.length - 1]);
   const bannerInstruction = next ? (nextIsArrival ? 'Hedefe varış' : next.instruction) : '';
+  // "Ardından": sıradaki dönüşten kısa süre sonra bir manevra daha varsa onu da göster.
+  const thenManeuver = next && !nextIsArrival && progress.nextIdx >= 0 ? route.maneuvers[progress.nextIdx + 1] : null;
+  const showThen = Boolean(thenManeuver && next.distanceKm * 1000 <= THEN_METERS);
   // Hız sınırı (OSM'de etiketliyse) ve anlık hız; seyirde yön bandının altında gösterilir.
   const speedLimit = onRoute ? speedLimitAt(route, progress.snap.index) : null;
   const speedKph = navigating && location?.speed >= 0 ? Math.round(location.speed * 3.6) : null;
@@ -1047,7 +1050,7 @@ function AppScreen() {
               </View>
             ) : navigating && next ? (
               <>
-                <SlideIn from={-24} style={styles.banner}>
+                <SlideIn from={-24} style={[styles.banner, showThen && styles.bannerWithThen]}>
                   <View style={styles.bannerRow}>
                     <View style={styles.bannerIcon} accessibilityLabel={`Manevra ${next.type}`}>
                       <ManeuverIcon type={nextIsArrival ? 4 : next.type} size={44} />
@@ -1061,6 +1064,12 @@ function AppScreen() {
                   </View>
                   {!nextIsArrival && next.lanes && <LaneStrip lanes={next.lanes} />}
                 </SlideIn>
+                {showThen && (
+                  <View style={styles.thenChip} accessibilityLabel={`Ardından manevra ${thenManeuver.type}`}>
+                    <Text style={styles.thenText}>Ardından</Text>
+                    <ManeuverIcon type={thenManeuver.type} size={28} />
+                  </View>
+                )}
                 {(speedLimit != null || speedKph != null) && (
                   <View style={styles.speedRow} pointerEvents="none">
                     {speedLimit != null && (
@@ -1705,6 +1714,9 @@ const lerpAngle = (a, b, t) => {
 // (dona dona) ilerliyordu. Burada ok, iki ölçüm arasında rota boyunca kayarak gider; yeni
 // ölçüm gecikirse kısa süre aynı hızla devam eder. Kamera da aynı karede oka kilitlenir.
 // Mavi çizgi okun bulunduğu yerden başlar: geride kalan kısım silinir.
+// Sıradaki iki dönüş arası bundan kısaysa yön bandının altında "Ardından" gösterilir.
+const THEN_METERS = 300;
+
 const FRAME_MS = 33;
 const LINE_MS = 100;
 const MAX_COAST_MS = 1500;
@@ -1903,6 +1915,21 @@ const baseStyles = StyleSheet.create({
   resultAddr: { fontSize: 12, color: '#6e6e73', marginTop: 2 },
   banner: { backgroundColor: '#0b5c3b', borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10, ...shadow },
   bannerRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  bannerWithThen: { borderBottomLeftRadius: 0 },
+  thenChip: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: -8, // üstteki bandın hemen altına yapışık
+    backgroundColor: '#084a30',
+    borderBottomLeftRadius: 12,
+    borderBottomRightRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    ...shadow,
+  },
+  thenText: { color: '#fff', fontSize: 16, fontWeight: '600' },
   bannerIcon: { width: 48, alignItems: 'center' },
   bannerDistance: { color: '#fff', fontSize: 22, fontWeight: '800' },
   bannerText: { color: '#fff', fontSize: 15, marginTop: 2 },

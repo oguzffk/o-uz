@@ -117,6 +117,7 @@ export class UserStore {
       expiresAt: expiresAt ?? null,
       // Geçici şifreyle girene şifre belirletilir; e-posta koduyla girene gerekmez.
       mustChangePassword: Boolean(user.mustChangePassword && user.sessionVia === 'password'),
+      hasPassword: Boolean(user.passwordHash),
       active: this.isActive(user),
       createdAt,
       lastLoginAt: lastLoginAt ?? null,
@@ -235,7 +236,8 @@ export class UserStore {
    * Kayıt, 1. adım: bilgiler denetlenir ve doğrulama kodu üretilir; hesap henüz açılmaz.
    * Aynı e-postayla tekrar istenirse önceki bekleyen kayıt ve kodu geçersiz olur.
    */
-  startRegistration({ name, email, phone, password }) {
+  startRegistration({ name, email, phone, password, acceptPrivacy, privacyVersion = null }) {
+    if (acceptPrivacy !== true) throw new UserError(400, 'Kayıt için Gizlilik Politikası ve KVKK Aydınlatma Metni\'ni kabul edin');
     const cleanName = String(name ?? '').trim().slice(0, 80);
     if (!cleanName) throw new UserError(400, 'Ad soyad girin');
     const cleanEmail = normalizeEmail(email);
@@ -250,6 +252,7 @@ export class UserStore {
       email: cleanEmail,
       phone: cleanPhone,
       passwordHash: hashPassword(pw),
+      privacy: { version: privacyVersion, acceptedAt: new Date(this.now()).toISOString() },
       code: { hash: sha256(`reg:${cleanEmail}:${code}`), expiresAt: this.now() + CODE_TTL_MS, attempts: 0 },
     });
     return { email: cleanEmail, code };
@@ -281,6 +284,7 @@ export class UserStore {
       expiresAt: null,
       session: null,
       selfRegistered: true,
+      privacyAccepted: reg.privacy,
       createdAt: new Date(this.now()).toISOString(),
     };
     this.users.set(user.id, user);
@@ -406,6 +410,20 @@ export class UserStore {
     user.expiresAt = this.now();
     this.#save();
     return this.view(user);
+  }
+
+  /**
+   * Kullanıcının kendi hesabını silmesi (mağaza kuralı: uygulama içinden silinebilmeli).
+   * Şifresi olan hesap şifresini girer; sahip hesabı silinemez. Kayıt tamamen silinir.
+   */
+  deleteSelf(id, password) {
+    const user = this.#mustGet(id);
+    if (user.role === 'owner') throw new UserError(400, 'Sahip hesabı silinemez');
+    if (user.passwordHash && !verifyPassword(String(password ?? ''), user.passwordHash)) {
+      throw new UserError(401, 'Şifre hatalı');
+    }
+    this.users.delete(id);
+    this.#save();
   }
 
   remove(id) {

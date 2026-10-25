@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import PrivacyScreen from './PrivacyScreen';
 import { ROLE_LABELS, formatRemaining } from './session';
 
 const COSTINGS = [
@@ -13,8 +14,10 @@ const BACKENDS = [
 ];
 
 // `user` yoksa (giriş ekranından açıldığında) yalnızca sunucu seçimi gösterilir.
-export default function SettingsSheet({ visible, settings, user, onClose, onSave, onLogout, onBuy }) {
+export default function SettingsSheet({ visible, settings, user, onClose, onSave, onLogout, onBuy, onDeleteAccount }) {
   const [draft, setDraft] = useState(settings);
+  const [privacyOpen, setPrivacyOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const set = (key) => (value) => setDraft((d) => ({ ...d, [key]: value }));
   const demo = draft.backend === 'demo';
 
@@ -43,6 +46,18 @@ export default function SettingsSheet({ visible, settings, user, onClose, onSave
                   <Text style={styles.logoutText}>Çıkış yap</Text>
                 </Pressable>
               </View>
+            </View>
+          )}
+          {user && (
+            <View style={styles.links}>
+              <Pressable onPress={() => setPrivacyOpen(true)} hitSlop={6}>
+                <Text style={styles.linkText}>Gizlilik Politikası</Text>
+              </Pressable>
+              {user.role !== 'owner' && (
+                <Pressable onPress={() => setDeleting(true)} hitSlop={6}>
+                  <Text style={styles.deleteLink}>Hesabımı sil</Text>
+                </Pressable>
+              )}
             </View>
           )}
 
@@ -119,6 +134,70 @@ export default function SettingsSheet({ visible, settings, user, onClose, onSave
           </View>
         </View>
       </KeyboardAvoidingView>
+      <PrivacyScreen visible={privacyOpen} onClose={() => setPrivacyOpen(false)} />
+      {user && <DeleteAccountDialog visible={deleting} user={user} onCancel={() => setDeleting(false)} onConfirm={onDeleteAccount} />}
+    </Modal>
+  );
+}
+
+/** Hesabı kalıcı olarak silme onayı. Şifresi olan hesap şifresini girer. */
+function DeleteAccountDialog({ visible, user, onCancel, onConfirm }) {
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const [now, setNow] = useState(() => Date.now());
+  const remaining = user.role === 'member' && user.expiresAt > now ? formatRemaining(user.expiresAt - now) : null;
+
+  const confirm = async () => {
+    if (user.hasPassword && !password) return setError('Şifrenizi girin.');
+    setBusy(true);
+    setError(null);
+    try {
+      await onConfirm(password);
+    } catch (err) {
+      setError(err.message);
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onShow={() => {
+        setPassword('');
+        setNow(Date.now());
+      }} onRequestClose={onCancel}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.dialogBackdrop}>
+        <View style={styles.dialog}>
+          <Text style={styles.dialogTitle}>Hesabımı sil</Text>
+          <Text style={styles.dialogText}>Hesabınız kalıcı olarak silinir ve geri alınamaz:</Text>
+          <Text style={styles.dialogItem}>• Ad, e-posta, telefon ve şifreniz silinir</Text>
+          <Text style={styles.dialogItem}>
+            • {remaining ? `Kalan kullanım süreniz (${remaining}) silinir` : 'Kullanım süreniz ve satın alma kayıtlarınız silinir'}
+          </Text>
+          <Text style={styles.dialogItem}>• Mağaza satın alımlarının iadesi Apple / Google kurallarına tabidir</Text>
+          {user.hasPassword && (
+            <TextInput
+              style={[styles.input, { marginTop: 12 }]}
+              value={password}
+              onChangeText={(t) => {
+                setPassword(t);
+                setError(null);
+              }}
+              secureTextEntry
+              autoCapitalize="none"
+              placeholder="Onay için şifreniz"
+              placeholderTextColor="#8e8e93"
+              onSubmitEditing={confirm}
+            />
+          )}
+          {!!error && <Text style={styles.dialogError}>{error}</Text>}
+          <Pressable style={[styles.deleteButton, busy && { opacity: 0.7 }]} onPress={confirm} disabled={busy}>
+            {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Hesabımı kalıcı olarak sil</Text>}
+          </Pressable>
+          <Pressable style={[styles.button, styles.secondary, { flex: 0, marginTop: 8 }]} onPress={onCancel} disabled={busy}>
+            <Text style={styles.secondaryText}>Vazgeç</Text>
+          </Pressable>
+        </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -144,6 +223,16 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', marginTop: 18, gap: 12 },
   rowTitle: { fontSize: 16, fontWeight: '600' },
   rowSub: { color: '#6e6e73', fontSize: 13, marginTop: 2 },
+  links: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 4, marginTop: 8 },
+  linkText: { color: '#0a66d8', fontSize: 14, fontWeight: '600' },
+  deleteLink: { color: '#b0000f', fontSize: 14, fontWeight: '600' },
+  dialogBackdrop: { flex: 1, justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.5)', padding: 20 },
+  dialog: { backgroundColor: '#fff', borderRadius: 18, padding: 20 },
+  dialogTitle: { fontSize: 20, fontWeight: '800', color: '#b0000f', marginBottom: 6 },
+  dialogText: { fontSize: 14.5, color: '#1c1c1e', marginBottom: 6 },
+  dialogItem: { fontSize: 14, color: '#3a3a3c', lineHeight: 20 },
+  dialogError: { color: '#d70015', fontSize: 13.5, fontWeight: '600', marginTop: 8 },
+  deleteButton: { backgroundColor: '#d70015', borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginTop: 14 },
   actions: { flexDirection: 'row', gap: 10, marginTop: 24 },
   button: { flex: 1, backgroundColor: '#0a66d8', borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
   buttonText: { color: '#fff', fontSize: 16, fontWeight: '700' },

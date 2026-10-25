@@ -12,6 +12,8 @@ import {
   View,
 } from 'react-native';
 
+import PrivacyScreen from './PrivacyScreen';
+
 export const LOGO = require('../assets/logo.png');
 
 // Giriş ekranının arkasındaki çizim harita: sokak ızgarası, mavi rota ve iki kapalı yol
@@ -176,6 +178,7 @@ export function LoginScreen({
   demoHint,
   backendLabel,
   onOpenSettings,
+  notice, // { text, kind } — ör. "Hesabınız silindi", "Oturumunuz kapandı"
 }) {
   // 'login' | 'register' | 'registerCode' | 'forgot' | 'forgotCode' | 'code' | 'codeSent'
   const [step, setStep] = useState('login');
@@ -187,9 +190,15 @@ export function LoginScreen({
   const [newPw, setNewPw] = useState('');
   const [demoCode, setDemoCode] = useState(null);
   const [cooldown, startCooldown] = useCooldown();
+  const [accepted, setAccepted] = useState(false); // gizlilik politikası onayı
+  const [privacyOpen, setPrivacyOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const set = (key) => (value) => setForm((f) => ({ ...f, [key]: value }));
+  const toggleAccepted = () => {
+    setAccepted((a) => !a);
+    setError(null);
+  };
   const tab = step.startsWith('register') ? 'register' : 'login';
 
   const go = (next) => {
@@ -228,7 +237,14 @@ export function LoginScreen({
       if (!form.name.trim() || !form.email.trim() || !form.phone.trim() || !form.password) throw new Error('Tüm alanları doldurun.');
       if (form.password.length < 6) throw new Error('Şifre en az 6 karakter olmalı.');
       if (form.password !== form.password2) throw new Error('İki şifre aynı değil.');
-      const r = await onRegister({ name: form.name.trim(), email: form.email.trim(), phone: form.phone, password: form.password });
+      if (!accepted) throw new Error("Devam etmek için Gizlilik Politikası ve KVKK Aydınlatma Metni'ni kabul edin.");
+      const r = await onRegister({
+        name: form.name.trim(),
+        email: form.email.trim(),
+        phone: form.phone,
+        password: form.password,
+        acceptPrivacy: true,
+      });
       codeSent(r, r?.email ?? form.email.trim().toLowerCase(), 'registerCode');
     });
 
@@ -263,6 +279,7 @@ export function LoginScreen({
 
   return (
     <Shell>
+      {!!notice && <Text style={[styles.notice, notice.kind === 'error' && styles.noticeError]}>{notice.text}</Text>}
       {(step === 'login' || step === 'register') && (
         <View style={styles.tabs}>
           {[
@@ -345,6 +362,24 @@ export function LoginScreen({
             placeholder="••••••"
             onSubmitEditing={submitRegister}
           />
+          <View style={styles.consent}>
+            <Pressable
+              onPress={toggleAccepted}
+              hitSlop={8}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: accepted }}
+              accessibilityLabel="Gizlilik Politikası onayı"
+              style={[styles.checkbox, accepted && styles.checkboxOn]}
+            >
+              {accepted && <Text style={styles.checkmark}>✓</Text>}
+            </Pressable>
+            <Text style={styles.consentText} onPress={toggleAccepted}>
+              <Text style={styles.consentLink} onPress={() => setPrivacyOpen(true)}>
+                Gizlilik Politikası ve KVKK Aydınlatma Metni
+              </Text>
+              {"'ni okudum, kabul ediyorum."}
+            </Text>
+          </View>
           {errorText}
           <Button busy={busy} onPress={submitRegister}>
             Kayıt ol
@@ -447,9 +482,16 @@ export function LoginScreen({
       )}
 
       {!!demoHint && <Text style={styles.demoHint}>{demoHint}</Text>}
-      <Pressable onPress={onOpenSettings} hitSlop={8} style={{ marginTop: 10 }}>
-        <Text style={styles.server}>Sunucu: {backendLabel} · değiştir</Text>
-      </Pressable>
+      <View style={styles.footer}>
+        <Pressable onPress={() => setPrivacyOpen(true)} hitSlop={8}>
+          <Text style={styles.server}>Gizlilik Politikası</Text>
+        </Pressable>
+        <Text style={styles.server}>·</Text>
+        <Pressable onPress={onOpenSettings} hitSlop={8}>
+          <Text style={styles.server}>Sunucu: {backendLabel} · değiştir</Text>
+        </Pressable>
+      </View>
+      <PrivacyScreen visible={privacyOpen} onClose={() => setPrivacyOpen(false)} />
     </Shell>
   );
 }
@@ -567,6 +609,24 @@ const styles = StyleSheet.create({
   linkRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 12 },
   linkSmall: { color: '#0a66d8', fontSize: 13.5, fontWeight: '600' },
   linkDisabled: { color: '#8e8e93' },
+  notice: { backgroundColor: '#e8f5ec', color: '#1f6b3a', borderRadius: 10, padding: 10, fontSize: 13.5, fontWeight: '600', marginBottom: 12 },
+  noticeError: { backgroundColor: '#fdecee', color: '#b0000f' },
+  consent: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginTop: 4, marginBottom: 10 },
+  checkbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 7,
+    borderWidth: 2,
+    borderColor: '#aeaeb2',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 1,
+  },
+  checkboxOn: { backgroundColor: '#0a66d8', borderColor: '#0a66d8' },
+  checkmark: { color: '#fff', fontSize: 15, fontWeight: '900', lineHeight: 18 },
+  consentText: { flex: 1, fontSize: 13.5, color: '#3a3a3c', lineHeight: 19 },
+  consentLink: { color: '#0a66d8', fontWeight: '700', textDecorationLine: 'underline' },
+  footer: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 6, marginTop: 10, flexWrap: 'wrap' },
   tabs: { flexDirection: 'row', backgroundColor: '#f2f2f7', borderRadius: 12, padding: 3, marginBottom: 16 },
   tab: { flex: 1, paddingVertical: 9, borderRadius: 10, alignItems: 'center' },
   tabOn: { backgroundColor: '#fff', shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 2 },

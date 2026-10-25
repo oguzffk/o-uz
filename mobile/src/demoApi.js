@@ -3,6 +3,7 @@ import { ISTANBUL_BBOX, distanceMeters } from './geo';
 import { adjustedTime, trafficPeriod } from './traffic';
 import { fixStreetSuffixes } from './turkish';
 import { ApiError } from './api';
+import { PRIVACY } from './legal';
 
 /**
  * Demo modu: kendi sunucumuz yerine OpenStreetMap topluluğunun herkese açık
@@ -251,6 +252,7 @@ const viewUser = (u) => ({
   role: u.role,
   expiresAt: u.expiresAt ?? null,
   mustChangePassword: Boolean(u.mustChangePassword && u.sessionVia === 'password'),
+  hasPassword: Boolean(u.passwordHash),
   active: isActive(u),
   createdAt: u.createdAt,
   lastLoginAt: u.lastLoginAt ?? null,
@@ -617,8 +619,9 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL, token = null) {
       return startSession(u, 'password');
     },
     // Kayıt ol: demo modunda e-posta gönderilmez; kod cevapta döner ve ekranda gösterilir.
-    async register({ name, email, phone, password }) {
+    async register({ name, email, phone, password, acceptPrivacy }) {
       const st = await loadUsers();
+      if (acceptPrivacy !== true) throw new ApiError("Kayıt için Gizlilik Politikası ve KVKK Aydınlatma Metni'ni kabul edin", 400);
       const cleanName = String(name ?? '').trim().slice(0, 80);
       if (!cleanName) throw new ApiError('Ad soyad girin', 400);
       const cleanEmail = normalizeEmail(email);
@@ -636,6 +639,7 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL, token = null) {
         phone: cleanPhone,
         salt,
         passwordHash: demoHash(salt, String(password)),
+        privacyAccepted: { version: PRIVACY.version, acceptedAt: new Date().toISOString() },
         code: { code, expiresAt: Date.now() + CODE_TTL_MS, attempts: 0 },
         sentAt: Date.now(),
       });
@@ -707,6 +711,16 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL, token = null) {
       const u = await currentUser();
       if (!u) throw new ApiError('Oturum açın', 401, 'auth');
       return { user: viewUser(u) };
+    },
+    // Sunucudaki gibi: kendi hesabını siler (şifresi varsa şifreyle); sahip silinemez.
+    async deleteAccount(password) {
+      const u = await currentUser();
+      if (!u) throw new ApiError('Oturum açın', 401, 'auth');
+      if (u.role === 'owner') throw new ApiError('Sahip hesabı silinemez', 400);
+      if (u.passwordHash && u.passwordHash !== demoHash(u.salt, String(password ?? ''))) throw new ApiError('Şifre hatalı', 401);
+      usersState.users = usersState.users.filter((x) => x.id !== u.id);
+      await saveUsers();
+      return { ok: true };
     },
     async logout() {
       const u = await currentUser();

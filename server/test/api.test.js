@@ -803,7 +803,7 @@ test('şerit bilgisi: OSRM biçimli istekten manevralara eklenir; eşleşmezse y
 
 test('kayıt ol: e-postaya doğrulama kodu gider, kod girilince süresiz üye hesabı açılır', async () => {
   await withServer(async ({ raw, mail, clock, users }) => {
-    const form = { name: 'Mehmet Yılmaz', email: 'Mehmet@Ornek.com', phone: '0532 111 22 33', password: 'gizli123' };
+    const form = { name: 'Mehmet Yılmaz', email: 'Mehmet@Ornek.com', phone: '0532 111 22 33', password: 'gizli123', acceptPrivacy: true };
     const reg = (body) => raw('/api/auth/register', { method: 'POST', body });
 
     // Eksik ve hatalı bilgiler.
@@ -854,7 +854,7 @@ test('kayıt ol: e-postaya doğrulama kodu gider, kod girilince süresiz üye he
 
 test('kayıt kodu 10 dakika ve 5 deneme geçerli', async () => {
   await withServer(async ({ raw, mail, clock }) => {
-    const form = { name: 'A', email: 'a@ornek.com', phone: '05321112244', password: 'gizli123' };
+    const form = { name: 'A', email: 'a@ornek.com', phone: '05321112244', password: 'gizli123', acceptPrivacy: true };
     await raw('/api/auth/register', { method: 'POST', body: form });
     const verify = (code) => raw('/api/auth/register/verify', { method: 'POST', body: { email: 'a@ornek.com', code } });
     const wrong = mail[0].code === '000000' ? '111111' : '000000';
@@ -872,7 +872,7 @@ test('kayıt kodu 10 dakika ve 5 deneme geçerli', async () => {
 
 test('şifremi unuttum: e-postaya kod gider, kodla yeni şifre belirlenir', async () => {
   await withServer(async ({ raw, mail, clock }) => {
-    await raw('/api/auth/register', { method: 'POST', body: { name: 'B', email: 'b@ornek.com', phone: '05321112255', password: 'eski123' } });
+    await raw('/api/auth/register', { method: 'POST', body: { name: 'B', email: 'b@ornek.com', phone: '05321112255', password: 'eski123', acceptPrivacy: true } });
     await raw('/api/auth/register/verify', { method: 'POST', body: { email: 'b@ornek.com', code: mail[0].code } });
 
     clock.t += 61000;
@@ -888,5 +888,52 @@ test('şifremi unuttum: e-postaya kod gider, kodla yeni şifre belirlenir', asyn
     assert.equal((await raw('/api/auth/login', { method: 'POST', body: { login: 'b@ornek.com', password: 'eski123' } })).status, 401);
     assert.equal((await raw('/api/auth/login', { method: 'POST', body: { login: 'b@ornek.com', password: 'yeni123' } })).status, 200);
     assert.equal((await reset({ code, newPassword: 'baska123' })).status, 401); // kod tek kullanımlık
+  });
+});
+
+test('gizlilik: kayıtta onay zorunlu, sayfa yayında, uygulamadaki metinle aynı', async () => {
+  const { PRIVACY } = await import('../src/privacy.js');
+  const { PRIVACY: APP_PRIVACY } = await import('../../mobile/src/legal.js');
+  assert.deepEqual(APP_PRIVACY, PRIVACY); // mobile/src/legal.js, server/src/privacy.js ile aynı olmalı
+
+  await withServer(async ({ raw, base, mail, users }) => {
+    const form = { name: 'C', email: 'c@ornek.com', phone: '05321112266', password: 'gizli123' };
+    const noConsent = await raw('/api/auth/register', { method: 'POST', body: form });
+    assert.equal(noConsent.status, 400);
+    assert.match(noConsent.body.error, /Gizlilik/);
+    assert.equal(mail.length, 0);
+    assert.equal((await raw('/api/auth/register', { method: 'POST', body: { ...form, acceptPrivacy: 'evet' } })).status, 400);
+    assert.equal((await raw('/api/auth/register', { method: 'POST', body: { ...form, acceptPrivacy: true } })).status, 200);
+    await raw('/api/auth/register/verify', { method: 'POST', body: { email: 'c@ornek.com', code: mail[0].code } });
+    assert.equal(users.findByEmail('c@ornek.com').privacyAccepted.version, PRIVACY.version);
+
+    const page = await fetch(`${base}/gizlilik`);
+    assert.equal(page.status, 200);
+    const html = await page.text();
+    assert.match(html, /KVKK Aydınlatma Metni/);
+    assert.match(html, /id="hesap-silme"/);
+    assert.match(html, /Ayarlar → Hesabımı sil/);
+  });
+});
+
+test('hesabımı sil: üye şifresiyle kendi hesabını siler; sahip silemez', async () => {
+  await withServer(async ({ raw, mail, ownerToken, adminToken, users }) => {
+    await raw('/api/auth/register', { method: 'POST', body: { name: 'D', email: 'd@ornek.com', phone: '05321112277', password: 'gizli123', acceptPrivacy: true } });
+    const { body } = await raw('/api/auth/register/verify', { method: 'POST', body: { email: 'd@ornek.com', code: mail[0].code } });
+    assert.equal(body.user.hasPassword, true);
+    const del = (token, password) => raw('/api/auth/account', { method: 'DELETE', token, body: { password } });
+
+    assert.equal((await del(null, 'gizli123')).status, 401);
+    assert.equal((await del(body.token, 'yanlis')).status, 401);
+    assert.ok(users.findByEmail('d@ornek.com'));
+    assert.equal((await del(body.token, 'gizli123')).status, 200);
+    assert.equal(users.findByEmail('d@ornek.com'), undefined);
+    assert.equal((await raw('/api/auth/me', { token: body.token })).status, 401); // oturum da gitti
+    assert.equal((await raw('/api/auth/login', { method: 'POST', body: { login: 'd@ornek.com', password: 'gizli123' } })).status, 401);
+    // Aynı e-postayla yeniden kayıt olunabilir.
+    assert.equal((await raw('/api/auth/register', { method: 'POST', body: { name: 'D', email: 'd@ornek.com', phone: '05321112277', password: 'gizli123', acceptPrivacy: true } })).status, 429); // yalnızca kod sınırı
+
+    assert.equal((await del(ownerToken, 'sahip-sifre')).status, 400);
+    assert.equal((await del(adminToken, 'yeni-sifre')).status, 200); // yönetici kendi hesabını silebilir
   });
 });

@@ -890,6 +890,7 @@ function AppScreen() {
           onRequestCode={requestEmailCode}
           onEmailLogin={emailLogin}
           onResetPassword={resetPassword}
+          notice={toast}
           demoHint={demo ? `Demo sahip hesabı: ${DEMO_OWNER.phone.replace(/^(\d{4})(\d{3})(\d{2})(\d{2})$/, '$1 $2 $3 $4')} / ${DEMO_OWNER.password}` : null}
           backendLabel={demo ? 'Demo (bu telefon)' : settings.apiUrl}
           onOpenSettings={() => setSettingsOpen(true)}
@@ -1516,6 +1517,11 @@ function AppScreen() {
           onBuy={() => {
             setSettingsOpen(false);
             setPurchaseOpen(true);
+          }}
+          onDeleteAccount={async (password) => {
+            await api.deleteAccount(password);
+            await logout();
+            showToast('Hesabınız silindi.');
           }}
         />
 

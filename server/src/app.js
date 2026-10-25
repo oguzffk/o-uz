@@ -5,7 +5,7 @@ import { decodePolyline } from './geo.js';
 import { adjustedTime, trafficPeriod } from './traffic.js';
 import { fixStreetSuffixes } from './turkish.js';
 import { ClosureStore } from './closures.js';
-import { UserError, normalizePhone } from './users.js';
+import { UserError, normalizeEmail, normalizePhone } from './users.js';
 
 // İstanbul il sınırını kabaca kapsayan kutu (indirme betiğiyle aynı).
 export const ISTANBUL_BBOX = { minLon: 27.95, minLat: 40.78, maxLon: 29.95, maxLat: 41.6 };
@@ -173,7 +173,30 @@ function createLoginLimiter(now) {
   };
 }
 
-export function createApp({ valhalla, store, users, nominatimUrl = 'https://nominatim.openstreetmap.org', now = () => Date.now() }) {
+// Giriş kodu isteme sınırı: aynı e-postaya dakikada 1, saatte 5; aynı IP'den saatte 30 istek.
+function createCodeLimiter(now) {
+  const sent = new Map(); // anahtar → zaman damgaları
+  const recent = (key, windowMs) => (sent.get(key) ?? []).filter((t) => t > now() - windowMs);
+  return {
+    take(email, ip) {
+      const e = recent(`e:${email}`, 3600000);
+      const i = recent(`ip:${ip}`, 3600000);
+      if (e.some((t) => t > now() - 60000)) throw new UserError(429, 'Yeni kod için 1 dakika bekleyin.');
+      if (e.length >= 5 || i.length >= 30) throw new UserError(429, 'Çok fazla kod istendi. Bir saat sonra tekrar deneyin.');
+      sent.set(`e:${email}`, [...e, now()]);
+      sent.set(`ip:${ip}`, [...i, now()]);
+    },
+  };
+}
+
+export function createApp({
+  valhalla,
+  store,
+  users,
+  mailer = { configured: false, sendLoginCode: async () => {} },
+  nominatimUrl = 'https://nominatim.openstreetmap.org',
+  now = () => Date.now(),
+}) {
   const app = express();
   app.use(express.json({ limit: '100kb' }));
 
@@ -197,7 +220,7 @@ export function createApp({ valhalla, store, users, nominatimUrl = 'https://nomi
   // Giriş yapmış, şifresini belirlemiş ve (üyeyse) süresi devam eden kullanıcı.
   const requireActive = (req, res, next) => {
     if (!req.user) return res.status(401).json({ error: 'Oturum açın', code: 'auth' });
-    if (req.user.mustChangePassword) return res.status(403).json({ error: 'Önce kendi şifrenizi belirleyin', code: 'password' });
+    if (users.view(req.user).mustChangePassword) return res.status(403).json({ error: 'Önce kendi şifrenizi belirleyin', code: 'password' });
     if (!users.isActive(req.user)) return res.status(402).json({ error: 'Kullanım süreniz doldu', code: 'expired' });
     next();
   };
@@ -210,6 +233,38 @@ export function createApp({ valhalla, store, users, nominatimUrl = 'https://nomi
   const staff = [requireActive, requireRole('owner', 'admin')]; // yol kapatma ve gruplar
   const owner = [requireActive, requireRole('owner')]; // üyeler, süreler, yöneticiler
   const limiter = createLoginLimiter(now);
+  const codeLimiter = createCodeLimiter(now);
+
+  // E-posta ile giriş, 1. adım: kayıtlı adrese 6 haneli kod gönderilir. Adres kayıtlı olmasa da
+  // cevap aynıdır (kimin üye olduğu anlaşılmasın).
+  app.post('/api/auth/email-code', async (req, res, next) => {
+    try {
+      const email = normalizeEmail(req.body.email);
+      codeLimiter.take(email, req.ip);
+      const issued = users.createEmailCode(email);
+      if (issued) {
+        try {
+          await mailer.sendLoginCode(email, issued.code);
+        } catch (err) {
+          console.error('E-posta gönderilemedi:', err.message);
+          throw new UserError(502, 'Kod e-postası gönderilemedi. Biraz sonra tekrar deneyin.');
+        }
+      }
+      res.json({ ok: true });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // E-posta ile giriş, 2. adım: kod doğruysa oturum açılır (aynı hesabın eski oturumu kapanır).
+  app.post('/api/auth/email-login', (req, res, next) => {
+    try {
+      const result = users.loginWithEmailCode(req.body.email, req.body.code);
+      res.json({ ...result, settings: users.settings });
+    } catch (err) {
+      next(err);
+    }
+  });
 
   app.post('/api/auth/login', (req, res, next) => {
     let phone = '';
@@ -260,7 +315,9 @@ export function createApp({ valhalla, store, users, nominatimUrl = 'https://nomi
   app.post(
     '/api/users',
     ...owner,
-    userAction((req) => users.create({ name: req.body.name, phone: req.body.phone, role: req.body.role === 'admin' ? 'admin' : 'member' })),
+    userAction((req) =>
+      users.create({ name: req.body.name, email: req.body.email, phone: req.body.phone, role: req.body.role === 'admin' ? 'admin' : 'member' }),
+    ),
   );
   app.post('/api/users/:id/extend', ...owner, userAction((req) => ({ user: users.extend(req.params.id, Number(req.body.days)) })));
   app.post('/api/users/:id/expire', ...owner, userAction((req) => ({ user: users.expire(req.params.id) })));

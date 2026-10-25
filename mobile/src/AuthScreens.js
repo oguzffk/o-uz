@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -100,53 +100,160 @@ function Shell({ children, logoTagline = 'Kapalı yolları bilen navigasyon' }) 
   );
 }
 
-/** Herkes (sahip, yönetici, üye) bu ekrandan girer; uygulama role göre açılır. */
-export function LoginScreen({ onLogin, demoHint, backendLabel, onOpenSettings }) {
+/**
+ * Giriş: e-postaya gelen 6 haneli kodla (herkes). Sahip ve yöneticiler için telefon + şifre
+ * yedek olarak "Telefon ve şifreyle giriş" bağlantısının arkasındadır. Uygulama role göre açılır.
+ */
+export function LoginScreen({ onRequestCode, onEmailLogin, onLogin, demoHint, backendLabel, onOpenSettings }) {
+  const [mode, setMode] = useState('email'); // 'email' | 'password'
+  const [email, setEmail] = useState('');
+  const [codeSent, setCodeSent] = useState(false);
+  const [code, setCode] = useState('');
+  const [demoCode, setDemoCode] = useState(null);
+  const [cooldown, setCooldown] = useState(0); // yeni kod için kalan saniye
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [forgot, setForgot] = useState(false);
 
-  const submit = async () => {
-    if (!phone.trim() || !password) return setError('Telefon numaranızı ve şifrenizi girin.');
+  useEffect(() => {
+    if (cooldown <= 0) return undefined;
+    const t = setTimeout(() => setCooldown((c) => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [cooldown]);
+
+  const run = async (fn) => {
     setBusy(true);
     setError(null);
     try {
-      await onLogin(phone, password);
+      await fn();
     } catch (err) {
       setError(err.message);
+    } finally {
       setBusy(false);
     }
+  };
+
+  const sendCode = () =>
+    run(async () => {
+      if (!email.trim()) throw new Error('E-posta adresinizi girin.');
+      const r = await onRequestCode(email.trim());
+      setDemoCode(r?.demoCode ?? null);
+      setCodeSent(true);
+      setCode('');
+      setCooldown(60);
+    });
+
+  const submitCode = () =>
+    run(async () => {
+      if (!/^\d{6}$/.test(code.trim())) throw new Error('E-postanıza gelen 6 haneli kodu girin.');
+      await onEmailLogin(email.trim(), code.trim());
+    });
+
+  const submitPassword = () =>
+    run(async () => {
+      if (!phone.trim() || !password) throw new Error('Telefon numaranızı ve şifrenizi girin.');
+      await onLogin(phone, password);
+    });
+
+  const switchMode = (m) => {
+    setMode(m);
+    setError(null);
   };
 
   return (
     <Shell>
       <Text style={styles.title}>Hoş geldiniz</Text>
-      <Text style={styles.subtitle}>Devam etmek için giriş yapın</Text>
-      <Field label="TELEFON" value={phone} onChangeText={setPhone} keyboardType="phone-pad" placeholder="0532 123 45 67" autoComplete="tel" />
-      <Field
-        label="ŞİFRE"
-        value={password}
-        onChangeText={setPassword}
-        secureTextEntry
-        placeholder="••••••"
-        autoCapitalize="none"
-        onSubmitEditing={submit}
-        returnKeyType="go"
-      />
-      {!!error && <Text style={styles.error}>{error}</Text>}
-      <Pressable style={[styles.button, busy && styles.buttonBusy]} onPress={submit} disabled={busy}>
-        {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Giriş yap</Text>}
-      </Pressable>
-      <Pressable onPress={() => setForgot((f) => !f)} hitSlop={8}>
-        <Text style={styles.link}>Şifremi unuttum</Text>
-      </Pressable>
-      {forgot && (
-        <Text style={styles.note}>
-          Hesabınızı açan kişiye (sahip) yazın; size yeni bir geçici şifre verir. İlk girişte kendi şifrenizi belirlersiniz.
-        </Text>
+      {mode === 'email' && !codeSent && (
+        <>
+          <Text style={styles.subtitle}>E-posta adresinizi yazın, size bir giriş kodu gönderelim.</Text>
+          <Field
+            label="E-POSTA"
+            value={email}
+            onChangeText={setEmail}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoComplete="email"
+            placeholder="ornek@mail.com"
+            onSubmitEditing={sendCode}
+            returnKeyType="send"
+          />
+          {!!error && <Text style={styles.error}>{error}</Text>}
+          <Pressable style={[styles.button, busy && styles.buttonBusy]} onPress={sendCode} disabled={busy}>
+            {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Kod gönder</Text>}
+          </Pressable>
+        </>
       )}
+      {mode === 'email' && codeSent && (
+        <>
+          <Text style={styles.subtitle}>
+            <Text style={{ fontWeight: '700', color: '#1c1c1e' }}>{email.trim().toLowerCase()}</Text> adresine 6 haneli bir kod gönderdik. Kod 10 dakika
+            geçerlidir.
+          </Text>
+          <Field
+            label="GİRİŞ KODU"
+            value={code}
+            onChangeText={(t) => setCode(t.replace(/\D/g, '').slice(0, 6))}
+            keyboardType="number-pad"
+            autoComplete="one-time-code"
+            textContentType="oneTimeCode"
+            placeholder="••••••"
+            maxLength={6}
+            onSubmitEditing={submitCode}
+            style={[styles.input, styles.codeInput]}
+          />
+          {!!demoCode && <Text style={styles.demoHint}>Demo modu: e-posta gönderilmez. Kodunuz: {demoCode}</Text>}
+          {!!error && <Text style={styles.error}>{error}</Text>}
+          <Pressable style={[styles.button, busy && styles.buttonBusy]} onPress={submitCode} disabled={busy}>
+            {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Giriş yap</Text>}
+          </Pressable>
+          <Text style={styles.note}>Kod gelmediyse e-postanızın spam (gereksiz) klasörüne bakın.</Text>
+          <View style={styles.linkRow}>
+            <Pressable onPress={sendCode} disabled={cooldown > 0 || busy} hitSlop={8}>
+              <Text style={[styles.linkSmall, cooldown > 0 && styles.linkDisabled]}>
+                {cooldown > 0 ? `Tekrar gönder (${cooldown} sn)` : 'Kodu tekrar gönder'}
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                setCodeSent(false);
+                setError(null);
+              }}
+              hitSlop={8}
+            >
+              <Text style={styles.linkSmall}>E-postayı değiştir</Text>
+            </Pressable>
+          </View>
+        </>
+      )}
+      {mode === 'password' && (
+        <>
+          <Text style={styles.subtitle}>Sahip ve yöneticiler için yedek giriş.</Text>
+          <Field label="TELEFON" value={phone} onChangeText={setPhone} keyboardType="phone-pad" placeholder="0532 123 45 67" autoComplete="tel" />
+          <Field
+            label="ŞİFRE"
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry
+            placeholder="Şifreniz"
+            autoCapitalize="none"
+            onSubmitEditing={submitPassword}
+            returnKeyType="go"
+          />
+          {!!error && <Text style={styles.error}>{error}</Text>}
+          <Pressable style={[styles.button, busy && styles.buttonBusy]} onPress={submitPassword} disabled={busy}>
+            {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Giriş yap</Text>}
+          </Pressable>
+          <Pressable onPress={() => setForgot((f) => !f)} hitSlop={8}>
+            <Text style={styles.link}>Şifremi unuttum</Text>
+          </Pressable>
+          {forgot && <Text style={styles.note}>E-posta koduyla girebilirsiniz; ya da sahip size yeni bir geçici şifre verir.</Text>}
+        </>
+      )}
+      <Pressable onPress={() => switchMode(mode === 'email' ? 'password' : 'email')} hitSlop={8}>
+        <Text style={styles.link}>{mode === 'email' ? 'Yönetici misiniz? Telefon ve şifreyle girin' : 'E-posta koduyla giriş'}</Text>
+      </Pressable>
       {!!demoHint && <Text style={styles.demoHint}>{demoHint}</Text>}
       <Pressable onPress={onOpenSettings} hitSlop={8} style={{ marginTop: 10 }}>
         <Text style={styles.server}>Sunucu: {backendLabel} · değiştir</Text>
@@ -214,7 +321,7 @@ export function ExpiredScreen({ user, settings, onRefresh, onLogout }) {
   const s = settings ?? {};
   const prices = s.prices ?? {};
   const whatsapp = s.whatsapp ? `90${s.whatsapp.slice(1)}` : null;
-  const message = `Merhaba, HERMAP kullanım sürem doldu. Süre yenilemek istiyorum. (${user.name} · ${user.phone})`;
+  const message = `Merhaba, HERMAP kullanım sürem doldu. Süre yenilemek istiyorum. (${[user.name, user.email, user.phone].filter(Boolean).join(' · ')})`;
 
   const refresh = async () => {
     setChecking(true);
@@ -245,7 +352,7 @@ export function ExpiredScreen({ user, settings, onRefresh, onLogout }) {
           <View style={styles.payBox}>
             {!!s.accountName && <Text style={styles.payText}>Alıcı: {s.accountName}</Text>}
             {!!s.iban && <Text style={styles.payText} selectable>IBAN: {s.iban}</Text>}
-            <Text style={styles.payText}>Açıklamaya telefon numaranızı yazın.</Text>
+            <Text style={styles.payText}>Açıklamaya e-posta adresinizi yazın.</Text>
           </View>
         )}
         {whatsapp && (
@@ -320,6 +427,10 @@ const styles = StyleSheet.create({
   note: { color: '#3a3a3c', fontSize: 13, textAlign: 'center', marginTop: 8, lineHeight: 18 },
   demoHint: { color: '#6e6e73', fontSize: 12, textAlign: 'center', marginTop: 12, backgroundColor: '#f2f2f7', borderRadius: 8, padding: 8 },
   server: { color: '#8e8e93', fontSize: 12, textAlign: 'center' },
+  codeInput: { fontSize: 24, letterSpacing: 8, fontWeight: '700', textAlign: 'center' },
+  linkRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 12 },
+  linkSmall: { color: '#0a66d8', fontSize: 13.5, fontWeight: '600' },
+  linkDisabled: { color: '#8e8e93' },
   expiredBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end', padding: 12, paddingBottom: 28 },
   expiredCard: { gap: 2 },
   expiredIcon: {

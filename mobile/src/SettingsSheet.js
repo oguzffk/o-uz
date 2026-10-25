@@ -29,7 +29,7 @@ export default function SettingsSheet({ visible, settings, user, onClose, onSave
               <View style={{ flex: 1 }}>
                 <Text style={styles.rowTitle}>{user.name}</Text>
                 <Text style={styles.rowSub}>
-                  {ROLE_LABELS[user.role]} · {user.phone}
+                  {[ROLE_LABELS[user.role], user.email, user.phone].filter(Boolean).join(' · ')}
                   {user.role === 'member' && user.expiresAt ? ` · ${formatRemaining(user.expiresAt - Date.now())}` : ''}
                 </Text>
               </View>

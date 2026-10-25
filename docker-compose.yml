@@ -29,6 +29,14 @@ services:
       # İlk açılışta sahip hesabı (sonra panelden yönetilir). .env dosyasında tanımlayın.
       - OWNER_PHONE=${OWNER_PHONE:?OWNER_PHONE tanımlayın (ör. .env dosyasında)}
       - OWNER_PASSWORD=${OWNER_PASSWORD:-}
+      - OWNER_NAME=${OWNER_NAME:-Sahip}
+      - OWNER_EMAIL=${OWNER_EMAIL:-}
+      # Giriş kodu e-postaları (ayarlı değilse kodlar `docker compose logs api` çıktısına yazılır)
+      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASS=${SMTP_PASS:-}
+      - MAIL_FROM=${MAIL_FROM:-}
       - CLOSURES_FILE=/data/closures.json
       - USERS_FILE=/data/users.json
     volumes:

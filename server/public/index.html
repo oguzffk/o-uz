@@ -103,17 +103,25 @@
       </div>
       <form class="card" id="login-form">
         <h2 id="login-title">Yönetim paneli</h2>
-        <p id="login-sub">Sahip ve yöneticiler telefon numarası ve şifreyle girer.</p>
-        <div id="login-fields">
+        <p id="login-sub">E-posta adresinize gelen kodla girin.</p>
+        <div id="email-fields">
+          <label>E-posta</label><input id="l-email" type="email" autocomplete="username" placeholder="ornek@mail.com" />
+        </div>
+        <div id="code-fields" style="display:none">
+          <label>Giriş kodu</label><input id="l-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="••••••" style="font-size:22px;letter-spacing:6px;text-align:center" />
+          <p style="margin:0 0 10px">Kod gelmediyse spam klasörüne bakın. <a href="#" id="resend">Tekrar gönder</a> · <a href="#" id="change-email">E-postayı değiştir</a></p>
+        </div>
+        <div id="login-fields" style="display:none">
           <label>Telefon</label><input id="l-phone" autocomplete="username" placeholder="0532 123 45 67" />
-          <label>Şifre</label><input id="l-pass" type="password" autocomplete="current-password" placeholder="••••••" />
+          <label>Şifre</label><input id="l-pass" type="password" autocomplete="current-password" placeholder="Şifreniz" />
         </div>
         <div id="pw-fields" style="display:none">
           <label>Yeni şifre</label><input id="l-new1" type="password" autocomplete="new-password" />
           <label>Yeni şifre (tekrar)</label><input id="l-new2" type="password" autocomplete="new-password" />
         </div>
         <div class="err" id="login-err"></div>
-        <button class="primary" type="submit" id="login-btn">Giriş yap</button>
+        <button class="primary" type="submit" id="login-btn">Kod gönder</button>
+        <p style="text-align:center;margin:12px 0 0"><a href="#" id="toggle-mode">Telefon ve şifreyle giriş (yedek)</a></p>
       </form>
     </div>
   </div>
@@ -446,40 +454,70 @@
     // --- Giriş ---
     const loginEl = document.getElementById('login');
     const loginErr = document.getElementById('login-err');
-    let changingPassword = false;
+    // Giriş adımları: 'email' (kod iste) → 'code' (kodu gir); yedek: 'password'; ilk şifre: 'newpw'.
+    let step = 'email';
     function showLogin(message = '') {
       events?.close();
       token = null;
       me = null;
       try { localStorage.removeItem('hermapToken'); } catch {}
-      setPasswordMode(false);
+      setStep('email');
       loginErr.textContent = message;
       loginEl.classList.add('show');
     }
-    function setPasswordMode(on) {
-      changingPassword = on;
-      document.getElementById('login-fields').style.display = on ? 'none' : '';
-      document.getElementById('pw-fields').style.display = on ? '' : 'none';
-      document.getElementById('login-title').textContent = on ? 'Kendi şifrenizi belirleyin' : 'Yönetim paneli';
-      document.getElementById('login-sub').textContent = on
-        ? 'Geçici şifre yalnızca ilk giriş içindi. En az 6 karakterli yeni bir şifre seçin.'
-        : 'Sahip ve yöneticiler telefon numarası ve şifreyle girer.';
-      document.getElementById('login-btn').textContent = on ? 'Kaydet ve devam et' : 'Giriş yap';
+    function setStep(next) {
+      step = next;
+      const show = (id, on) => { document.getElementById(id).style.display = on ? '' : 'none'; };
+      show('email-fields', step === 'email' || step === 'code');
+      document.getElementById('l-email').readOnly = step === 'code';
+      show('code-fields', step === 'code');
+      show('login-fields', step === 'password');
+      show('pw-fields', step === 'newpw');
+      document.getElementById('toggle-mode').parentElement.style.display = step === 'newpw' ? 'none' : '';
+      document.getElementById('toggle-mode').textContent = step === 'password' ? 'E-posta koduyla giriş' : 'Telefon ve şifreyle giriş (yedek)';
+      document.getElementById('login-title').textContent = step === 'newpw' ? 'Kendi şifrenizi belirleyin' : 'Yönetim paneli';
+      document.getElementById('login-sub').textContent = {
+        email: 'E-posta adresinize gelen kodla girin.',
+        code: 'E-postanıza gelen 6 haneli kodu girin (10 dakika geçerli).',
+        password: 'Sahip ve yöneticiler için yedek giriş.',
+        newpw: 'Geçici şifre yalnızca ilk giriş içindi. En az 6 karakterli yeni bir şifre seçin.',
+      }[step];
+      document.getElementById('login-btn').textContent = { email: 'Kod gönder', code: 'Giriş yap', password: 'Giriş yap', newpw: 'Kaydet ve devam et' }[step];
+      loginErr.textContent = '';
     }
+    async function sendCode() {
+      await api('/api/auth/email-code', { method: 'POST', body: JSON.stringify({ email: document.getElementById('l-email').value }) });
+      setStep('code');
+      document.getElementById('l-code').value = '';
+      document.getElementById('l-code').focus();
+    }
+    document.getElementById('toggle-mode').addEventListener('click', (e) => { e.preventDefault(); setStep(step === 'password' ? 'email' : 'password'); });
+    document.getElementById('change-email').addEventListener('click', (e) => { e.preventDefault(); setStep('email'); });
+    document.getElementById('resend').addEventListener('click', async (e) => {
+      e.preventDefault();
+      try { await sendCode(); loginErr.textContent = 'Yeni kod gönderildi.'; } catch (err) { loginErr.textContent = err.message; }
+    });
     document.getElementById('login-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       loginErr.textContent = '';
       try {
-        if (changingPassword) {
+        if (step === 'newpw') {
           const p1 = document.getElementById('l-new1').value;
           if (p1 !== document.getElementById('l-new2').value) throw new Error('İki şifre aynı değil.');
           const r = await api('/api/auth/password', { method: 'POST', body: JSON.stringify({ newPassword: p1 }) });
           return enter(r.user);
         }
-        const r = await api('/api/auth/login', {
-          method: 'POST',
-          body: JSON.stringify({ phone: document.getElementById('l-phone').value, password: document.getElementById('l-pass').value }),
-        });
+        if (step === 'email') return await sendCode();
+        const r =
+          step === 'code'
+            ? await api('/api/auth/email-login', {
+                method: 'POST',
+                body: JSON.stringify({ email: document.getElementById('l-email').value, code: document.getElementById('l-code').value.trim() }),
+              })
+            : await api('/api/auth/login', {
+                method: 'POST',
+                body: JSON.stringify({ phone: document.getElementById('l-phone').value, password: document.getElementById('l-pass').value }),
+              });
         if (r.user.role === 'member') {
           token = r.token;
           await api('/api/auth/logout', { method: 'POST' }).catch(() => {});
@@ -488,7 +526,7 @@
         }
         token = r.token;
         try { localStorage.setItem('hermapToken', token); } catch {}
-        if (r.user.mustChangePassword) return setPasswordMode(true);
+        if (r.user.mustChangePassword) return setStep('newpw');
         enter(r.user);
       } catch (err) {
         loginErr.textContent = err.message;
@@ -518,7 +556,7 @@
         if (user.role === 'member') return showLogin();
         if (user.mustChangePassword) {
           loginEl.classList.add('show');
-          return setPasswordMode(true);
+          return setStep('newpw');
         }
         enter(user);
       } catch {
@@ -546,7 +584,7 @@
       if (t === 'roads') setTimeout(() => map.invalidateSize(), 0);
     }
     const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
-    const fmtPhone = (p) => p.replace(/^(\d{4})(\d{3})(\d{2})(\d{2})$/, '$1 $2 $3 $4');
+    const fmtPhone = (p) => (p ?? '').replace(/^(\d{4})(\d{3})(\d{2})(\d{2})$/, '$1 $2 $3 $4');
     function remaining(u) {
       if (u.expiresAt == null) return ['Süre yok', 'none'];
       const ms = u.expiresAt - Date.now();
@@ -573,38 +611,47 @@
     function renderUsers() {
       const isMember = tab === 'member';
       const q = query.trim().toLocaleLowerCase('tr');
-      const list = rows.filter((u) => !q || u.name.toLocaleLowerCase('tr').includes(q) || (q.replace(/\D/g, '') && u.phone.includes(q.replace(/\D/g, ''))));
-      const wa = issued && `https://wa.me/90${issued.user.phone.slice(1)}?text=${encodeURIComponent(`HERMAP ${issued.reset ? 'yeni geçici şifreniz' : 'hesabınız açıldı'}.\nTelefon: ${fmtPhone(issued.user.phone)}\nGeçici şifre: ${issued.tempPassword}\nİlk girişte kendi şifrenizi belirleyeceksiniz.`)}`;
+      const digits = q.replace(/\D/g, '');
+      const list = rows.filter((u) => !q || u.name.toLocaleLowerCase('tr').includes(q) || (u.email ?? '').includes(q) || (digits && (u.phone ?? '').includes(digits)));
+      // Üyeye şifre verilmez (e-posta koduyla girer); yöneticiye yedek geçici şifre de iletilir.
+      const message = !issued ? '' : issued.tempPassword
+        ? `HERMAP ${issued.reset ? 'yeni geçici şifreniz' : 'yönetici hesabınız açıldı'}.\nE-posta ile giriş: ${issued.user.email}\nYedek giriş — telefon: ${fmtPhone(issued.user.phone)}, geçici şifre: ${issued.tempPassword}`
+        : `HERMAP hesabınız açıldı.\nUygulamayı açın, e-posta adresinizi (${issued.user.email}) yazın ve e-postanıza gelen 6 haneli kodla giriş yapın.`;
+      const wa = issued?.user.phone ? `https://wa.me/90${issued.user.phone.slice(1)}?text=${encodeURIComponent(message)}` : null;
       manage.innerHTML = `
         <h3>${isMember ? 'Üyeler' : 'Yöneticiler'} <span style="color:#8e8e93;font-weight:600;font-size:14px">(${rows.length})</span></h3>
         ${issued ? `<div class="issued"><b>${issued.reset ? 'Yeni geçici şifre' : (isMember ? 'Üye' : 'Yönetici') + ' eklendi ✓'}</b>
-          <div style="color:#6e6e73;margin:2px 0 8px">${esc(issued.user.name)} · ${fmtPhone(issued.user.phone)}</div>
-          Geçici şifre: <b class="pw">${issued.tempPassword}</b>
-          <div style="display:flex;gap:8px;margin-top:10px"><a class="btn" style="background:#25d366;text-decoration:none" target="_blank" rel="noopener" href="${wa}">WhatsApp'a gönder</a>
+          <div style="color:#6e6e73;margin:2px 0 8px">${[esc(issued.user.name), esc(issued.user.email), fmtPhone(issued.user.phone)].filter(Boolean).join(' · ')}</div>
+          ${issued.tempPassword ? `Yedek geçici şifre: <b class="pw">${issued.tempPassword}</b>` : 'Şifre yok: uygulamada e-postasını yazıp gelen kodla girer. Kişiye haber verin.'}
+          <div style="display:flex;gap:8px;margin-top:10px">${wa ? `<a class="btn" style="background:#25d366;text-decoration:none" target="_blank" rel="noopener" href="${wa}">WhatsApp'a gönder</a>` : ''}
+          <button class="btn ghost" data-act="copy-msg">Mesajı kopyala</button>
           <button class="btn ghost" data-act="close-issued">Tamam</button></div></div>` : ''}
         <form class="addform" id="addform">
           <input id="a-name" placeholder="Ad soyad" maxlength="80" />
-          <input id="a-phone" placeholder="Telefon (0532 123 45 67)" />
+          <input id="a-email" type="email" placeholder="E-posta (giriş kodu buraya gider)" />
+          <input id="a-phone" placeholder="${isMember ? 'Telefon (isteğe bağlı)' : 'Telefon (yedek giriş için)'}" />
           <button class="btn" type="submit">＋ ${isMember ? 'Üye' : 'Yönetici'} ekle</button>
         </form>
         ${isMember ? '' : '<p style="color:#6e6e73;margin:0 0 10px">Yöneticiler yalnızca yol kapatıp açar ve gruplara erişir; üyeleri göremez, süre veremez.</p>'}
         <div class="mtools"><input id="q" placeholder="Ad veya telefon ara" value="${esc(query)}" /></div>
-        <table class="users"><thead><tr><th>Ad soyad</th><th>Telefon</th>${isMember ? '<th>Kalan süre</th>' : ''}<th>Son giriş</th><th></th></tr></thead><tbody>
+        <table class="users"><thead><tr><th>Ad soyad</th><th>E-posta</th><th>Telefon</th>${isMember ? '<th>Kalan süre</th>' : ''}<th>Son giriş</th><th></th></tr></thead><tbody>
         ${list.map((u) => {
           const [rt, tone] = remaining(u);
           const confirmBtn = (act, label, danger) => `<button class="btn ${danger ? 'danger' : 'ghost'} ${armed === u.id + ':' + act ? 'armed' : ''}" data-act="${act}" data-id="${u.id}">${armed === u.id + ':' + act ? 'Emin misiniz?' : label}</button>`;
-          return `<tr><td><b>${esc(u.name)}</b></td><td>${fmtPhone(u.phone)}</td>
+          return `<tr><td><b>${esc(u.name)}</b></td><td>${esc(u.email ?? '—')}</td><td>${fmtPhone(u.phone) || '—'}</td>
             ${isMember ? `<td><span class="pill ${tone}">${rt}</span></td>` : ''}
             <td style="color:#6e6e73">${u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString('tr-TR') : '—'}</td>
             <td class="acts">${isMember ? `<button class="btn days" data-act="extend" data-days="1" data-id="${u.id}">+1 gün</button><button class="btn days" data-act="extend" data-days="3" data-id="${u.id}">+3 gün</button><button class="btn days" data-act="extend" data-days="7" data-id="${u.id}">+1 hafta</button>${tone === 'ok' || tone === 'warn' ? confirmBtn('expire', 'Süreyi bitir', true) : ''}` : ''}
-            ${confirmBtn('reset', 'Şifre sıfırla')}${confirmBtn('delete', 'Sil', true)}</td></tr>`;
-        }).join('') || `<tr><td colspan="5" style="color:#6e6e73">${query ? 'Eşleşen kişi yok.' : 'Henüz kimse yok.'}</td></tr>`}
+            ${isMember ? '' : confirmBtn('reset', 'Şifre sıfırla')}${confirmBtn('delete', 'Sil', true)}</td></tr>`;
+        }).join('') || `<tr><td colspan="6" style="color:#6e6e73">${query ? 'Eşleşen kişi yok.' : 'Henüz kimse yok.'}</td></tr>`}
         </tbody></table>`;
       const qInput = manage.querySelector('#q');
       qInput.addEventListener('input', () => { query = qInput.value; renderUsers(); manage.querySelector('#q').focus(); manage.querySelector('#q').setSelectionRange(query.length, query.length); });
       manage.querySelector('#addform').addEventListener('submit', async (e) => {
         e.preventDefault();
-        const r = await userAct(() => post('/api/users', { name: manage.querySelector('#a-name').value, phone: manage.querySelector('#a-phone').value, role: tab }));
+        const r = await userAct(() =>
+          post('/api/users', { name: manage.querySelector('#a-name').value, email: manage.querySelector('#a-email').value, phone: manage.querySelector('#a-phone').value, role: tab }),
+        );
         if (r) { issued = r; renderUsers(); }
       });
     }
@@ -614,6 +661,13 @@
       const { act, id } = b.dataset;
       const u = rows.find((x) => x.id === id);
       if (act === 'close-issued') { issued = null; return renderUsers(); }
+      if (act === 'copy-msg') {
+        const msg = issued.tempPassword
+          ? `HERMAP yönetici hesabınız: e-posta ile giriş ${issued.user.email}; yedek giriş telefon ${fmtPhone(issued.user.phone)}, geçici şifre ${issued.tempPassword}`
+          : `HERMAP hesabınız açıldı. Uygulamayı açın, e-posta adresinizi (${issued.user.email}) yazın ve e-postanıza gelen 6 haneli kodla giriş yapın.`;
+        navigator.clipboard?.writeText(msg).then(() => setStatus('Mesaj kopyalandı.'), () => setStatus(msg));
+        return;
+      }
       if (act === 'extend') return userAct(() => post(`/api/users/${id}/extend`, { days: Number(b.dataset.days) }), `${u.name}: süre eklendi.`);
       if (armed !== `${id}:${act}`) { armed = `${id}:${act}`; return renderUsers(); }
       if (act === 'expire') return userAct(() => post(`/api/users/${id}/expire`), `${u.name}: süre bitirildi.`);

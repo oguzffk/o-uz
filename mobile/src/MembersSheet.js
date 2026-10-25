@@ -26,7 +26,7 @@ const TABS = [
   ['payment', 'Ödeme bilgisi'],
 ];
 
-const formatPhone = (p) => p.replace(/^(\d{4})(\d{3})(\d{2})(\d{2})$/, '$1 $2 $3 $4');
+const formatPhone = (p) => (p ? p.replace(/^(\d{4})(\d{3})(\d{2})(\d{2})$/, '$1 $2 $3 $4') : '');
 
 function remainingOf(u, now) {
   if (u.expiresAt == null) return { text: 'Süre yok', tone: 'none' };
@@ -41,7 +41,7 @@ export default function MembersSheet({ visible, api, settings, onSettingsSaved, 
   const [loading, setLoading] = useState(false);
   const [query, setQuery] = useState('');
   const [adding, setAdding] = useState(false);
-  const [form, setForm] = useState({ name: '', phone: '' });
+  const [form, setForm] = useState({ name: '', email: '', phone: '' });
   const [issued, setIssued] = useState(null); // { user, tempPassword, reset }
   const [confirm, setConfirm] = useState(null); // "id:işlem" — iki dokunuşla onay
   const [now, setNow] = useState(Date.now());
@@ -95,7 +95,7 @@ export default function MembersSheet({ visible, api, settings, onSettingsSaved, 
     const r = await act(() => api.createUser({ ...form, role: tab }));
     if (r) {
       setIssued({ user: r.user, tempPassword: r.tempPassword });
-      setForm({ name: '', phone: '' });
+      setForm({ name: '', email: '', phone: '' });
       setAdding(false);
     }
   };
@@ -120,12 +120,16 @@ export default function MembersSheet({ visible, api, settings, onSettingsSaved, 
 
   const list = (lists[tab] ?? []).filter((u) => {
     const q = query.trim().toLocaleLowerCase('tr');
-    return !q || u.name.toLocaleLowerCase('tr').includes(q) || u.phone.includes(q.replace(/\D/g, '') || '§');
+    const digits = q.replace(/\D/g, '');
+    return !q || u.name.toLocaleLowerCase('tr').includes(q) || (u.email ?? '').includes(q) || (digits && (u.phone ?? '').includes(digits));
   });
 
-  const shareMessage = issued
-    ? `HERMAP ${issued.reset ? 'yeni geçici şifreniz' : 'hesabınız açıldı'}.\nTelefon: ${formatPhone(issued.user.phone)}\nGeçici şifre: ${issued.tempPassword}\nİlk girişte kendi şifrenizi belirleyeceksiniz.`
-    : '';
+  // Üyeye şifre verilmez: uygulamada e-postasını yazıp gelen kodla girer. Yöneticiye yedek geçici şifre de iletilir.
+  const shareMessage = !issued
+    ? ''
+    : issued.tempPassword
+      ? `HERMAP ${issued.reset ? 'yeni geçici şifreniz' : 'yönetici hesabınız açıldı'}.\nE-posta ile giriş: ${issued.user.email}\nYedek giriş — telefon: ${formatPhone(issued.user.phone)}, geçici şifre: ${issued.tempPassword}`
+      : `HERMAP hesabınız açıldı.\nUygulamayı açın, e-posta adresinizi (${issued.user.email}) yazın ve e-postanıza gelen 6 haneli kodla giriş yapın.`;
 
   const renderUser = ({ item: u }) => {
     const rem = remainingOf(u, now);
@@ -136,7 +140,9 @@ export default function MembersSheet({ visible, api, settings, onSettingsSaved, 
             <Text style={styles.name} numberOfLines={1}>
               {u.name}
             </Text>
-            <Text style={styles.phone}>{formatPhone(u.phone)}</Text>
+            <Text style={styles.phone} numberOfLines={1}>
+              {[u.email, formatPhone(u.phone)].filter(Boolean).join(' · ')}
+            </Text>
           </View>
           {tab === 'member' && (
             <View style={[styles.pill, styles[`pill_${rem.tone}`]]}>
@@ -159,7 +165,7 @@ export default function MembersSheet({ visible, api, settings, onSettingsSaved, 
             rem.tone !== 'none' &&
             rem.tone !== 'bad' &&
             confirmable(`${u.id}:expire`, 'Süreyi bitir', () => act(() => api.expireUser(u.id), `${u.name}: süre bitirildi.`), true)}
-          {confirmable(`${u.id}:reset`, 'Şifre sıfırla', () => resetPassword(u))}
+          {tab === 'admin' && confirmable(`${u.id}:reset`, 'Şifre sıfırla', () => resetPassword(u))}
           {confirmable(`${u.id}:delete`, 'Sil', () => act(() => api.deleteUser(u.id), `${u.name} silindi.`), true)}
         </View>
       </View>
@@ -197,20 +203,28 @@ export default function MembersSheet({ visible, api, settings, onSettingsSaved, 
                     {issued.reset ? 'Yeni geçici şifre' : `${tab === 'admin' ? 'Yönetici' : 'Üye'} eklendi ✓`}
                   </Text>
                   <Text style={styles.issuedSub}>
-                    {issued.user.name} · {formatPhone(issued.user.phone)}
+                    {[issued.user.name, issued.user.email, formatPhone(issued.user.phone)].filter(Boolean).join(' · ')}
                   </Text>
-                  <Text style={styles.issuedPw} selectable>
-                    Geçici şifre: <Text style={styles.issuedPwValue}>{issued.tempPassword}</Text>
-                  </Text>
+                  {issued.tempPassword ? (
+                    <Text style={styles.issuedPw} selectable>
+                      Yedek geçici şifre: <Text style={styles.issuedPwValue}>{issued.tempPassword}</Text>
+                    </Text>
+                  ) : (
+                    <Text style={styles.issuedPw}>
+                      Şifre yok: uygulamada e-postasını yazıp gelen kodla girer. Aşağıdan haber verin.
+                    </Text>
+                  )}
                   <View style={styles.issuedActions}>
-                    <Pressable
-                      style={[styles.btn, { backgroundColor: '#25d366', flex: 1 }]}
-                      onPress={() =>
-                        Linking.openURL(`https://wa.me/90${issued.user.phone.slice(1)}?text=${encodeURIComponent(shareMessage)}`)
-                      }
-                    >
-                      <Text style={styles.btnText}>{"WhatsApp'a gönder"}</Text>
-                    </Pressable>
+                    {!!issued.user.phone && (
+                      <Pressable
+                        style={[styles.btn, { backgroundColor: '#25d366', flex: 1 }]}
+                        onPress={() =>
+                          Linking.openURL(`https://wa.me/90${issued.user.phone.slice(1)}?text=${encodeURIComponent(shareMessage)}`)
+                        }
+                      >
+                        <Text style={styles.btnText}>{"WhatsApp'a gönder"}</Text>
+                      </Pressable>
+                    )}
                     <Pressable style={[styles.btn, styles.btnGhost]} onPress={() => Share.share({ message: shareMessage }).catch(() => {})}>
                       <Text style={styles.btnGhostText}>Paylaş</Text>
                     </Pressable>
@@ -235,7 +249,16 @@ export default function MembersSheet({ visible, api, settings, onSettingsSaved, 
                   />
                   <TextInput
                     style={styles.input}
-                    placeholder="Telefon (0532 123 45 67)"
+                    placeholder="E-posta (giriş kodu buraya gider)"
+                    value={form.email}
+                    onChangeText={(email) => setForm((f) => ({ ...f, email }))}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                  <TextInput
+                    style={styles.input}
+                    placeholder={tab === 'admin' ? 'Telefon (yedek giriş için)' : 'Telefon (isteğe bağlı, WhatsApp için)'}
                     value={form.phone}
                     onChangeText={(phone) => setForm((f) => ({ ...f, phone }))}
                     keyboardType="phone-pad"
@@ -251,7 +274,7 @@ export default function MembersSheet({ visible, api, settings, onSettingsSaved, 
                 </View>
               ) : (
                 <View style={styles.toolbar}>
-                  <TextInput style={[styles.input, styles.search]} placeholder="Ad veya telefon ara" value={query} onChangeText={setQuery} />
+                  <TextInput style={[styles.input, styles.search]} placeholder="Ad, e-posta ya da telefon ara" value={query} onChangeText={setQuery} />
                   <Pressable
                     style={styles.btn}
                     onPress={() => {
@@ -343,7 +366,7 @@ const styles = StyleSheet.create({
   tabText: { color: '#3a3a3c', fontSize: 13 },
   tabTextOn: { fontWeight: '700', color: '#000' },
   toolbar: { flexDirection: 'row', gap: 8, alignItems: 'center', marginBottom: 6 },
-  search: { flex: 1, marginBottom: 0 },
+  search: { flex: 1, minWidth: 0, marginBottom: 0 },
   input: { borderWidth: 1, borderColor: '#d1d1d6', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, fontSize: 15, marginBottom: 8, color: '#1c1c1e' },
   btn: { backgroundColor: '#0a66d8', borderRadius: 10, paddingVertical: 10, paddingHorizontal: 14, alignItems: 'center' },
   btnText: { color: '#fff', fontWeight: '700', fontSize: 14 },

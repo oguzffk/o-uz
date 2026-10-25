@@ -136,13 +136,20 @@ function buildRoute(trip, periodKey, legSpeedLimits = []) {
 // hesabı hazır gelir; giriş ekranında yazar.
 const USERS_KEY = 'demo-users-v1';
 const DAY_MS = 24 * 60 * 60 * 1000;
-export const DEMO_OWNER = { phone: '05000000000', password: 'hermap' };
+export const DEMO_OWNER = { phone: '05000000000', password: 'hermap', email: 'sahip@hermap.demo' };
+const CODE_TTL_MS = 10 * 60 * 1000;
 const DEFAULT_SETTINGS = { iban: '', accountName: '', whatsapp: '', prices: { day1: '119,99 TL', day3: '299,99 TL', week1: '559,99 TL' } };
 let usersState = null; // { users, settings } — tüm demo API örnekleri aynı listeyi kullanır
 
 const demoHash = (salt, password) => idForShape(`${salt}:${password}`) + idForShape(`${password}:${salt}`);
 const randomToken = () => Array.from({ length: 4 }, () => Math.random().toString(36).slice(2)).join('');
 const tempPassword = () => String(Math.floor(Math.random() * 1_000_000)).padStart(6, '0');
+
+export function normalizeEmail(value) {
+  const email = String(value ?? '').trim().toLowerCase();
+  if (email.length > 120 || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) throw new ApiError('Geçerli bir e-posta adresi girin', 400);
+  return email;
+}
 
 export function normalizePhone(value) {
   let digits = String(value ?? '').replace(/\D/g, '');
@@ -159,6 +166,9 @@ async function loadUsers() {
   } catch {
     usersState = null;
   }
+  // Önceki sürümde demo sahibinin e-postası yoktu.
+  const demoOwner = usersState?.users.find((u) => u.id === 'owner');
+  if (demoOwner && !demoOwner.email) demoOwner.email = DEMO_OWNER.email;
   if (!usersState) {
     const salt = randomToken();
     usersState = {
@@ -167,6 +177,7 @@ async function loadUsers() {
           id: 'owner',
           name: 'Sahip (demo)',
           phone: DEMO_OWNER.phone,
+          email: DEMO_OWNER.email,
           role: 'owner',
           salt,
           passwordHash: demoHash(salt, DEMO_OWNER.password),
@@ -191,10 +202,11 @@ const isActive = (u) => u.role !== 'member' || (u.expiresAt != null && u.expires
 const viewUser = (u) => ({
   id: u.id,
   name: u.name,
-  phone: u.phone,
+  email: u.email ?? null,
+  phone: u.phone ?? null,
   role: u.role,
   expiresAt: u.expiresAt ?? null,
-  mustChangePassword: u.mustChangePassword,
+  mustChangePassword: Boolean(u.mustChangePassword && u.sessionVia === 'password'),
   active: isActive(u),
   createdAt: u.createdAt,
   lastLoginAt: u.lastLoginAt ?? null,
@@ -209,7 +221,7 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL, token = null) {
   async function requireActive() {
     const u = await currentUser();
     if (!u) throw new ApiError('Oturum açın', 401, 'auth');
-    if (u.mustChangePassword) throw new ApiError('Önce kendi şifrenizi belirleyin', 403, 'password');
+    if (viewUser(u).mustChangePassword) throw new ApiError('Önce kendi şifrenizi belirleyin', 403, 'password');
     if (!isActive(u)) throw new ApiError('Kullanım süreniz doldu', 402, 'expired');
     return u;
   }
@@ -219,6 +231,14 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL, token = null) {
     return u;
   }
   const requireStaff = () => requireRole('owner', 'admin');
+  // Tek cihaz: yeni giriş eski oturumu kapatır.
+  async function startSession(u, via) {
+    u.session = randomToken();
+    u.sessionVia = via;
+    u.lastLoginAt = new Date().toISOString();
+    await saveUsers();
+    return { token: u.session, user: viewUser(u), settings: usersState.settings };
+  }
   async function userById(id) {
     await requireRole('owner');
     const u = usersState.users.find((x) => x.id === id);
@@ -530,13 +550,49 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL, token = null) {
         clean = '';
       }
       const u = st.users.find((x) => x.phone === clean);
-      if (!u || u.passwordHash !== demoHash(u.salt, String(password ?? ''))) {
+      if (!u?.passwordHash || u.passwordHash !== demoHash(u.salt, String(password ?? ''))) {
         throw new ApiError('Telefon numarası ya da şifre hatalı', 401);
       }
-      u.session = randomToken(); // tek cihaz: yeni giriş eski oturumu kapatır
-      u.lastLoginAt = new Date().toISOString();
+      if (u.role === 'member') throw new ApiError('Üyeler e-postalarına gelen kodla giriş yapar', 400);
+      return startSession(u, 'password');
+    },
+    // Demo modunda e-posta gönderilmez: kod cevapta döner ve giriş ekranında gösterilir.
+    async requestEmailCode(email) {
+      const st = await loadUsers();
+      const clean = normalizeEmail(email);
+      const u = st.users.find((x) => x.email === clean);
+      if (!u) return { ok: true };
+      if (u.lastCodeAt > Date.now() - 60000) throw new ApiError('Yeni kod için 1 dakika bekleyin.', 429);
+      const code = tempPassword();
+      u.lastCodeAt = Date.now();
+      u.emailCode = { code, expiresAt: Date.now() + CODE_TTL_MS, attempts: 0 };
       await saveUsers();
-      return { token: u.session, user: viewUser(u), settings: st.settings };
+      return { ok: true, demoCode: code };
+    },
+    async emailLogin(email, code) {
+      const st = await loadUsers();
+      let clean = '';
+      try {
+        clean = normalizeEmail(email);
+      } catch {
+        clean = '';
+      }
+      const u = st.users.find((x) => x.email === clean);
+      const entry = u?.emailCode;
+      if (!entry) throw new ApiError('Kod hatalı ya da süresi dolmuş. Yeni kod isteyin.', 401);
+      if (entry.expiresAt <= Date.now()) {
+        u.emailCode = null;
+        await saveUsers();
+        throw new ApiError('Kodun süresi doldu. Yeni kod isteyin.', 401);
+      }
+      entry.attempts += 1;
+      if (String(code ?? '').trim() !== entry.code) {
+        if (entry.attempts >= 5) u.emailCode = null;
+        await saveUsers();
+        throw new ApiError(entry.attempts >= 5 ? 'Çok fazla hatalı deneme. Yeni kod isteyin.' : 'Kod hatalı', 401);
+      }
+      u.emailCode = null;
+      return startSession(u, 'email');
     },
     async me() {
       const u = await currentUser();
@@ -554,6 +610,7 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL, token = null) {
     async changePassword(newPassword) {
       const u = await currentUser();
       if (!u) throw new ApiError('Oturum açın', 401, 'auth');
+      if (u.role === 'member') throw new ApiError('Üyeler şifre kullanmaz; e-postalarına gelen kodla girerler', 400);
       const pw = String(newPassword ?? '');
       if (pw.length < 6) throw new ApiError('Şifre en az 6 karakter olmalı', 400);
       if (u.passwordHash === demoHash(u.salt, pw)) throw new ApiError('Yeni şifre eskisiyle aynı olamaz', 400);
@@ -573,22 +630,27 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL, token = null) {
           .map(viewUser),
       };
     },
-    async createUser({ name, phone, role }) {
+    // Sunucudaki gibi: üye = ad + e-posta (telefon isteğe bağlı), yönetici = ad + e-posta + telefon (+ geçici şifre).
+    async createUser({ name, email, phone, role }) {
       await requireRole('owner');
+      const admin = role === 'admin';
       const cleanName = String(name ?? '').trim().slice(0, 80);
       if (!cleanName) throw new ApiError('Ad soyad girin', 400);
-      const cleanPhone = normalizePhone(phone);
-      if (usersState.users.some((u) => u.phone === cleanPhone)) throw new ApiError('Bu telefon numarasıyla kayıtlı biri var', 409);
-      const password = tempPassword();
+      const cleanEmail = normalizeEmail(email);
+      const cleanPhone = !admin && !String(phone ?? '').trim() ? null : normalizePhone(phone);
+      if (usersState.users.some((u) => u.email === cleanEmail)) throw new ApiError('Bu e-posta adresiyle kayıtlı biri var', 409);
+      if (cleanPhone && usersState.users.some((u) => u.phone === cleanPhone)) throw new ApiError('Bu telefon numarasıyla kayıtlı biri var', 409);
+      const password = admin ? tempPassword() : null;
       const salt = randomToken();
       const u = {
         id: randomToken().slice(0, 12),
         name: cleanName,
+        email: cleanEmail,
         phone: cleanPhone,
-        role: role === 'admin' ? 'admin' : 'member',
+        role: admin ? 'admin' : 'member',
         salt,
-        passwordHash: demoHash(salt, password),
-        mustChangePassword: true,
+        passwordHash: password ? demoHash(salt, password) : null,
+        mustChangePassword: Boolean(password),
         expiresAt: null,
         session: null,
         createdAt: new Date().toISOString(),
@@ -613,6 +675,7 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL, token = null) {
     },
     async resetPassword(id) {
       const u = await userById(id);
+      if (u.role === 'member') throw new ApiError('Üyeler şifre kullanmaz; e-postalarına gelen kodla girerler', 400);
       const password = tempPassword();
       u.passwordHash = demoHash(u.salt, password);
       u.mustChangePassword = true;

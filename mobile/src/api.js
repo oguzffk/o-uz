@@ -41,6 +41,8 @@ export function createApi(baseUrl, token) {
   return {
     // Oturum
     login: (phone, password) => request('/api/auth/login', { method: 'POST', body: { phone, password } }),
+    requestEmailCode: (email) => request('/api/auth/email-code', { method: 'POST', body: { email } }),
+    emailLogin: (email, code) => request('/api/auth/email-login', { method: 'POST', body: { email, code } }),
     me: () => request('/api/auth/me'),
     logout: () => request('/api/auth/logout', { method: 'POST' }),
     changePassword: (newPassword) => request('/api/auth/password', { method: 'POST', body: { newPassword } }),
@@ -62,7 +64,7 @@ export function createApi(baseUrl, token) {
 
     // Üyeler, yöneticiler ve ödeme bilgisi (yalnızca sahip)
     users: (role) => request(`/api/users?role=${role}`),
-    createUser: ({ name, phone, role }) => request('/api/users', { method: 'POST', body: { name, phone, role } }),
+    createUser: ({ name, email, phone, role }) => request('/api/users', { method: 'POST', body: { name, email, phone, role } }),
     extendUser: (id, days) => request(`/api/users/${id}/extend`, { method: 'POST', body: { days } }),
     expireUser: (id) => request(`/api/users/${id}/expire`, { method: 'POST' }),
     resetPassword: (id) => request(`/api/users/${id}/reset-password`, { method: 'POST' }),

@@ -190,12 +190,16 @@ function AppScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settingsLoaded]);
 
-  const login = async (phone, password) => {
-    const r = await apiFor(settings, null).login(phone, password);
+  const startSession = async (r) => {
     await saveSession({ token: r.token, backend: backendKey(settings) });
     setNow(Date.now());
     setSession({ token: r.token, user: r.user, settings: r.settings });
   };
+  // Yedek giriş (sahip/yönetici): telefon + şifre.
+  const login = async (phone, password) => startSession(await apiFor(settings, null).login(phone, password));
+  // Asıl giriş: e-postaya gelen kod.
+  const requestEmailCode = (email) => apiFor(settings, null).requestEmailCode(email);
+  const emailLogin = async (email, code) => startSession(await apiFor(settings, null).emailLogin(email, code));
 
   const refreshMe = useCallback(async () => {
     if (!token) return;
@@ -857,8 +861,10 @@ function AppScreen() {
       <>
         <StatusBar style="light" />
         <LoginScreen
+          onRequestCode={requestEmailCode}
+          onEmailLogin={emailLogin}
           onLogin={login}
-          demoHint={demo ? `Demo hesabı (sahip): ${DEMO_OWNER.phone.replace(/^(\d{4})(\d{3})(\d{2})(\d{2})$/, '$1 $2 $3 $4')} · şifre: ${DEMO_OWNER.password}` : null}
+          demoHint={demo ? `Demo sahip hesabı: ${DEMO_OWNER.email} (kod ekranda görünür) · ya da ${DEMO_OWNER.phone.replace(/^(\d{4})(\d{3})(\d{2})(\d{2})$/, '$1 $2 $3 $4')} / ${DEMO_OWNER.password}` : null}
           backendLabel={demo ? 'Demo (bu telefon)' : settings.apiUrl}
           onOpenSettings={() => setSettingsOpen(true)}
         />

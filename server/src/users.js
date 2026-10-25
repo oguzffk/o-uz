@@ -10,13 +10,17 @@ import { dirname } from 'node:path';
  * - admin (yönetici): yalnızca yol kapatma ve gruplar.
  * - member (üye): navigasyon; `expiresAt` geçmişse rota alamaz.
  *
- * Şifreler scrypt ile tuzlanıp saklanır. Oturum anahtarı yalnızca girişte bir kez
- * döner; dosyada sha256 özeti tutulur. Bir hesap aynı anda tek cihazda açıktır:
- * yeni giriş eski oturumu kapatır.
+ * Giriş: üyeler e-postalarına gelen 6 haneli kodla girer (şifre yok). Sahip ve yöneticiler
+ * de e-posta koduyla girebilir; e-posta çalışmazsa diye telefon + şifre yedek olarak kalır.
+ * Şifreler scrypt ile tuzlanıp saklanır, kodların yalnızca özeti tutulur. Oturum anahtarı
+ * yalnızca girişte bir kez döner; dosyada sha256 özeti tutulur. Bir hesap aynı anda tek
+ * cihazda açıktır: yeni giriş eski oturumu kapatır.
  */
 export const DAY_MS = 24 * 60 * 60 * 1000;
 export const EXTEND_DAYS = new Set([1, 3, 7]);
 const MIN_PASSWORD = 6;
+export const CODE_TTL_MS = 10 * 60 * 1000;
+export const CODE_MAX_ATTEMPTS = 5;
 
 export const DEFAULT_SETTINGS = {
   iban: '',
@@ -60,6 +64,15 @@ export function normalizePhone(value) {
   return digits;
 }
 
+/** "  Ayse@Ornek.com " → "ayse@ornek.com". Geçersizse hata. */
+export function normalizeEmail(value) {
+  const email = String(value ?? '').trim().toLowerCase();
+  if (email.length > 120 || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
+    throw new UserError(400, 'Geçerli bir e-posta adresi girin');
+  }
+  return email;
+}
+
 export class UserStore {
   constructor(filePath, { now = () => Date.now() } = {}) {
     this.filePath = filePath;
@@ -88,8 +101,20 @@ export class UserStore {
 
   /** Dışarıya verilen kullanıcı bilgisi (şifre özeti ve oturum yok). */
   view(user) {
-    const { id, name, phone, role, expiresAt, mustChangePassword, createdAt, lastLoginAt } = user;
-    return { id, name, phone, role, expiresAt: expiresAt ?? null, mustChangePassword, active: this.isActive(user), createdAt, lastLoginAt: lastLoginAt ?? null };
+    const { id, name, role, expiresAt, createdAt, lastLoginAt } = user;
+    return {
+      id,
+      name,
+      email: user.email ?? null,
+      phone: user.phone ?? null,
+      role,
+      expiresAt: expiresAt ?? null,
+      // Geçici şifreyle girene şifre belirletilir; e-posta koduyla girene gerekmez.
+      mustChangePassword: Boolean(user.mustChangePassword && user.sessionVia === 'password'),
+      active: this.isActive(user),
+      createdAt,
+      lastLoginAt: lastLoginAt ?? null,
+    };
   }
 
   /** Sahip ve yönetici her zaman aktif; üye süresi bitene kadar. */
@@ -105,6 +130,10 @@ export class UserStore {
     return [...this.users.values()].find((u) => u.phone === phone);
   }
 
+  findByEmail(email) {
+    return [...this.users.values()].find((u) => u.email === email);
+  }
+
   list(role) {
     return [...this.users.values()]
       .filter((u) => !role || u.role === role)
@@ -116,21 +145,27 @@ export class UserStore {
     return [...this.users.values()].some((u) => u.role === 'owner');
   }
 
-  /** Yeni kullanıcı; geçici şifreyle döner. */
-  create({ name, phone, role = 'member' }) {
+  /**
+   * Yeni kullanıcı. Üye: ad + e-posta (telefon isteğe bağlı, ödeme takibi için); şifresi yoktur.
+   * Yönetici: ad + e-posta + telefon; yedek giriş için geçici şifre döner.
+   */
+  create({ name, email, phone, role = 'member' }) {
     if (!['owner', 'admin', 'member'].includes(role)) throw new UserError(400, 'Geçersiz rol');
     const cleanName = String(name ?? '').trim().slice(0, 80);
     if (!cleanName) throw new UserError(400, 'Ad soyad girin');
-    const cleanPhone = normalizePhone(phone);
-    if (this.findByPhone(cleanPhone)) throw new UserError(409, 'Bu telefon numarasıyla kayıtlı biri var');
-    const password = tempPassword();
+    const cleanEmail = role === 'owner' && !email ? null : normalizeEmail(email);
+    const cleanPhone = role === 'member' && !String(phone ?? '').trim() ? null : normalizePhone(phone);
+    if (cleanEmail && this.findByEmail(cleanEmail)) throw new UserError(409, 'Bu e-posta adresiyle kayıtlı biri var');
+    if (cleanPhone && this.findByPhone(cleanPhone)) throw new UserError(409, 'Bu telefon numarasıyla kayıtlı biri var');
+    const password = role === 'member' ? null : tempPassword();
     const user = {
       id: randomUUID(),
       name: cleanName,
+      email: cleanEmail,
       phone: cleanPhone,
       role,
-      passwordHash: hashPassword(password),
-      mustChangePassword: true,
+      passwordHash: password ? hashPassword(password) : null,
+      mustChangePassword: Boolean(password),
       expiresAt: null,
       session: null,
       createdAt: new Date(this.now()).toISOString(),
@@ -144,9 +179,9 @@ export class UserStore {
    * Sunucu ilk açıldığında sahip hesabı yoksa oluşturur. Şifre verilmezse rastgele
    * üretilip döndürülür (konsola bir kez yazılır); sabit bir varsayılan şifre yoktur.
    */
-  ensureOwner({ phone, password, name = 'Sahip' }) {
+  ensureOwner({ phone, password, name = 'Sahip', email }) {
     if (this.hasOwner()) return null;
-    const { user } = this.create({ name, phone, role: 'owner' });
+    const { user } = this.create({ name, phone, email: email || undefined, role: 'owner' });
     const finalPassword = password || randomBytes(9).toString('base64url');
     const u = this.users.get(user.id);
     u.passwordHash = hashPassword(finalPassword);
@@ -155,7 +190,16 @@ export class UserStore {
     return { user: this.view(u), password: password ? null : finalPassword };
   }
 
-  /** Telefon + şifre doğruysa yeni oturum açar (varsa eski oturum kapanır). */
+  #startSession(user, via) {
+    const token = randomBytes(32).toString('base64url');
+    user.session = sha256(token);
+    user.sessionVia = via;
+    user.lastLoginAt = new Date(this.now()).toISOString();
+    this.#save();
+    return { token, user: this.view(user) };
+  }
+
+  /** Telefon + şifre (sahip ve yöneticinin yedek girişi). Doğruysa yeni oturum açar, eskisi kapanır. */
   login(phone, password) {
     let user;
     try {
@@ -163,14 +207,50 @@ export class UserStore {
     } catch {
       user = null;
     }
-    if (!user || !verifyPassword(String(password ?? ''), user.passwordHash)) {
+    if (!user?.passwordHash || !verifyPassword(String(password ?? ''), user.passwordHash)) {
       throw new UserError(401, 'Telefon numarası ya da şifre hatalı');
     }
-    const token = randomBytes(32).toString('base64url');
-    user.session = sha256(token);
-    user.lastLoginAt = new Date(this.now()).toISOString();
+    if (user.role === 'member') throw new UserError(400, 'Üyeler e-postalarına gelen kodla giriş yapar');
+    return this.#startSession(user, 'password');
+  }
+
+  /**
+   * E-postaya gidecek giriş kodunu üretir. Kayıtlı olmayan adres için null döner (çağıran
+   * yine aynı cevabı verir; kimin üye olduğu dışarıdan anlaşılmasın). Yeni kod eskisini geçersiz kılar.
+   */
+  createEmailCode(email) {
+    const user = this.findByEmail(normalizeEmail(email));
+    if (!user) return null;
+    const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
+    user.emailCode = { hash: sha256(`${user.id}:${code}`), expiresAt: this.now() + CODE_TTL_MS, attempts: 0 };
     this.#save();
-    return { token, user: this.view(user) };
+    return { user, code };
+  }
+
+  /** E-posta + kod doğruysa oturum açar. Kod 10 dakika ve 5 deneme geçerlidir, tek kullanımlıktır. */
+  loginWithEmailCode(email, code) {
+    let user;
+    try {
+      user = this.findByEmail(normalizeEmail(email));
+    } catch {
+      user = null;
+    }
+    const entry = user?.emailCode;
+    if (!entry) throw new UserError(401, 'Kod hatalı ya da süresi dolmuş. Yeni kod isteyin.');
+    if (entry.expiresAt <= this.now()) {
+      user.emailCode = null;
+      this.#save();
+      throw new UserError(401, 'Kodun süresi doldu. Yeni kod isteyin.');
+    }
+    entry.attempts += 1;
+    const ok = /^\d{6}$/.test(String(code ?? '').trim()) && timingSafeEqual(Buffer.from(sha256(`${user.id}:${String(code).trim()}`)), Buffer.from(entry.hash));
+    if (!ok) {
+      if (entry.attempts >= CODE_MAX_ATTEMPTS) user.emailCode = null;
+      this.#save();
+      throw new UserError(401, entry.attempts >= CODE_MAX_ATTEMPTS ? 'Çok fazla hatalı deneme. Yeni kod isteyin.' : 'Kod hatalı');
+    }
+    user.emailCode = null;
+    return this.#startSession(user, 'email');
   }
 
   byToken(token) {
@@ -188,6 +268,7 @@ export class UserStore {
 
   changePassword(id, newPassword) {
     const user = this.users.get(id);
+    if (user.role === 'member') throw new UserError(400, 'Üyeler şifre kullanmaz; e-postalarına gelen kodla girerler');
     const pw = String(newPassword ?? '');
     if (pw.length < MIN_PASSWORD) throw new UserError(400, `Şifre en az ${MIN_PASSWORD} karakter olmalı`);
     if (/^\d{6}$/.test(pw) && verifyPassword(pw, user.passwordHash)) {
@@ -199,9 +280,10 @@ export class UserStore {
     return this.view(user);
   }
 
-  /** Yeni geçici şifre verir ve açık oturumu kapatır. */
+  /** Yeni geçici şifre verir ve açık oturumu kapatır (yalnızca yönetici; üyeler şifre kullanmaz). */
   resetPassword(id) {
     const user = this.#mustGet(id);
+    if (user.role === 'member') throw new UserError(400, 'Üyeler şifre kullanmaz; e-postalarına gelen kodla girerler');
     const password = tempPassword();
     user.passwordHash = hashPassword(password);
     user.mustChangePassword = true;

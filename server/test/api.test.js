@@ -34,13 +34,15 @@ function fakeValhalla() {
 
 // Her test kendi sunucusunu kurar: bir sahip ve bir yönetici hesabı açılır, istekler varsayılan
 // olarak yöneticinin oturumuyla gider (`token: null` oturumsuz, `token: x` başka oturum).
-async function withServer(fn, { now } = {}) {
+async function withServer(fn, { now, mailer: customMailer } = {}) {
   const valhalla = fakeValhalla();
   const dir = mkdtempSync(join(tmpdir(), 'nav-'));
   const store = new ClosureStore(join(dir, 'closures.json'));
   const clock = { t: Date.parse('2026-10-25T09:00:00Z') };
   const users = new UserStore(join(dir, 'users.json'), { now: now ?? (() => clock.t) });
-  const app = createApp({ valhalla, store, users, now: now ?? (() => clock.t) });
+  const mail = []; // gönderilen giriş kodları
+  const mailer = customMailer ?? { configured: true, sendLoginCode: async (to, code) => mail.push({ to, code }) };
+  const app = createApp({ valhalla, store, users, mailer, now: now ?? (() => clock.t) });
   const server = app.listen(0);
   const base = `http://localhost:${server.address().port}`;
   const raw = (path, { method = 'GET', body, token } = {}) =>
@@ -51,7 +53,8 @@ async function withServer(fn, { now } = {}) {
     }).then(async (r) => ({ status: r.status, body: await r.json() }));
   // Hesap açıp ilk şifreyi değiştirerek oturum anahtarı döndürür.
   const account = async (role, phone) => {
-    const created = role === 'owner' ? users.ensureOwner({ phone, password: 'sahip-sifre' }) : users.create({ name: role, phone, role });
+    const created =
+      role === 'owner' ? users.ensureOwner({ phone, password: 'sahip-sifre' }) : users.create({ name: role, phone, email: `${role}@test.tr`, role });
     const password = created.tempPassword ?? 'sahip-sifre';
     const { body } = await raw('/api/auth/login', { method: 'POST', body: { phone, password } });
     if (body.user.mustChangePassword) await raw('/api/auth/password', { method: 'POST', token: body.token, body: { newPassword: 'yeni-sifre' } });
@@ -60,8 +63,15 @@ async function withServer(fn, { now } = {}) {
   const ownerToken = await account('owner', '05000000000');
   const adminToken = await account('admin', '05000000001');
   const req = (path, opts = {}) => raw(path, { ...opts, token: 'token' in opts ? opts.token : adminToken });
+  // E-posta koduyla giriş: kod istenir, "gelen kutusundan" alınıp girilir.
+  const emailLogin = async (email) => {
+    const sent = await raw('/api/auth/email-code', { method: 'POST', body: { email } });
+    assert.equal(sent.status, 200, JSON.stringify(sent.body));
+    const code = mail.filter((m) => m.to === email.trim().toLowerCase()).at(-1)?.code;
+    return raw('/api/auth/email-login', { method: 'POST', body: { email, code } });
+  };
   try {
-    await fn({ req, valhalla, store, users, ownerToken, adminToken, clock, raw });
+    await fn({ req, valhalla, store, users, ownerToken, adminToken, clock, raw, mail, emailLogin });
   } finally {
     server.close();
   }
@@ -485,42 +495,98 @@ test('hız sınırı: yol parçalarının sınırı birleşik çizgi indeksleriy
 
 const ROUTE_BODY = { from: { lat: 41.03, lon: 28.98 }, to: { lat: 41.04, lon: 28.99 } };
 
-test('giriş: yanlış şifre reddedilir, geçici şifreyle girene önce şifre değiştirtilir', async () => {
-  await withServer(async ({ raw, ownerToken }) => {
-    const created = await raw('/api/users', { method: 'POST', token: ownerToken, body: { name: 'Ayşe Kaya', phone: '0532 111 22 33' } });
+test('e-posta ile giriş: kayıtlı adrese kod gider, kod ile oturum açılır; üyenin şifresi yoktur', async () => {
+  await withServer(async ({ raw, ownerToken, mail, clock }) => {
+    const created = await raw('/api/users', { method: 'POST', token: ownerToken, body: { name: 'Ayşe Kaya', email: ' Ayse@Ornek.com ', phone: '' } });
     assert.equal(created.status, 200);
-    assert.match(created.body.tempPassword, /^\d{6}$/);
-    assert.equal(created.body.user.phone, '05321112233');
-    assert.equal(created.body.user.passwordHash, undefined);
+    assert.equal(created.body.user.email, 'ayse@ornek.com');
+    assert.equal(created.body.user.phone, null);
+    assert.equal(created.body.tempPassword, null); // üyeye şifre verilmez
 
-    const wrong = await raw('/api/auth/login', { method: 'POST', body: { phone: '05321112233', password: '000000x' } });
+    // Kayıtlı olmayan adres de aynı cevabı alır ama e-posta gitmez.
+    const unknown = await raw('/api/auth/email-code', { method: 'POST', body: { email: 'yok@ornek.com' } });
+    assert.equal(unknown.status, 200);
+    assert.equal(mail.length, 0);
+    assert.equal((await raw('/api/auth/email-code', { method: 'POST', body: { email: 'gecersiz' } })).status, 400);
+
+    assert.equal((await raw('/api/auth/email-code', { method: 'POST', body: { email: 'ayse@ornek.com' } })).status, 200);
+    assert.equal(mail.length, 1);
+    assert.match(mail[0].code, /^\d{6}$/);
+    // Bir dakika dolmadan yeni kod istenemez.
+    assert.equal((await raw('/api/auth/email-code', { method: 'POST', body: { email: 'ayse@ornek.com' } })).status, 429);
+
+    const wrongCode = mail[0].code === '000000' ? '111111' : '000000';
+    const wrong = await raw('/api/auth/email-login', { method: 'POST', body: { email: 'ayse@ornek.com', code: wrongCode } });
     assert.equal(wrong.status, 401);
-    // Telefon farklı yazılsa da (+90, boşluklu) aynı hesap.
-    const login = await raw('/api/auth/login', { method: 'POST', body: { phone: '+90 532 111 22 33', password: created.body.tempPassword } });
+    const login = await raw('/api/auth/email-login', { method: 'POST', body: { email: 'AYSE@ornek.com', code: mail[0].code } });
     assert.equal(login.status, 200);
-    assert.equal(login.body.user.mustChangePassword, true);
-    assert.equal((await raw('/api/route', { method: 'POST', token: login.body.token, body: ROUTE_BODY })).body.code, 'password');
-
-    const short = await raw('/api/auth/password', { method: 'POST', token: login.body.token, body: { newPassword: '123' } });
-    assert.equal(short.status, 400);
-    const same = await raw('/api/auth/password', { method: 'POST', token: login.body.token, body: { newPassword: created.body.tempPassword } });
-    assert.equal(same.status, 400);
-    const changed = await raw('/api/auth/password', { method: 'POST', token: login.body.token, body: { newPassword: 'gizli123' } });
-    assert.equal(changed.body.user.mustChangePassword, false);
+    assert.equal(login.body.user.mustChangePassword, false);
+    // Kod tek kullanımlık.
+    assert.equal((await raw('/api/auth/email-login', { method: 'POST', body: { email: 'ayse@ornek.com', code: mail[0].code } })).status, 401);
     // Süresi olmayan üye rota alamaz.
     const expired = await raw('/api/route', { method: 'POST', token: login.body.token, body: ROUTE_BODY });
     assert.equal(expired.status, 402);
     assert.equal(expired.body.code, 'expired');
+    // Üye şifreyle giremez, şifre belirleyemez.
+    assert.equal((await raw('/api/auth/password', { method: 'POST', token: login.body.token, body: { newPassword: 'abcdef' } })).status, 400);
+
+    // Kod 10 dakika geçerli.
+    clock.t += 61000;
+    await raw('/api/auth/email-code', { method: 'POST', body: { email: 'ayse@ornek.com' } });
+    clock.t += 11 * 60000;
+    const late = await raw('/api/auth/email-login', { method: 'POST', body: { email: 'ayse@ornek.com', code: mail.at(-1).code } });
+    assert.equal(late.status, 401);
+    assert.match(late.body.error, /süresi doldu/);
+  });
+});
+
+test('e-posta kodu: 5 hatalı denemede kod geçersiz olur; saatte en fazla 5 kod', async () => {
+  await withServer(async ({ raw, users, mail, clock }) => {
+    users.create({ name: 'Üye', email: 'uye@ornek.com' });
+    await raw('/api/auth/email-code', { method: 'POST', body: { email: 'uye@ornek.com' } });
+    const code = mail.at(-1).code;
+    const bad = code === '123456' ? '654321' : '123456';
+    for (let i = 0; i < 5; i++) await raw('/api/auth/email-login', { method: 'POST', body: { email: 'uye@ornek.com', code: bad } });
+    const after = await raw('/api/auth/email-login', { method: 'POST', body: { email: 'uye@ornek.com', code } });
+    assert.equal(after.status, 401); // doğru kod bile artık geçmez
+    for (let i = 0; i < 4; i++) {
+      clock.t += 61000;
+      assert.equal((await raw('/api/auth/email-code', { method: 'POST', body: { email: 'uye@ornek.com' } })).status, 200);
+    }
+    clock.t += 61000;
+    assert.equal((await raw('/api/auth/email-code', { method: 'POST', body: { email: 'uye@ornek.com' } })).status, 429);
+  });
+});
+
+test('yönetici: e-posta koduyla ya da yedek olarak telefon + geçici şifreyle girer', async () => {
+  await withServer(async ({ raw, ownerToken, emailLogin }) => {
+    const created = await raw('/api/users', {
+      method: 'POST',
+      token: ownerToken,
+      body: { name: 'Ali Veli', email: 'ali@ornek.com', phone: '0533 222 33 44', role: 'admin' },
+    });
+    assert.equal(created.body.user.role, 'admin');
+    assert.match(created.body.tempPassword, /^\d{6}$/);
+    // Yönetici için telefon zorunlu (yedek giriş).
+    assert.equal((await raw('/api/users', { method: 'POST', token: ownerToken, body: { name: 'X', email: 'x@ornek.com', role: 'admin' } })).status, 400);
+
+    const byEmail = await emailLogin('ali@ornek.com');
+    assert.equal(byEmail.status, 200);
+    assert.equal(byEmail.body.user.mustChangePassword, false); // kodla girene şifre sorulmaz
+    assert.equal((await raw('/api/closures/toggle', { method: 'POST', token: byEmail.body.token, body: { lat: 41.031, lon: 28.9823 } })).status, 200);
+
+    const byPassword = await raw('/api/auth/login', { method: 'POST', body: { phone: '05332223344', password: created.body.tempPassword } });
+    assert.equal(byPassword.body.user.mustChangePassword, true); // geçici şifreyle girene şifre belirletilir
+    assert.equal((await raw('/api/closures', { token: byPassword.body.token })).body.code, 'password');
+    assert.equal((await raw('/api/auth/me', { token: byEmail.body.token })).status, 401); // tek cihaz
   });
 });
 
 test('roller: üye yol kapatamaz, yönetici üyeleri göremez ve süre veremez, sahip hepsini yapar', async () => {
-  await withServer(async ({ raw, ownerToken, adminToken, users }) => {
-    const { user: member, tempPassword } = users.create({ name: 'Üye', phone: '05320000001' });
+  await withServer(async ({ raw, ownerToken, adminToken, users, emailLogin }) => {
+    const { user: member } = users.create({ name: 'Üye', email: 'uye@ornek.com', phone: '05320000001' });
     users.extend(member.id, 1);
-    const login = await raw('/api/auth/login', { method: 'POST', body: { phone: '05320000001', password: tempPassword } });
-    await raw('/api/auth/password', { method: 'POST', token: login.body.token, body: { newPassword: 'uye-sifre' } });
-    const memberToken = login.body.token;
+    const memberToken = (await emailLogin('uye@ornek.com')).body.token;
 
     assert.equal((await raw('/api/closures/toggle', { method: 'POST', token: memberToken, body: { lat: 41.031, lon: 28.9823 } })).status, 403);
     assert.equal((await raw('/api/zones', { method: 'POST', token: memberToken, body: { name: 'x' } })).status, 403);
@@ -530,30 +596,25 @@ test('roller: üye yol kapatamaz, yönetici üyeleri göremez ve süre veremez, 
     assert.equal((await raw('/api/users', { token: adminToken })).status, 403);
     assert.equal((await raw(`/api/users/${member.id}/extend`, { method: 'POST', token: adminToken, body: { days: 1 } })).status, 403);
     assert.equal((await raw(`/api/users/${member.id}/expire`, { method: 'POST', token: adminToken })).status, 403);
-    assert.equal((await raw('/api/users', { method: 'POST', token: adminToken, body: { name: 'x', phone: '05320000009' } })).status, 403);
+    assert.equal((await raw('/api/users', { method: 'POST', token: adminToken, body: { name: 'x', email: 'y@ornek.com' } })).status, 403);
     assert.equal((await raw('/api/closures/toggle', { method: 'POST', token: adminToken, body: { lat: 41.031, lon: 28.9823 } })).status, 200);
 
     const list = await raw('/api/users?role=member', { token: ownerToken });
-    assert.equal(list.status, 200);
     assert.deepEqual(list.body.users.map((u) => u.name), ['Üye']);
-    assert.ok(list.body.users.every((u) => u.passwordHash === undefined && u.session === undefined));
-    const admins = await raw('/api/users?role=admin', { token: ownerToken });
-    assert.equal(admins.body.users.length, 1);
-    const newAdmin = await raw('/api/users', { method: 'POST', token: ownerToken, body: { name: 'Ali', phone: '05330000000', role: 'admin' } });
-    assert.equal(newAdmin.body.user.role, 'admin');
+    assert.ok(list.body.users.every((u) => u.passwordHash === undefined && u.session === undefined && u.emailCode === undefined));
     const ownerUser = users.list('owner')[0];
     assert.equal((await raw(`/api/users/${ownerUser.id}`, { method: 'DELETE', token: ownerToken })).status, 400);
-    assert.equal((await raw(`/api/users/${newAdmin.body.user.id}`, { method: 'DELETE', token: ownerToken })).status, 200);
-    assert.equal((await raw('/api/users', { method: 'POST', token: ownerToken, body: { name: 'Tekrar', phone: '0532 000 00 01' } })).status, 409);
+    assert.equal((await raw(`/api/users/${member.id}/reset-password`, { method: 'POST', token: ownerToken })).status, 400);
+    assert.equal((await raw('/api/users', { method: 'POST', token: ownerToken, body: { name: 'Tekrar', email: 'UYE@ornek.com' } })).status, 409);
+    assert.equal((await raw('/api/users', { method: 'POST', token: ownerToken, body: { name: 'Tekrar', email: 'z@ornek.com', phone: '0532 000 00 01' } })).status, 409);
+    assert.equal((await raw(`/api/users/${member.id}`, { method: 'DELETE', token: ownerToken })).status, 200);
   });
 });
 
 test('süre: +1/+3/+7 gün üst üste eklenir, dolunca rota kesilir, "Süreyi bitir" hemen kapatır', async () => {
-  await withServer(async ({ raw, ownerToken, users, clock }) => {
-    const { user: member, tempPassword } = users.create({ name: 'Üye', phone: '05320000002' });
-    const login = await raw('/api/auth/login', { method: 'POST', body: { phone: '05320000002', password: tempPassword } });
-    await raw('/api/auth/password', { method: 'POST', token: login.body.token, body: { newPassword: 'uye-sifre' } });
-    const t = login.body.token;
+  await withServer(async ({ raw, ownerToken, users, clock, emailLogin }) => {
+    const { user: member } = users.create({ name: 'Üye', email: 'uye@ornek.com' });
+    const t = (await emailLogin('uye@ornek.com')).body.token;
     const route = async () => (await raw('/api/route', { method: 'POST', token: t, body: ROUTE_BODY })).status;
     const extend = (days) => raw(`/api/users/${member.id}/extend`, { method: 'POST', token: ownerToken, body: { days } });
 
@@ -574,27 +635,22 @@ test('süre: +1/+3/+7 gün üst üste eklenir, dolunca rota kesilir, "Süreyi bi
   });
 });
 
-test('tek cihaz: yeni giriş eski oturumu kapatır; şifre sıfırlama oturumu kapatır', async () => {
-  await withServer(async ({ raw, ownerToken, users }) => {
-    const { user, tempPassword } = users.create({ name: 'Üye', phone: '05320000003' });
-    const first = await raw('/api/auth/login', { method: 'POST', body: { phone: '05320000003', password: tempPassword } });
-    const second = await raw('/api/auth/login', { method: 'POST', body: { phone: '05320000003', password: tempPassword } });
+test('tek cihaz: yeni giriş eski oturumu kapatır; çıkış oturumu kapatır', async () => {
+  await withServer(async ({ raw, users, clock, emailLogin }) => {
+    users.create({ name: 'Üye', email: 'uye@ornek.com' });
+    const first = await emailLogin('uye@ornek.com');
+    clock.t += 61000;
+    const second = await emailLogin('uye@ornek.com');
     assert.equal((await raw('/api/auth/me', { token: first.body.token })).status, 401);
     assert.equal((await raw('/api/auth/me', { token: second.body.token })).status, 200);
-
-    const reset = await raw(`/api/users/${user.id}/reset-password`, { method: 'POST', token: ownerToken });
-    assert.match(reset.body.tempPassword, /^\d{6}$/);
+    await raw('/api/auth/logout', { method: 'POST', token: second.body.token });
     assert.equal((await raw('/api/auth/me', { token: second.body.token })).status, 401);
-    const again = await raw('/api/auth/login', { method: 'POST', body: { phone: '05320000003', password: reset.body.tempPassword } });
-    assert.equal(again.body.user.mustChangePassword, true);
-    await raw('/api/auth/logout', { method: 'POST', token: again.body.token });
-    assert.equal((await raw('/api/auth/me', { token: again.body.token })).status, 401);
   });
 });
 
 test('şifre deneme sınırı: 5 hatalı denemeden sonra 15 dakika kilit', async () => {
   await withServer(async ({ raw, users, clock }) => {
-    const { tempPassword } = users.create({ name: 'Üye', phone: '05320000004' });
+    const { tempPassword } = users.create({ name: 'Yönetici', email: 'y@ornek.com', phone: '05320000004', role: 'admin' });
     const login = (password) => raw('/api/auth/login', { method: 'POST', body: { phone: '05320000004', password } });
     for (let i = 0; i < 5; i++) assert.equal((await login('yanlis')).status, 401);
     const locked = await login(tempPassword);
@@ -618,4 +674,28 @@ test('ayarlar: ödeme bilgisini sahip değiştirir, herkes okur', async () => {
     assert.equal((await raw('/api/settings', { token: adminToken })).body.settings.accountName, 'Hermap');
     assert.equal((await raw('/api/settings')).status, 401);
   });
+});
+
+test('e-posta gönderilemezse anlaşılır hata döner', async () => {
+  const broken = {
+    configured: true,
+    sendLoginCode: async () => {
+      throw new Error('SMTP bağlantısı kurulamadı');
+    },
+  };
+  await withServer(
+    async ({ raw, users }) => {
+      users.create({ name: 'Üye', email: 'uye@ornek.com' });
+      const original = console.error;
+      console.error = () => {};
+      try {
+        const r = await raw('/api/auth/email-code', { method: 'POST', body: { email: 'uye@ornek.com' } });
+        assert.equal(r.status, 502);
+        assert.match(r.body.error, /gönderilemedi/);
+      } finally {
+        console.error = original;
+      }
+    },
+    { mailer: broken },
+  );
 });

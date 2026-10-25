@@ -22,7 +22,8 @@ import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-cont
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createApi, defaultApiUrl } from './src/api';
 import { DEMO_OWNER, MAX_STOPS, PUBLIC_VALHALLA_URL, createDemoApi } from './src/demoApi';
-import { ChangePasswordScreen, ExpiredScreen, LOGO, LoginScreen } from './src/AuthScreens';
+import { ChangePasswordScreen, LOGO, LoginScreen } from './src/AuthScreens';
+import PurchaseScreen from './src/PurchaseScreen';
 import MembersSheet from './src/MembersSheet';
 import { clearSession, formatRemaining, loadSession, saveSession } from './src/session';
 import {
@@ -82,6 +83,7 @@ function AppScreen() {
   const [session, setSession] = useState(null);
   const [sessionReady, setSessionReady] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
+  const [purchaseOpen, setPurchaseOpen] = useState(false); // süre bitmeden paket almak için
   const [now, setNow] = useState(Date.now()); // kalan süre göstergesi için
   const [adminMode, setAdminMode] = useState(false);
 
@@ -193,7 +195,7 @@ function AppScreen() {
   const startSession = async (r) => {
     await saveSession({ token: r.token, backend: backendKey(settings) });
     setNow(Date.now());
-    setSession({ token: r.token, user: r.user, settings: r.settings });
+    setSession({ token: r.token, user: r.user });
   };
   // Yedek giriş (sahip/yönetici): telefon + şifre.
   const login = async (phone, password) => startSession(await apiFor(settings, null).login(phone, password));
@@ -790,6 +792,7 @@ function AppScreen() {
     setEditing(null);
     setSettingsOpen(false);
     setMembersOpen(false);
+    setPurchaseOpen(false);
     setZonesOpen(false);
     stopNavigation();
     setRoute(null);
@@ -1151,10 +1154,15 @@ function AppScreen() {
                   </View>
                 </SlideIn>
                 {isMember && !expired && !showRecents && results.length === 0 && (
-                  <View style={[styles.timeBadge, remainingMs < 24 * 3600000 && styles.timeBadgeWarn]} accessibilityLabel="Kalan süre">
+                  <Pressable
+                    style={[styles.timeBadge, remainingMs < 24 * 3600000 && styles.timeBadgeWarn]}
+                    onPress={() => setPurchaseOpen(true)}
+                    accessibilityLabel="Kalan süre · süre ekle"
+                  >
                     <View style={[styles.timeDot, remainingMs < 24 * 3600000 && styles.timeDotWarn]} />
                     <Text style={[styles.timeText, remainingMs < 24 * 3600000 && styles.timeTextWarn]}>{formatRemaining(remainingMs)} kaldı</Text>
-                  </View>
+                    <Text style={styles.timeAdd}>＋ Süre ekle</Text>
+                  </Pressable>
                 )}
                 {showRecents && (
                   <View style={styles.results}>
@@ -1449,21 +1457,30 @@ function AppScreen() {
           onClose={() => setSettingsOpen(false)}
           onSave={saveSettings}
           onLogout={logout}
+          onBuy={() => {
+            setSettingsOpen(false);
+            setPurchaseOpen(true);
+          }}
         />
 
-        {isOwner && (
-          <MembersSheet
-            visible={membersOpen}
+        {isOwner && <MembersSheet visible={membersOpen} api={api} onClose={() => setMembersOpen(false)} showToast={showToast} />}
+
+        {/* Üyenin süresi bittiyse: rota alınamaz, paket satın alma ekranı açılır (devam eden seyir yarıda kesilmez). */}
+        {expired && !navigating && (
+          <PurchaseScreen expired user={user} api={api} demo={demo} onPurchased={refreshMe} onLogout={logout} />
+        )}
+        {isMember && !expired && purchaseOpen && (
+          <PurchaseScreen
+            user={user}
             api={api}
-            settings={session.settings}
-            onSettingsSaved={(saved) => setSession((s) => ({ ...s, settings: saved }))}
-            onClose={() => setMembersOpen(false)}
-            showToast={showToast}
+            demo={demo}
+            onPurchased={async () => {
+              await refreshMe();
+              showToast('Süreniz eklendi.');
+            }}
+            onClose={() => setPurchaseOpen(false)}
           />
         )}
-
-        {/* Üyenin süresi bittiyse: rota alınamaz, ödeme bilgisi gösterilir (devam eden seyir yarıda kesilmez). */}
-        {expired && !navigating && <ExpiredScreen user={user} settings={session.settings} onRefresh={refreshMe} onLogout={logout} />}
       </View>
     </NightContext.Provider>
   );
@@ -1807,6 +1824,7 @@ const baseStyles = StyleSheet.create({
   timeDotWarn: { backgroundColor: '#f08c00' },
   timeText: { fontSize: 12.5, fontWeight: '700', color: '#1c1c1e' },
   timeTextWarn: { color: '#8a5a00' },
+  timeAdd: { fontSize: 12.5, fontWeight: '700', color: '#0a66d8', marginLeft: 4 },
   noEntrySign: {
     width: 28,
     height: 28,

@@ -62,13 +62,12 @@ export function createApi(baseUrl, token) {
     toggleZoneSegment: (id, { lat, lon }) => request(`/api/zones/${id}/toggle-segment`, { method: 'POST', body: { lat, lon } }),
     renameZone: (id, name) => request(`/api/zones/${id}`, { method: 'PATCH', body: { name } }),
 
-    // Üyeler, yöneticiler ve ödeme bilgisi (yalnızca sahip)
+    // Üyeler ve yöneticiler (yalnızca sahip)
     users: (role) => request(`/api/users?role=${role}`),
     createUser: ({ name, email, phone, role }) => request('/api/users', { method: 'POST', body: { name, email, phone, role } }),
     extendUser: (id, days) => request(`/api/users/${id}/extend`, { method: 'POST', body: { days } }),
     expireUser: (id) => request(`/api/users/${id}/expire`, { method: 'POST' }),
     resetPassword: (id) => request(`/api/users/${id}/reset-password`, { method: 'POST' }),
     deleteUser: (id) => request(`/api/users/${id}`, { method: 'DELETE' }),
-    updateSettings: (patch) => request('/api/settings', { method: 'PUT', body: patch }),
   };
 }

@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto';
 import express from 'express';
 import { fileURLToPath } from 'node:url';
 import { ValhallaError } from './valhalla.js';
@@ -5,7 +6,7 @@ import { decodePolyline } from './geo.js';
 import { adjustedTime, trafficPeriod } from './traffic.js';
 import { fixStreetSuffixes } from './turkish.js';
 import { ClosureStore } from './closures.js';
-import { UserError, normalizeEmail, normalizePhone } from './users.js';
+import { PRODUCTS, UserError, normalizeEmail, normalizePhone } from './users.js';
 
 // İstanbul il sınırını kabaca kapsayan kutu (indirme betiğiyle aynı).
 export const ISTANBUL_BBOX = { minLon: 27.95, minLat: 40.78, maxLon: 29.95, maxLat: 41.6 };
@@ -196,6 +197,7 @@ export function createApp({
   mailer = { configured: false, sendLoginCode: async () => {} },
   nominatimUrl = 'https://nominatim.openstreetmap.org',
   now = () => Date.now(),
+  revenuecat = { webhookAuth: null, allowSandbox: false },
 }) {
   const app = express();
   app.use(express.json({ limit: '100kb' }));
@@ -260,7 +262,7 @@ export function createApp({
   app.post('/api/auth/email-login', (req, res, next) => {
     try {
       const result = users.loginWithEmailCode(req.body.email, req.body.code);
-      res.json({ ...result, settings: users.settings });
+      res.json(result);
     } catch (err) {
       next(err);
     }
@@ -277,7 +279,7 @@ export function createApp({
       limiter.check(phone, req.ip);
       const result = users.login(req.body.phone, req.body.password);
       limiter.success(phone);
-      res.json({ ...result, settings: users.settings });
+      res.json(result);
     } catch (err) {
       if (err instanceof UserError && err.status === 401) limiter.fail(phone, req.ip);
       next(err);
@@ -286,7 +288,7 @@ export function createApp({
 
   app.get('/api/auth/me', (req, res) => {
     if (!req.user) return res.status(401).json({ error: 'Oturum açın', code: 'auth' });
-    res.json({ user: users.view(req.user), settings: users.settings });
+    res.json({ user: users.view(req.user) });
   });
 
   app.post('/api/auth/logout', (req, res) => {
@@ -298,6 +300,43 @@ export function createApp({
     try {
       if (!req.user) throw new UserError(401, 'Oturum açın', 'auth');
       res.json({ user: users.changePassword(req.user.id, req.body.newPassword) });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // --- Mağaza satın alımları ---
+  // Ödeme App Store / Google Play'de alınır; RevenueCat satın alımı doğrulayıp bu adrese bildirir.
+  // Uygulama RevenueCat'e kullanıcıyı bizim kullanıcı kimliğimizle (app_user_id) tanıtır.
+  // Bildirim, RevenueCat panelinde girilen gizli anahtarla (Authorization başlığı) gelmelidir.
+  app.get('/api/products', (req, res) => {
+    res.json({ products: Object.entries(PRODUCTS).map(([id, days]) => ({ id, days })) });
+  });
+
+  app.post('/api/webhooks/revenuecat', (req, res, next) => {
+    try {
+      const expected = revenuecat.webhookAuth;
+      if (!expected) return res.status(503).json({ error: 'Satın alma bildirimi ayarlı değil' });
+      const got = req.get('authorization') ?? '';
+      const a = Buffer.from(got);
+      const b = Buffer.from(`Bearer ${expected}`);
+      if (a.length !== b.length || !timingSafeEqual(a, b)) return res.status(401).json({ error: 'Yetkisiz' });
+      const event = req.body?.event ?? {};
+      // Mağazanın deneme (sandbox) satın alımları yalnızca açıkça izin verilirse süre ekler.
+      if (event.environment === 'SANDBOX' && !revenuecat.allowSandbox) return res.json({ ignored: 'sandbox' });
+      const userId = event.app_user_id;
+      const transactionId = event.transaction_id ?? event.id;
+      if (event.type === 'NON_RENEWING_PURCHASE') {
+        if (!PRODUCTS[event.product_id]) return res.json({ ignored: 'unknown-product' });
+        const r = users.applyPurchase({ userId, productId: event.product_id, transactionId, store: event.store ?? null });
+        return res.json(r ? { applied: r.applied } : { ignored: 'unknown-user' });
+      }
+      if (event.type === 'CANCELLATION') {
+        // Tek seferlik ürünlerde CANCELLATION = iade.
+        const r = users.refundPurchase({ userId, transactionId });
+        return res.json(r ? { refunded: true } : { ignored: 'unknown-purchase' });
+      }
+      res.json({ ignored: event.type ?? 'unknown' });
     } catch (err) {
       next(err);
     }
@@ -323,11 +362,6 @@ export function createApp({
   app.post('/api/users/:id/expire', ...owner, userAction((req) => ({ user: users.expire(req.params.id) })));
   app.post('/api/users/:id/reset-password', ...owner, userAction((req) => users.resetPassword(req.params.id)));
   app.delete('/api/users/:id', ...owner, userAction((req) => ({ user: users.remove(req.params.id) })));
-  app.get('/api/settings', (req, res) => {
-    if (!req.user) return res.status(401).json({ error: 'Oturum açın', code: 'auth' });
-    res.json({ settings: users.settings });
-  });
-  app.put('/api/settings', ...owner, userAction((req) => ({ settings: users.updateSettings(req.body ?? {}) })));
 
   app.get('/api/health', async (req, res) => {
     let valhallaStatus = null;

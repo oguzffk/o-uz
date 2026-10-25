@@ -86,7 +86,6 @@
     .issued { background: #f2f7ff; border: 1px solid #c7d8f3; border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; max-width: 520px; }
     .issued b.pw { font-size: 22px; letter-spacing: 3px; }
     .addform { display: flex; gap: 8px; margin-bottom: 12px; max-width: 620px; }
-    .payform { max-width: 520px; display: grid; gap: 8px; }
     .noentry { width: 22px; height: 22px; border-radius: 50%; background: var(--red); border: 2.5px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.4); display: flex; align-items: center; justify-content: center; box-sizing: border-box; cursor: pointer; }
     .noentry::after { content: ''; width: 10px; height: 3.5px; background: #fff; border-radius: 1px; }
     @media (max-width: 700px) { body { grid-template-columns: 1fr; grid-template-rows: auto 45vh; } aside { max-height: 55vh; } }
@@ -129,7 +128,6 @@
         <button data-tab="roads" class="on">Yollar</button>
         <button data-tab="member">Üyeler</button>
         <button data-tab="admin">Yöneticiler</button>
-        <button data-tab="payment">Ödeme</button>
       </div>
       <div class="modes">
         <button id="mode-close" class="on">Yol kapat / aç</button>
@@ -561,7 +559,7 @@
       }
     })();
 
-    // --- Üyeler / yöneticiler / ödeme (yalnızca sahip) ---
+    // --- Üyeler / yöneticiler (yalnızca sahip). Ödemeler App Store / Google Play'den alınır. ---
     const manage = document.getElementById('manage');
     let tab = 'roads';
     let issued = null; // { user, tempPassword, reset }
@@ -577,9 +575,9 @@
       document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === t));
       manage.classList.toggle('show', t !== 'roads');
       if (t === 'member' || t === 'admin') loadUsers();
-      if (t === 'payment') renderPayment();
       if (t === 'roads') setTimeout(() => map.invalidateSize(), 0);
     }
+    const PLAN_LABELS = { hermap_1gun: '1 gün', hermap_3gun: '3 gün', hermap_1hafta: '1 hafta' };
     const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
     const fmtPhone = (p) => (p ?? '').replace(/^(\d{4})(\d{3})(\d{2})(\d{2})$/, '$1 $2 $3 $4');
     function remaining(u) {
@@ -631,16 +629,16 @@
         </form>
         ${isMember ? '' : '<p style="color:#6e6e73;margin:0 0 10px">Yöneticiler yalnızca yol kapatıp açar ve gruplara erişir; üyeleri göremez, süre veremez.</p>'}
         <div class="mtools"><input id="q" placeholder="Ad veya telefon ara" value="${esc(query)}" /></div>
-        <table class="users"><thead><tr><th>Ad soyad</th><th>E-posta</th><th>Telefon</th>${isMember ? '<th>Kalan süre</th>' : ''}<th>Son giriş</th><th></th></tr></thead><tbody>
+        <table class="users"><thead><tr><th>Ad soyad</th><th>E-posta</th><th>Telefon</th>${isMember ? '<th>Kalan süre</th><th>Son satın alma</th>' : ''}<th>Son giriş</th><th></th></tr></thead><tbody>
         ${list.map((u) => {
           const [rt, tone] = remaining(u);
           const confirmBtn = (act, label, danger) => `<button class="btn ${danger ? 'danger' : 'ghost'} ${armed === u.id + ':' + act ? 'armed' : ''}" data-act="${act}" data-id="${u.id}">${armed === u.id + ':' + act ? 'Emin misiniz?' : label}</button>`;
           return `<tr><td><b>${esc(u.name)}</b></td><td>${esc(u.email ?? '—')}</td><td>${fmtPhone(u.phone) || '—'}</td>
-            ${isMember ? `<td><span class="pill ${tone}">${rt}</span></td>` : ''}
+            ${isMember ? `<td><span class="pill ${tone}">${rt}</span></td><td style="color:#6e6e73">${u.lastPurchase ? `${PLAN_LABELS[u.lastPurchase.productId] ?? esc(u.lastPurchase.productId)} · ${new Date(u.lastPurchase.at).toLocaleDateString('tr-TR')}` : '—'}</td>` : ''}
             <td style="color:#6e6e73">${u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString('tr-TR') : '—'}</td>
             <td class="acts">${isMember ? `<button class="btn days" data-act="extend" data-days="1" data-id="${u.id}">+1 gün</button><button class="btn days" data-act="extend" data-days="3" data-id="${u.id}">+3 gün</button><button class="btn days" data-act="extend" data-days="7" data-id="${u.id}">+1 hafta</button>${tone === 'ok' || tone === 'warn' ? confirmBtn('expire', 'Süreyi bitir', true) : ''}` : ''}
             ${isMember ? '' : confirmBtn('reset', 'Şifre sıfırla')}${confirmBtn('delete', 'Sil', true)}</td></tr>`;
-        }).join('') || `<tr><td colspan="6" style="color:#6e6e73">${query ? 'Eşleşen kişi yok.' : 'Henüz kimse yok.'}</td></tr>`}
+        }).join('') || `<tr><td colspan="7" style="color:#6e6e73">${query ? 'Eşleşen kişi yok.' : 'Henüz kimse yok.'}</td></tr>`}
         </tbody></table>`;
       const qInput = manage.querySelector('#q');
       qInput.addEventListener('input', () => { query = qInput.value; renderUsers(); manage.querySelector('#q').focus(); manage.querySelector('#q').setSelectionRange(query.length, query.length); });
@@ -674,30 +672,6 @@
         if (r) { issued = { ...r, reset: true }; renderUsers(); }
       }
     });
-    async function renderPayment() {
-      let st = {};
-      try { st = (await api('/api/settings')).settings; } catch (err) { setStatus(err.message, true); }
-      manage.innerHTML = `<h3>Ödeme bilgisi</h3><p style="color:#6e6e73;margin-top:0">Süresi biten üyenin uygulamasında görünür.</p>
-        <form class="payform" id="payform">
-          <label>Alıcı adı<input name="accountName" value="${esc(st.accountName)}" /></label>
-          <label>IBAN<input name="iban" value="${esc(st.iban)}" /></label>
-          <label>WhatsApp numarası<input name="whatsapp" value="${esc(st.whatsapp)}" placeholder="0532 123 45 67" /></label>
-          <div style="display:flex;gap:8px">
-            <label style="flex:1">1 gün<input name="day1" value="${esc(st.prices?.day1)}" /></label>
-            <label style="flex:1">3 gün<input name="day3" value="${esc(st.prices?.day3)}" /></label>
-            <label style="flex:1">1 hafta<input name="week1" value="${esc(st.prices?.week1)}" /></label>
-          </div>
-          <button class="btn" type="submit" style="justify-self:start">Kaydet</button>
-        </form>`;
-      manage.querySelector('#payform').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const f = new FormData(e.target);
-        try {
-          await api('/api/settings', { method: 'PUT', body: JSON.stringify({ accountName: f.get('accountName'), iban: f.get('iban'), whatsapp: f.get('whatsapp'), prices: { day1: f.get('day1'), day3: f.get('day3'), week1: f.get('week1') } }) });
-          setStatus('Ödeme bilgisi kaydedildi.');
-        } catch (err) { setStatus(err.message, true); }
-      });
-    }
   </script>
 </body>
 </html>

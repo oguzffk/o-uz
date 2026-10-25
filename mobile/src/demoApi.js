@@ -138,8 +138,8 @@ const USERS_KEY = 'demo-users-v1';
 const DAY_MS = 24 * 60 * 60 * 1000;
 export const DEMO_OWNER = { phone: '05000000000', password: 'hermap', email: 'sahip@hermap.demo' };
 const CODE_TTL_MS = 10 * 60 * 1000;
-const DEFAULT_SETTINGS = { iban: '', accountName: '', whatsapp: '', prices: { day1: '119,99 TL', day3: '299,99 TL', week1: '559,99 TL' } };
-let usersState = null; // { users, settings } — tüm demo API örnekleri aynı listeyi kullanır
+const DEMO_PRODUCTS = { hermap_1gun: 1, hermap_3gun: 3, hermap_1hafta: 7 };
+let usersState = null; // { users } — tüm demo API örnekleri aynı listeyi kullanır
 
 const demoHash = (salt, password) => idForShape(`${salt}:${password}`) + idForShape(`${password}:${salt}`);
 const randomToken = () => Array.from({ length: 4 }, () => Math.random().toString(36).slice(2)).join('');
@@ -187,7 +187,6 @@ async function loadUsers() {
           createdAt: new Date().toISOString(),
         },
       ],
-      settings: DEFAULT_SETTINGS,
     };
     await saveUsers();
   }
@@ -210,6 +209,7 @@ const viewUser = (u) => ({
   active: isActive(u),
   createdAt: u.createdAt,
   lastLoginAt: u.lastLoginAt ?? null,
+  lastPurchase: u.purchases?.at(-1) ?? null,
 });
 
 export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL, token = null) {
@@ -237,7 +237,7 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL, token = null) {
     u.sessionVia = via;
     u.lastLoginAt = new Date().toISOString();
     await saveUsers();
-    return { token: u.session, user: viewUser(u), settings: usersState.settings };
+    return { token: u.session, user: viewUser(u) };
   }
   async function userById(id) {
     await requireRole('owner');
@@ -597,7 +597,7 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL, token = null) {
     async me() {
       const u = await currentUser();
       if (!u) throw new ApiError('Oturum açın', 401, 'auth');
-      return { user: viewUser(u), settings: usersState.settings };
+      return { user: viewUser(u) };
     },
     async logout() {
       const u = await currentUser();
@@ -690,18 +690,17 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL, token = null) {
       await saveUsers();
       return { user: viewUser(u) };
     },
-    async updateSettings(patch) {
-      await requireRole('owner');
-      const s = usersState.settings;
-      const str = (v, max) => String(v ?? '').trim().slice(0, max);
-      if (patch.iban !== undefined) s.iban = str(patch.iban, 40);
-      if (patch.accountName !== undefined) s.accountName = str(patch.accountName, 80);
-      if (patch.whatsapp !== undefined) s.whatsapp = patch.whatsapp ? normalizePhone(patch.whatsapp) : '';
-      for (const k of Object.keys(DEFAULT_SETTINGS.prices)) {
-        if (patch.prices?.[k] !== undefined) s.prices[k] = str(patch.prices[k], 20);
-      }
+    // Demo satın alma: gerçek ödeme yok; paket günü kadar süre bu telefonda eklenir (sunucudaki
+    // mağaza bildiriminin yaptığının aynısı).
+    async purchase(productId) {
+      const u = await currentUser();
+      if (!u) throw new ApiError('Oturum açın', 401, 'auth');
+      const days = DEMO_PRODUCTS[productId];
+      if (!days) throw new ApiError('Bilinmeyen paket', 400);
+      u.expiresAt = Math.max(Date.now(), u.expiresAt ?? 0) + days * DAY_MS;
+      u.purchases = [...(u.purchases ?? []), { transactionId: randomToken(), productId, days, store: 'DEMO', at: new Date().toISOString() }];
       await saveUsers();
-      return { settings: s };
+      return { user: viewUser(u) };
     },
   };
 }

@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   Image,
   KeyboardAvoidingView,
-  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -312,71 +311,6 @@ export function ChangePasswordScreen({ user, onSubmit, onLogout }) {
   );
 }
 
-const PLANS = [
-  ['day1', '1 gün'],
-  ['day3', '3 gün'],
-  ['week1', '1 hafta'],
-];
-
-/** Üyenin süresi bitince haritanın üstünde açılır; rota alınamaz. */
-export function ExpiredScreen({ user, settings, onRefresh, onLogout }) {
-  const [checking, setChecking] = useState(false);
-  const s = settings ?? {};
-  const prices = s.prices ?? {};
-  const whatsapp = s.whatsapp ? `90${s.whatsapp.slice(1)}` : null;
-  const message = `Merhaba, HERMAP kullanım sürem doldu. Süre yenilemek istiyorum. (${[user.name, user.email, user.phone].filter(Boolean).join(' · ')})`;
-
-  const refresh = async () => {
-    setChecking(true);
-    try {
-      await onRefresh();
-    } finally {
-      setChecking(false);
-    }
-  };
-
-  return (
-    <View style={styles.expiredBackdrop}>
-      <View style={[styles.card, styles.expiredCard]}>
-        <View style={styles.expiredIcon}>
-          <Text style={{ fontSize: 24 }}>⏱️</Text>
-        </View>
-        <Text style={styles.title}>Kullanım süreniz doldu</Text>
-        <Text style={styles.subtitle}>Navigasyona devam etmek için süre yenileyin. Ödemenizden sonra süreniz tanımlanır.</Text>
-        <View style={styles.plans}>
-          {PLANS.map(([key, label], i) => (
-            <View key={key} style={[styles.plan, i === 2 && styles.planBest]}>
-              <Text style={[styles.planLabel, i === 2 && styles.planLabelBest]}>{label}</Text>
-              <Text style={styles.planPrice}>{prices[key]}</Text>
-            </View>
-          ))}
-        </View>
-        {!!(s.iban || s.accountName) && (
-          <View style={styles.payBox}>
-            {!!s.accountName && <Text style={styles.payText}>Alıcı: {s.accountName}</Text>}
-            {!!s.iban && <Text style={styles.payText} selectable>IBAN: {s.iban}</Text>}
-            <Text style={styles.payText}>Açıklamaya e-posta adresinizi yazın.</Text>
-          </View>
-        )}
-        {whatsapp && (
-          <Pressable
-            style={[styles.button, { backgroundColor: '#25d366' }]}
-            onPress={() => Linking.openURL(`https://wa.me/${whatsapp}?text=${encodeURIComponent(message)}`)}
-          >
-            <Text style={styles.buttonText}>WhatsApp ile yaz</Text>
-          </Pressable>
-        )}
-        <Pressable style={[styles.button, styles.secondary]} onPress={refresh} disabled={checking}>
-          {checking ? <ActivityIndicator /> : <Text style={styles.secondaryText}>Ödedim, tekrar kontrol et</Text>}
-        </Pressable>
-        <Pressable onPress={onLogout} hitSlop={8}>
-          <Text style={styles.link}>Çıkış yap</Text>
-        </Pressable>
-      </View>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#1c1c1e' },
   street: { position: 'absolute', backgroundColor: '#fff' },
@@ -443,23 +377,4 @@ const styles = StyleSheet.create({
   linkRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 12 },
   linkSmall: { color: '#0a66d8', fontSize: 13.5, fontWeight: '600' },
   linkDisabled: { color: '#8e8e93' },
-  expiredBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end', padding: 12, paddingBottom: 28 },
-  expiredCard: { gap: 2 },
-  expiredIcon: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: '#fde7e9',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 10,
-  },
-  plans: { flexDirection: 'row', gap: 8, marginBottom: 12 },
-  plan: { flex: 1, borderWidth: 1.5, borderColor: '#d1d1d6', borderRadius: 12, paddingVertical: 9, alignItems: 'center' },
-  planBest: { borderColor: '#0a66d8', backgroundColor: '#eef4fd' },
-  planLabel: { fontWeight: '800', fontSize: 15, color: '#1c1c1e' },
-  planLabelBest: { color: '#0a66d8' },
-  planPrice: { fontSize: 12, color: '#3a3a3c', marginTop: 2 },
-  payBox: { backgroundColor: '#f2f2f7', borderRadius: 10, padding: 10, marginBottom: 4, gap: 2 },
-  payText: { fontSize: 13, color: '#3a3a3c' },
 });

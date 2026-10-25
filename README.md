@@ -115,10 +115,9 @@ Rota motoru (Valhalla, 8002) yalnızca bu bilgisayardan erişilebilir; dışarı
 
 Tarayıcıda **http://localhost:3000/admin/** açın, e-posta adresinize gelen kodla girin (yedek: telefon + şifre; üyeler bu panele giremez):
 
-- **Sahip:** Üstte **Yollar · Üyeler · Yöneticiler · Ödeme** sekmeleri.
-  - **Üyeler:** **＋ Üye ekle** (ad + **e-posta**, telefon isteğe bağlı). Üyenin şifresi yoktur: uygulamada e-postasını yazıp gelen kodla girer; **WhatsApp'a gönder** (telefon varsa) ya da **Mesajı kopyala** ile haber verilir. Her üyede **+1 gün / +3 gün / +1 hafta** (süre devam ediyorsa üstüne eklenir), **Süreyi bitir**, **Sil**.
+- **Sahip:** Üstte **Yollar · Üyeler · Yöneticiler** sekmeleri.
+  - **Üyeler:** **＋ Üye ekle** (ad + **e-posta**, telefon isteğe bağlı). Üyenin şifresi yoktur: uygulamada e-postasını yazıp gelen kodla girer; **WhatsApp'a gönder** (telefon varsa) ya da **Mesajı kopyala** ile haber verilir. Listede kalan süre ve mağazadan **son satın alma** görünür. Her üyede elle **+1 gün / +3 gün / +1 hafta** (hediye, telafi vb.; süre devam ediyorsa üstüne eklenir), **Süreyi bitir**, **Sil**.
   - **Yöneticiler:** Ekle (ad + e-posta + telefon; yedek giriş için 6 haneli geçici şifre verilir, ilk şifreli girişte değiştirilir) / şifre sıfırla / sil. Yöneticiler üye listesini göremez, süre veremez.
-  - **Ödeme:** Alıcı adı, IBAN, WhatsApp numarası ve fiyatlar — süresi biten üyenin ekranında görünür.
 - **Yönetici:** Yalnızca yollar ve gruplar:
 
 - **Yol kapat / aç:** Bir sokağa tıklayın → iki kavşak arasındaki o segment kırmızı-beyaz şerit ve girilmez levhasıyla kapanır. Şeride ya da levhaya tekrar tıklamak (veya listedeki **Aç**) yolu açar.
@@ -141,7 +140,8 @@ Telefonda Expo Go ile QR kodu okutun. Giriş ekranının altındaki **Sunucu: �
 | İşlem | Nasıl |
 | --- | --- |
 | Giriş | E-posta → **Kod gönder** → e-postaya gelen 6 haneli kod (10 dakika geçerli, 5 deneme; yeni kod için 1 dakika beklenir, saatte en fazla 5 kod). Kayıtlı olmayan adrese kod gitmez ama ekran aynıdır (kimin üye olduğu anlaşılmaz). Sahip ve yöneticiler için **Telefon ve şifreyle giriş** yedektir; geçici şifreyle girene önce kendi şifresini belirletir. Oturum telefonun güvenli kasasında saklanır; **bir hesap aynı anda tek telefonda açıktır** (başka telefonda giriş yapılınca eskisinin oturumu kapanır). Çıkış: ⚙︎ **Ayarlar → Çıkış yap** |
-| Roller | **Üye:** yalnızca navigasyon (girişte şifre sorulmaz); arama kutusunun altında **kalan süre** (son 24 saatte turuncu). Süre bitince rota alınamaz, **Kullanım süreniz doldu** ekranı fiyatları, IBAN'ı ve **WhatsApp ile yaz** düğmesini gösterir (devam eden seyir yarıda kesilmez). **Yönetici:** + Yol kapat ve Gruplar. **Sahip:** + **👥 Üyeler** (üyeler, yöneticiler, ödeme bilgisi; web panelindekiyle aynı işlemler) |
+| Roller | **Üye:** yalnızca navigasyon (girişte şifre sorulmaz); arama kutusunun altında **kalan süre** (son 24 saatte turuncu). Süre bitince rota alınamaz ve **Kullanım süreniz doldu** ekranında paket seçilip **App Store / Google Play ile satın al**ınır (devam eden seyir yarıda kesilmez). Süre bitmeden de kalan süre rozetine ya da ⚙︎ **Ayarlar → Süre satın al**'a dokunarak paket alınır; yeni süre kalanın üstüne eklenir. **Yönetici:** + Yol kapat ve Gruplar. **Sahip:** + **👥 Üyeler** (üyeler ve yöneticiler; web panelindekiyle aynı işlemler) |
+| Süre paketleri | **1 gün 119,99 TL · 3 gün 299,99 TL · 1 hafta 559,99 TL**. Ödeme App Store / Google Play'den alınır (otomatik yenilenmez); fiyatlar mağazadan gelir. Satın alma yalnızca uygulamanın mağaza / APK sürümünde çalışır, Expo Go'da çalışmaz. **Demo modunda** "Satın al (demo)" ile gerçek ödeme olmadan süre eklenir |
 | Nereden / Nereye | Üstteki iki kutu. **Nereden** varsayılan olarak **Konumum**; başka bir yer de aranabilir (listenin başında "Konumum" seçeneği). **⇅** ikisini yer değiştirir. Haritada **basılı tutmak** varışı seçer |
 | Ara durak | Rota çizilince kartın altındaki **＋ Ara durak ekle** (en fazla 3). Durak aranır ya da haritada basılı tutularak seçilir; **✕** kaldırır, sağdaki **≡** tutamağından sürükleyerek sırası değiştirilir (rota yeni sırayla yeniden hesaplanır), **⇅** durakların sırasını da ters çevirir. Duraklı rotada alternatif rota verilmez. Alt paneldeki süre, mesafe ve varış saati sıradaki durağa göredir ("1. DURAĞA · Market"); durak geçilince bir sonrakine, duraklar bitince hedefe geçer. Seyirde durağa yaklaşınca "1. ara durağa varmak üzeresiniz" denir; geçilen duraklar yeniden rota hesaplanırken atlanır |
 | Son aramalar | Bir kutuya dokununca (yazmadan) son seçilen yerler listelenir; cihazda saklanır, **Temizle** ile silinir |
@@ -159,6 +159,20 @@ Telefonda Expo Go ile QR kodu okutun. Giriş ekranının altındaki **Sunucu: �
 
 Telefon İstanbul dışındaysa (ör. emülatör) ilk basılı tutma **başlangıç**, ikincisi **varış** noktasını seçer; böylece rota önizlemesini her yerden deneyebilirsiniz.
 
+## Mağaza ödemeleri (App Store / Google Play)
+
+Ödeme mağazalarda alınır; **RevenueCat** (aylık 2.500 $ gelire kadar ücretsiz) satın alımı doğrular ve sunucuya bildirir, sunucu üyenin süresini uzatır. Kurulum (bir kez):
+
+1. **Ürünler** (kimlikler üç yerde de aynı olmalı):
+   - **App Store Connect → Uygulama içi satın alımlar:** tür **Non-Renewing Subscription**; `hermap_1gun` (119,99 TL), `hermap_3gun` (299,99 TL), `hermap_1hafta` (559,99 TL).
+   - **Google Play Console → Ürünler → Uygulama içi ürünler:** aynı kimlik ve fiyatlarla tek seferlik (tüketilebilir) ürün.
+   - Apple'da **Small Business Program**'a başvurun (komisyon %30 yerine %15).
+2. **RevenueCat:** proje açın, iOS ve Android uygulamasını bağlayın, üç ürünü içe aktarın. **Integrations → Webhooks:** adres `https://alanadiniz/api/webhooks/revenuecat`, **Authorization header** olarak uzun rastgele bir değer girin.
+3. **Sunucu `.env`:** `REVENUECAT_WEBHOOK_AUTH=<o değer>` (mağaza test hesaplarıyla denerken geçici olarak `REVENUECAT_ALLOW_SANDBOX=1`).
+4. **Uygulama (EAS ortam değişkeni):** RevenueCat'in **herkese açık** uygulama anahtarları `EXPO_PUBLIC_REVENUECAT_ANDROID_KEY` ve `EXPO_PUBLIC_REVENUECAT_IOS_KEY`.
+
+Uygulama RevenueCat'e kullanıcıyı sunucudaki kullanıcı kimliğiyle tanıtır; böylece satın alınan süre o hesaba yazılır ve aynı hesapla girilen her telefonda geçerlidir.
+
 ## API
 
 | Uç nokta | Açıklama |
@@ -175,14 +189,15 @@ Telefon İstanbul dışındaysa (ör. emülatör) ilk basılı tutma **başlang�
 | `POST /api/closures/open-all` 🔒 | Tüm yolları trafiğe açar: kaydedilmemiş kapatmalar silinir, gruplar silinmez ama açılır |
 | `GET /api/search?q=` | İstanbul ile sınırlı adres arama (Nominatim) |
 | `POST /api/auth/email-code` `{email}` | Kayıtlı adrese 6 haneli giriş kodu gönderir (adres kayıtlı olmasa da cevap aynı). Aynı adrese dakikada 1, saatte 5; aynı IP'den saatte 30 istek |
-| `POST /api/auth/email-login` `{email, code}` | Kod doğruysa oturum açar: `{token, user, settings}`. Kod 10 dakika ve 5 deneme geçerli, tek kullanımlık. Aynı hesabın önceki oturumu kapanır |
+| `POST /api/auth/email-login` `{email, code}` | Kod doğruysa oturum açar: `{token, user}`. Kod 10 dakika ve 5 deneme geçerli, tek kullanımlık. Aynı hesabın önceki oturumu kapanır |
 | `POST /api/auth/login` `{phone, password}` | Yedek giriş (yalnızca sahip ve yönetici). Aynı telefona 5, aynı IP'den 20 hatalı denemede 15 dakika kilit |
 | `GET /api/auth/me` · `POST /api/auth/logout` · `POST /api/auth/password` `{newPassword}` | Oturum bilgisi (kalan süre dahil), çıkış, şifre değiştirme (en az 6 karakter) |
 | `GET /api/users?role=member\|admin` 👑 | Üyeler ya da yöneticiler (şifre özeti ve oturum dönmez) |
 | `POST /api/users` `{name, email, phone, role}` 👑 | Üye (`member`: e-posta zorunlu, telefon isteğe bağlı, şifre yok) ya da yönetici (`admin`: e-posta + telefon, 6 haneli yedek geçici şifre döner) ekler |
 | `POST /api/users/:id/extend` `{days: 1\|3\|7}` 👑 · `POST /api/users/:id/expire` 👑 | Üyeye süre ekler (devam eden sürenin üstüne) · süreyi hemen bitirir |
 | `POST /api/users/:id/reset-password` 👑 · `DELETE /api/users/:id` 👑 | Yöneticiye yeni geçici şifre (açık oturum kapanır) · siler (sahip silinemez) |
-| `GET /api/settings` · `PUT /api/settings` 👑 | Ödeme bilgisi: `iban`, `accountName`, `whatsapp`, `prices` |
+| `GET /api/products` | Süre paketleri: `hermap_1gun` (1), `hermap_3gun` (3), `hermap_1hafta` (7 gün) |
+| `POST /api/webhooks/revenuecat` | RevenueCat bildirimi (`Authorization: Bearer <REVENUECAT_WEBHOOK_AUTH>`). `NON_RENEWING_PURCHASE` üyenin süresine paketin günlerini ekler (aynı işlem bir kez sayılır), `CANCELLATION` (iade) geri alır. Mağazanın deneme (sandbox) satın alımları yalnızca `REVENUECAT_ALLOW_SANDBOX=1` iken sayılır |
 
 Oturum `Authorization: Bearer <token>` başlığıyla gönderilir. Rota, arama ve kapalı yol listesi için giriş yapmış, şifresini belirlemiş ve (üyeyse) süresi devam eden bir hesap gerekir; süresi biten üyeye `402 {code: "expired"}` döner. 🔒 = sahip ya da yönetici, 👑 = yalnızca sahip.
 
@@ -197,7 +212,7 @@ cd server && npm test
 - **Kapatma birimi** iki kavşak arası segmenttir. Uzun bir caddeyi kapatmak için birkaç segmente dokunmak gerekir. Sonraki adım: "tüm caddeyi kapat" (aynı OSM `way_id`'ye sahip segmentler) ve süreli / zamanlanmış kapatmalar (ör. grubu her pazar 08:00–14:00 kapat).
 - **Kapatma sayısı:** Valhalla'nın varsayılan `max_exclude_polygons_length` (10 km) sınırıyla yaklaşık 2.500 eşzamanlı kapalı segment desteklenir; daha fazlası için Valhalla yapılandırmasında bu sınır artırılmalı.
 - **Kapatmalar** `server/data/closures.json` dosyasında tutulur; çok sunuculu kurulumda PostgreSQL/Redis'e taşınmalı.
-- **Hesaplar** `server/data/users.json` dosyasında tutulur; yedeklenmesi gerekir (kapatmalar dosyasıyla birlikte). Ödeme otomatik değildir: üye havale/EFT ile öder, sahip süreyi panelden tanımlar.
+- **Hesaplar** `server/data/users.json` dosyasında tutulur; yedeklenmesi gerekir (kapatmalar dosyasıyla birlikte). Satın alma geçmişi de bu dosyadadır (`purchases`).
 - **Harita karoları ve arama** OpenStreetMap'in ücretsiz sunucularından gelir (`tile.openstreetmap.org`, Nominatim). Bunlar yoğun kullanım için değildir; yayına çıkmadan önce kendi karo sunucunuzu / ticari bir sağlayıcıyı ve kendi geocoder'ınızı kullanın.
 - **Canlı trafik verisi yok:** Süreler, İstanbul'un saate ve güne göre tipik yoğunluğuyla tahmin edilir (`server/src/traffic.js`: hafta içi 07–10 ve 17–20:30 yoğun saat; hızlı yollar en çok yavaşlar). Gerçek trafik için HERE/TomTom gibi bir kaynak eklenebilir.
 - Expo Go yerine kalıcı bir uygulama için `npx expo run:android|ios` veya EAS Build ile development build alın. Üretimde API HTTPS arkasında olmalı (iOS/Android düz HTTP'yi engeller).

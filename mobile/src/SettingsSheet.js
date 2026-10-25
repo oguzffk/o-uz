@@ -13,7 +13,7 @@ const BACKENDS = [
 ];
 
 // `user` yoksa (giriş ekranından açıldığında) yalnızca sunucu seçimi gösterilir.
-export default function SettingsSheet({ visible, settings, user, onClose, onSave, onLogout }) {
+export default function SettingsSheet({ visible, settings, user, onClose, onSave, onLogout, onBuy }) {
   const [draft, setDraft] = useState(settings);
   const set = (key) => (value) => setDraft((d) => ({ ...d, [key]: value }));
   const demo = draft.backend === 'demo';
@@ -33,9 +33,16 @@ export default function SettingsSheet({ visible, settings, user, onClose, onSave
                   {user.role === 'member' && user.expiresAt ? ` · ${formatRemaining(user.expiresAt - Date.now())}` : ''}
                 </Text>
               </View>
-              <Pressable style={styles.logout} onPress={onLogout}>
-                <Text style={styles.logoutText}>Çıkış yap</Text>
-              </Pressable>
+              <View style={{ gap: 6 }}>
+                {user.role === 'member' && (
+                  <Pressable style={styles.buy} onPress={onBuy}>
+                    <Text style={styles.buyText}>Süre satın al</Text>
+                  </Pressable>
+                )}
+                <Pressable style={styles.logout} onPress={onLogout}>
+                  <Text style={styles.logoutText}>Çıkış yap</Text>
+                </Pressable>
+              </View>
             </View>
           )}
 
@@ -124,7 +131,9 @@ const styles = StyleSheet.create({
   warn: { color: '#b35f00', fontSize: 12, marginTop: 6, fontWeight: '600' },
   account: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#f2f2f7', borderRadius: 12, padding: 12, marginBottom: 4 },
   logout: { borderWidth: 1, borderColor: '#f3c4c9', backgroundColor: '#fff5f6', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 },
-  logoutText: { color: '#b0000f', fontWeight: '700' },
+  logoutText: { color: '#b0000f', fontWeight: '700', textAlign: 'center' },
+  buy: { backgroundColor: '#0a66d8', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 },
+  buyText: { color: '#fff', fontWeight: '700', textAlign: 'center' },
   input: { borderWidth: 1, borderColor: '#d1d1d6', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 16 },
   segment: { flexDirection: 'row', backgroundColor: '#f2f2f7', borderRadius: 10, padding: 3 },
   segmentItem: { flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 8 },

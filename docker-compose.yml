@@ -37,6 +37,9 @@ services:
       - SMTP_USER=${SMTP_USER:-}
       - SMTP_PASS=${SMTP_PASS:-}
       - MAIL_FROM=${MAIL_FROM:-}
+      # Mağaza satın alımları: RevenueCat webhook'unun Authorization değeri
+      - REVENUECAT_WEBHOOK_AUTH=${REVENUECAT_WEBHOOK_AUTH:-}
+      - REVENUECAT_ALLOW_SANDBOX=${REVENUECAT_ALLOW_SANDBOX:-}
       - CLOSURES_FILE=/data/closures.json
       - USERS_FILE=/data/users.json
     volumes:

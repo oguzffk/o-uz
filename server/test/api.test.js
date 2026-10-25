@@ -34,7 +34,7 @@ function fakeValhalla() {
 
 // Her test kendi sunucusunu kurar: bir sahip ve bir yönetici hesabı açılır, istekler varsayılan
 // olarak yöneticinin oturumuyla gider (`token: null` oturumsuz, `token: x` başka oturum).
-async function withServer(fn, { now, mailer: customMailer } = {}) {
+async function withServer(fn, { now, mailer: customMailer, revenuecat = { webhookAuth: 'rc-gizli', allowSandbox: false } } = {}) {
   const valhalla = fakeValhalla();
   const dir = mkdtempSync(join(tmpdir(), 'nav-'));
   const store = new ClosureStore(join(dir, 'closures.json'));
@@ -42,7 +42,7 @@ async function withServer(fn, { now, mailer: customMailer } = {}) {
   const users = new UserStore(join(dir, 'users.json'), { now: now ?? (() => clock.t) });
   const mail = []; // gönderilen giriş kodları
   const mailer = customMailer ?? { configured: true, sendLoginCode: async (to, code) => mail.push({ to, code }) };
-  const app = createApp({ valhalla, store, users, mailer, now: now ?? (() => clock.t) });
+  const app = createApp({ valhalla, store, users, mailer, revenuecat, now: now ?? (() => clock.t) });
   const server = app.listen(0);
   const base = `http://localhost:${server.address().port}`;
   const raw = (path, { method = 'GET', body, token } = {}) =>
@@ -71,7 +71,7 @@ async function withServer(fn, { now, mailer: customMailer } = {}) {
     return raw('/api/auth/email-login', { method: 'POST', body: { email, code } });
   };
   try {
-    await fn({ req, valhalla, store, users, ownerToken, adminToken, clock, raw, mail, emailLogin });
+    await fn({ req, valhalla, store, users, ownerToken, adminToken, clock, raw, mail, emailLogin, base });
   } finally {
     server.close();
   }
@@ -660,20 +660,69 @@ test('şifre deneme sınırı: 5 hatalı denemeden sonra 15 dakika kilit', async
   });
 });
 
-test('ayarlar: ödeme bilgisini sahip değiştirir, herkes okur', async () => {
-  await withServer(async ({ raw, ownerToken, adminToken }) => {
-    const put = await raw('/api/settings', {
-      method: 'PUT',
-      token: ownerToken,
-      body: { iban: 'TR12 0006 4000 0011 2345 6789 01', accountName: 'Hermap', whatsapp: '0532 999 88 77', prices: { day1: '129,99 TL' } },
-    });
-    assert.equal(put.body.settings.whatsapp, '05329998877');
-    assert.equal(put.body.settings.prices.day1, '129,99 TL');
-    assert.equal(put.body.settings.prices.week1, '559,99 TL');
-    assert.equal((await raw('/api/settings', { method: 'PUT', token: adminToken, body: { iban: 'x' } })).status, 403);
-    assert.equal((await raw('/api/settings', { token: adminToken })).body.settings.accountName, 'Hermap');
-    assert.equal((await raw('/api/settings')).status, 401);
+// RevenueCat bildirimi: mağazada tamamlanan satın alım.
+const rcEvent = (event) => ({ api_version: '1.0', event: { environment: 'PRODUCTION', store: 'PLAY_STORE', ...event } });
+const rcPost = (raw, body, auth = 'Bearer rc-gizli') =>
+  fetch(raw.base + '/api/webhooks/revenuecat', { method: 'POST', headers: { 'content-type': 'application/json', authorization: auth }, body: JSON.stringify(body) }).then(
+    async (r) => ({ status: r.status, body: await r.json() }),
+  );
+
+test('mağaza satın alımı: paket günü kadar süre eklenir, aynı işlem iki kez sayılmaz, iade geri alır', async () => {
+  await withServer(async ({ raw, users, clock, emailLogin, base }) => {
+    raw.base = base;
+    const { user } = users.create({ name: 'Üye', email: 'uye@ornek.com' });
+    const t = (await emailLogin('uye@ornek.com')).body.token;
+    const route = async () => (await raw('/api/route', { method: 'POST', token: t, body: ROUTE_BODY })).status;
+    assert.equal(await route(), 402);
+    assert.deepEqual((await raw('/api/products')).body.products, [
+      { id: 'hermap_1gun', days: 1 },
+      { id: 'hermap_3gun', days: 3 },
+      { id: 'hermap_1hafta', days: 7 },
+    ]);
+
+    const buy = rcEvent({ type: 'NON_RENEWING_PURCHASE', app_user_id: user.id, product_id: 'hermap_3gun', transaction_id: 'GPA.1' });
+    assert.equal((await rcPost(raw, buy, 'Bearer yanlis')).status, 401);
+    assert.equal((await rcPost(raw, buy, '')).status, 401);
+    assert.deepEqual((await rcPost(raw, buy)).body, { applied: true });
+    assert.equal(users.get(user.id).expiresAt, clock.t + 3 * 86400000);
+    assert.equal(await route(), 200);
+    // RevenueCat aynı bildirimi tekrar gönderebilir: süre bir kez eklenir.
+    assert.deepEqual((await rcPost(raw, buy)).body, { applied: false });
+    assert.equal(users.get(user.id).expiresAt, clock.t + 3 * 86400000);
+    // İkinci paket devam eden sürenin üstüne eklenir.
+    await rcPost(raw, rcEvent({ type: 'NON_RENEWING_PURCHASE', app_user_id: user.id, product_id: 'hermap_1hafta', transaction_id: 'GPA.2' }));
+    assert.equal(users.get(user.id).expiresAt, clock.t + 10 * 86400000);
+    assert.equal((await raw('/api/auth/me', { token: t })).body.user.lastPurchase.productId, 'hermap_1hafta');
+    // İade: o paketin günleri geri alınır.
+    assert.deepEqual((await rcPost(raw, rcEvent({ type: 'CANCELLATION', app_user_id: user.id, transaction_id: 'GPA.2' }))).body, { refunded: true });
+    assert.equal(users.get(user.id).expiresAt, clock.t + 3 * 86400000);
+    assert.equal((await raw('/api/auth/me', { token: t })).body.user.lastPurchase.productId, 'hermap_3gun');
+
+    // Bilinmeyen ürün / kullanıcı / deneme (sandbox) satın alımı süre eklemez.
+    assert.deepEqual((await rcPost(raw, rcEvent({ type: 'NON_RENEWING_PURCHASE', app_user_id: user.id, product_id: 'baska', transaction_id: 'x1' }))).body, { ignored: 'unknown-product' });
+    assert.deepEqual((await rcPost(raw, rcEvent({ type: 'NON_RENEWING_PURCHASE', app_user_id: 'yok', product_id: 'hermap_1gun', transaction_id: 'x2' }))).body, { ignored: 'unknown-user' });
+    assert.deepEqual((await rcPost(raw, rcEvent({ environment: 'SANDBOX', type: 'NON_RENEWING_PURCHASE', app_user_id: user.id, product_id: 'hermap_1gun', transaction_id: 'x3' }))).body, { ignored: 'sandbox' });
+    assert.equal(users.get(user.id).expiresAt, clock.t + 3 * 86400000);
   });
+});
+
+test('mağaza bildirimi: anahtar ayarlı değilse kapalı; sandbox izni verilirse deneme satın alımı da sayılır', async () => {
+  await withServer(
+    async ({ raw, base }) => {
+      raw.base = base;
+      assert.equal((await rcPost(raw, rcEvent({ type: 'TEST' }))).status, 503);
+    },
+    { revenuecat: { webhookAuth: null } },
+  );
+  await withServer(
+    async ({ raw, users, base }) => {
+      raw.base = base;
+      const { user } = users.create({ name: 'Üye', email: 'uye@ornek.com' });
+      const r = await rcPost(raw, rcEvent({ environment: 'SANDBOX', type: 'NON_RENEWING_PURCHASE', app_user_id: user.id, product_id: 'hermap_1gun', transaction_id: 's1' }));
+      assert.deepEqual(r.body, { applied: true });
+    },
+    { revenuecat: { webhookAuth: 'rc-gizli', allowSandbox: true } },
+  );
 });
 
 test('e-posta gönderilemezse anlaşılır hata döner', async () => {

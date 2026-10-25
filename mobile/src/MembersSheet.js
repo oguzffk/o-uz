@@ -7,7 +7,6 @@ import {
   Modal,
   Platform,
   Pressable,
-  ScrollView,
   Share,
   StyleSheet,
   Text,
@@ -17,15 +16,15 @@ import {
 import { formatRemaining } from './session';
 
 /**
- * Sahibin yönetim sayfası: üyeler (süre ver/kaldır, şifre sıfırla, sil), yöneticiler
- * (ekle/sil) ve "Süreniz doldu" ekranında görünen ödeme bilgisi.
+ * Sahibin yönetim sayfası: üyeler (süre ver/kaldır, sil; mağazadan son satın alım) ve
+ * yöneticiler (ekle, şifre sıfırla, sil). Ödemeler App Store / Google Play'den alınır.
  */
 const TABS = [
   ['member', 'Üyeler'],
   ['admin', 'Yöneticiler'],
-  ['payment', 'Ödeme bilgisi'],
 ];
 
+const PLAN_LABELS = { hermap_1gun: '1 gün', hermap_3gun: '3 gün', hermap_1hafta: '1 hafta' };
 const formatPhone = (p) => (p ? p.replace(/^(\d{4})(\d{3})(\d{2})(\d{2})$/, '$1 $2 $3 $4') : '');
 
 function remainingOf(u, now) {
@@ -35,7 +34,7 @@ function remainingOf(u, now) {
   return { text: formatRemaining(ms), tone: ms < 24 * 3600000 ? 'warn' : 'ok' };
 }
 
-export default function MembersSheet({ visible, api, settings, onSettingsSaved, onClose, showToast }) {
+export default function MembersSheet({ visible, api, onClose, showToast }) {
   const [tab, setTab] = useState('member');
   const [lists, setLists] = useState({ member: [], admin: [] });
   const [loading, setLoading] = useState(false);
@@ -65,7 +64,7 @@ export default function MembersSheet({ visible, api, settings, onSettingsSaved, 
   useEffect(() => {
     if (!visible) return;
     setNow(Date.now());
-    if (tab !== 'payment') load(tab);
+    load(tab);
     const id = setInterval(() => setNow(Date.now()), 30000);
     return () => clearInterval(id);
   }, [visible, tab, load]);
@@ -143,6 +142,12 @@ export default function MembersSheet({ visible, api, settings, onSettingsSaved, 
             <Text style={styles.phone} numberOfLines={1}>
               {[u.email, formatPhone(u.phone)].filter(Boolean).join(' · ')}
             </Text>
+            {tab === 'member' && u.lastPurchase && (
+              <Text style={styles.phone} numberOfLines={1}>
+                Son satın alma: {PLAN_LABELS[u.lastPurchase.productId] ?? u.lastPurchase.productId} ·{' '}
+                {new Date(u.lastPurchase.at).toLocaleDateString('tr-TR')}
+              </Text>
+            )}
           </View>
           {tab === 'member' && (
             <View style={[styles.pill, styles[`pill_${rem.tone}`]]}>
@@ -187,170 +192,124 @@ export default function MembersSheet({ visible, api, settings, onSettingsSaved, 
               <Pressable key={key} style={[styles.tab, tab === key && styles.tabOn]} onPress={() => switchTab(key)}>
                 <Text style={[styles.tabText, tab === key && styles.tabTextOn]}>
                   {label}
-                  {key !== 'payment' && lists[key]?.length ? ` (${lists[key].length})` : ''}
+                  {lists[key]?.length ? ` (${lists[key].length})` : ''}
                 </Text>
               </Pressable>
             ))}
           </View>
 
-          {tab === 'payment' ? (
-            <PaymentForm settings={settings} api={api} onSaved={onSettingsSaved} showToast={showToast} />
-          ) : (
-            <>
-              {issued && (
-                <View style={styles.issued}>
-                  <Text style={styles.issuedTitle}>
-                    {issued.reset ? 'Yeni geçici şifre' : `${tab === 'admin' ? 'Yönetici' : 'Üye'} eklendi ✓`}
+          <>
+            {issued && (
+              <View style={styles.issued}>
+                <Text style={styles.issuedTitle}>
+                  {issued.reset ? 'Yeni geçici şifre' : `${tab === 'admin' ? 'Yönetici' : 'Üye'} eklendi ✓`}
+                </Text>
+                <Text style={styles.issuedSub}>
+                  {[issued.user.name, issued.user.email, formatPhone(issued.user.phone)].filter(Boolean).join(' · ')}
+                </Text>
+                {issued.tempPassword ? (
+                  <Text style={styles.issuedPw} selectable>
+                    Yedek geçici şifre: <Text style={styles.issuedPwValue}>{issued.tempPassword}</Text>
                   </Text>
-                  <Text style={styles.issuedSub}>
-                    {[issued.user.name, issued.user.email, formatPhone(issued.user.phone)].filter(Boolean).join(' · ')}
+                ) : (
+                  <Text style={styles.issuedPw}>
+                    Şifre yok: uygulamada e-postasını yazıp gelen kodla girer. Aşağıdan haber verin.
                   </Text>
-                  {issued.tempPassword ? (
-                    <Text style={styles.issuedPw} selectable>
-                      Yedek geçici şifre: <Text style={styles.issuedPwValue}>{issued.tempPassword}</Text>
-                    </Text>
-                  ) : (
-                    <Text style={styles.issuedPw}>
-                      Şifre yok: uygulamada e-postasını yazıp gelen kodla girer. Aşağıdan haber verin.
-                    </Text>
+                )}
+                <View style={styles.issuedActions}>
+                  {!!issued.user.phone && (
+                    <Pressable
+                      style={[styles.btn, { backgroundColor: '#25d366', flex: 1 }]}
+                      onPress={() =>
+                        Linking.openURL(`https://wa.me/90${issued.user.phone.slice(1)}?text=${encodeURIComponent(shareMessage)}`)
+                      }
+                    >
+                      <Text style={styles.btnText}>{"WhatsApp'a gönder"}</Text>
+                    </Pressable>
                   )}
-                  <View style={styles.issuedActions}>
-                    {!!issued.user.phone && (
-                      <Pressable
-                        style={[styles.btn, { backgroundColor: '#25d366', flex: 1 }]}
-                        onPress={() =>
-                          Linking.openURL(`https://wa.me/90${issued.user.phone.slice(1)}?text=${encodeURIComponent(shareMessage)}`)
-                        }
-                      >
-                        <Text style={styles.btnText}>{"WhatsApp'a gönder"}</Text>
-                      </Pressable>
-                    )}
-                    <Pressable style={[styles.btn, styles.btnGhost]} onPress={() => Share.share({ message: shareMessage }).catch(() => {})}>
-                      <Text style={styles.btnGhostText}>Paylaş</Text>
-                    </Pressable>
-                    <Pressable style={[styles.btn, styles.btnGhost]} onPress={() => setIssued(null)}>
-                      <Text style={styles.btnGhostText}>Tamam</Text>
-                    </Pressable>
-                  </View>
-                  {tab === 'member' && !issued.reset && (
-                    <Text style={styles.issuedHint}>{'Yeni üye "Süre yok" olarak başlar; aşağıdan süre ekleyin.'}</Text>
-                  )}
-                </View>
-              )}
-
-              {adding ? (
-                <View style={styles.addForm}>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Ad soyad"
-                    value={form.name}
-                    onChangeText={(name) => setForm((f) => ({ ...f, name }))}
-                    maxLength={80}
-                  />
-                  <TextInput
-                    style={styles.input}
-                    placeholder="E-posta (giriş kodu buraya gider)"
-                    value={form.email}
-                    onChangeText={(email) => setForm((f) => ({ ...f, email }))}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                  />
-                  <TextInput
-                    style={styles.input}
-                    placeholder={tab === 'admin' ? 'Telefon (yedek giriş için)' : 'Telefon (isteğe bağlı, WhatsApp için)'}
-                    value={form.phone}
-                    onChangeText={(phone) => setForm((f) => ({ ...f, phone }))}
-                    keyboardType="phone-pad"
-                  />
-                  <View style={styles.issuedActions}>
-                    <Pressable style={[styles.btn, styles.btnGhost]} onPress={() => setAdding(false)}>
-                      <Text style={styles.btnGhostText}>Vazgeç</Text>
-                    </Pressable>
-                    <Pressable style={[styles.btn, { flex: 1 }]} onPress={create}>
-                      <Text style={styles.btnText}>{tab === 'admin' ? 'Yöneticiyi ekle' : 'Üyeyi ekle'}</Text>
-                    </Pressable>
-                  </View>
-                </View>
-              ) : (
-                <View style={styles.toolbar}>
-                  <TextInput style={[styles.input, styles.search]} placeholder="Ad, e-posta ya da telefon ara" value={query} onChangeText={setQuery} />
-                  <Pressable
-                    style={styles.btn}
-                    onPress={() => {
-                      setAdding(true);
-                      setIssued(null);
-                    }}
-                  >
-                    <Text style={styles.btnText}>＋ {tab === 'admin' ? 'Yönetici' : 'Üye'} ekle</Text>
+                  <Pressable style={[styles.btn, styles.btnGhost]} onPress={() => Share.share({ message: shareMessage }).catch(() => {})}>
+                    <Text style={styles.btnGhostText}>Paylaş</Text>
+                  </Pressable>
+                  <Pressable style={[styles.btn, styles.btnGhost]} onPress={() => setIssued(null)}>
+                    <Text style={styles.btnGhostText}>Tamam</Text>
                   </Pressable>
                 </View>
-              )}
+                {tab === 'member' && !issued.reset && (
+                  <Text style={styles.issuedHint}>{'Yeni üye "Süre yok" olarak başlar; aşağıdan süre ekleyin.'}</Text>
+                )}
+              </View>
+            )}
 
-              {tab === 'admin' && (
-                <Text style={styles.hint}>Yöneticiler yalnızca yol kapatıp açar ve gruplara erişir; üyeleri göremez, süre veremez.</Text>
-              )}
-              {loading && !list.length ? (
-                <ActivityIndicator style={{ marginTop: 20 }} />
-              ) : (
-                <FlatList
-                  data={list}
-                  keyExtractor={(u) => u.id}
-                  renderItem={renderUser}
-                  keyboardShouldPersistTaps="handled"
-                  style={styles.list}
-                  ListEmptyComponent={
-                    <Text style={styles.empty}>{query ? 'Eşleşen kişi yok.' : tab === 'admin' ? 'Henüz yönetici yok.' : 'Henüz üye yok.'}</Text>
-                  }
+            {adding ? (
+              <View style={styles.addForm}>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Ad soyad"
+                  value={form.name}
+                  onChangeText={(name) => setForm((f) => ({ ...f, name }))}
+                  maxLength={80}
                 />
-              )}
-            </>
-          )}
+                <TextInput
+                  style={styles.input}
+                  placeholder="E-posta (giriş kodu buraya gider)"
+                  value={form.email}
+                  onChangeText={(email) => setForm((f) => ({ ...f, email }))}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+                <TextInput
+                  style={styles.input}
+                  placeholder={tab === 'admin' ? 'Telefon (yedek giriş için)' : 'Telefon (isteğe bağlı, WhatsApp için)'}
+                  value={form.phone}
+                  onChangeText={(phone) => setForm((f) => ({ ...f, phone }))}
+                  keyboardType="phone-pad"
+                />
+                <View style={styles.issuedActions}>
+                  <Pressable style={[styles.btn, styles.btnGhost]} onPress={() => setAdding(false)}>
+                    <Text style={styles.btnGhostText}>Vazgeç</Text>
+                  </Pressable>
+                  <Pressable style={[styles.btn, { flex: 1 }]} onPress={create}>
+                    <Text style={styles.btnText}>{tab === 'admin' ? 'Yöneticiyi ekle' : 'Üyeyi ekle'}</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ) : (
+              <View style={styles.toolbar}>
+                <TextInput style={[styles.input, styles.search]} placeholder="Ad, e-posta ya da telefon ara" value={query} onChangeText={setQuery} />
+                <Pressable
+                  style={styles.btn}
+                  onPress={() => {
+                    setAdding(true);
+                    setIssued(null);
+                  }}
+                >
+                  <Text style={styles.btnText}>＋ {tab === 'admin' ? 'Yönetici' : 'Üye'} ekle</Text>
+                </Pressable>
+              </View>
+            )}
+
+            {tab === 'admin' && (
+              <Text style={styles.hint}>Yöneticiler yalnızca yol kapatıp açar ve gruplara erişir; üyeleri göremez, süre veremez.</Text>
+            )}
+            {loading && !list.length ? (
+              <ActivityIndicator style={{ marginTop: 20 }} />
+            ) : (
+              <FlatList
+                data={list}
+                keyExtractor={(u) => u.id}
+                renderItem={renderUser}
+                keyboardShouldPersistTaps="handled"
+                style={styles.list}
+                ListEmptyComponent={
+                  <Text style={styles.empty}>{query ? 'Eşleşen kişi yok.' : tab === 'admin' ? 'Henüz yönetici yok.' : 'Henüz üye yok.'}</Text>
+                }
+              />
+            )}
+          </>
         </View>
       </KeyboardAvoidingView>
     </Modal>
-  );
-}
-
-function PaymentForm({ settings, api, onSaved, showToast }) {
-  const [draft, setDraft] = useState(() => structuredClone(settings ?? { prices: {} }));
-  const set = (key) => (v) => setDraft((d) => ({ ...d, [key]: v }));
-  const setPrice = (key) => (v) => setDraft((d) => ({ ...d, prices: { ...d.prices, [key]: v } }));
-  const save = async () => {
-    try {
-      const { settings: saved } = await api.updateSettings(draft);
-      onSaved(saved);
-      showToast('Ödeme bilgisi kaydedildi.');
-    } catch (err) {
-      showToast(err.message, 'error');
-    }
-  };
-  return (
-    <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 12 }}>
-      <Text style={styles.hint}>Bu bilgiler, süresi biten üyenin ekranında görünür.</Text>
-      <Text style={styles.formLabel}>Alıcı adı</Text>
-      <TextInput style={styles.input} value={draft.accountName} onChangeText={set('accountName')} placeholder="Ad Soyad / Firma" />
-      <Text style={styles.formLabel}>IBAN</Text>
-      <TextInput style={styles.input} value={draft.iban} onChangeText={set('iban')} placeholder="TR00 0000 0000 0000 0000 0000 00" autoCapitalize="characters" />
-      <Text style={styles.formLabel}>WhatsApp numarası</Text>
-      <TextInput style={styles.input} value={draft.whatsapp} onChangeText={set('whatsapp')} placeholder="0532 123 45 67" keyboardType="phone-pad" />
-      <Text style={styles.formLabel}>Fiyatlar</Text>
-      <View style={{ flexDirection: 'row', gap: 8 }}>
-        {[
-          ['day1', '1 gün'],
-          ['day3', '3 gün'],
-          ['week1', '1 hafta'],
-        ].map(([k, label]) => (
-          <View key={k} style={{ flex: 1 }}>
-            <Text style={styles.priceLabel}>{label}</Text>
-            <TextInput style={styles.input} value={draft.prices?.[k]} onChangeText={setPrice(k)} />
-          </View>
-        ))}
-      </View>
-      <Pressable style={[styles.btn, { marginTop: 8 }]} onPress={save}>
-        <Text style={styles.btnText}>Kaydet</Text>
-      </Pressable>
-    </ScrollView>
   );
 }
 
@@ -406,6 +365,4 @@ const styles = StyleSheet.create({
   issuedHint: { fontSize: 12, color: '#6e6e73', marginTop: 8 },
   hint: { fontSize: 12, color: '#6e6e73', marginBottom: 8 },
   empty: { color: '#6e6e73', textAlign: 'center', marginTop: 20 },
-  formLabel: { fontSize: 12, fontWeight: '700', color: '#6e6e73', marginBottom: 4, marginTop: 4 },
-  priceLabel: { fontSize: 11.5, color: '#6e6e73', marginBottom: 3 },
 });

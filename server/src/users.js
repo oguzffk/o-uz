@@ -22,12 +22,11 @@ const MIN_PASSWORD = 6;
 export const CODE_TTL_MS = 10 * 60 * 1000;
 export const CODE_MAX_ATTEMPTS = 5;
 
-export const DEFAULT_SETTINGS = {
-  iban: '',
-  accountName: '',
-  whatsapp: '',
-  prices: { day1: '119,99 TL', day3: '299,99 TL', week1: '559,99 TL' },
-};
+/**
+ * Mağazada satılan süre paketleri (App Store / Google Play ürün kimliği → gün). Fiyatlar
+ * mağaza panellerinde girilir: 1 gün 119,99 TL, 3 gün 299,99 TL, 1 hafta 559,99 TL.
+ */
+export const PRODUCTS = { hermap_1gun: 1, hermap_3gun: 3, hermap_1hafta: 7 };
 
 export class UserError extends Error {
   constructor(status, message, code) {
@@ -78,7 +77,6 @@ export class UserStore {
     this.filePath = filePath;
     this.now = now;
     this.users = new Map();
-    this.settings = structuredClone(DEFAULT_SETTINGS);
     this.#load();
   }
 
@@ -86,7 +84,6 @@ export class UserStore {
     try {
       const data = JSON.parse(readFileSync(this.filePath, 'utf8'));
       for (const u of data.users ?? []) this.users.set(u.id, u);
-      this.settings = { ...this.settings, ...data.settings, prices: { ...this.settings.prices, ...data.settings?.prices } };
     } catch (err) {
       if (err.code !== 'ENOENT') throw err;
     }
@@ -95,7 +92,7 @@ export class UserStore {
   #save() {
     mkdirSync(dirname(this.filePath), { recursive: true });
     const tmp = `${this.filePath}.${randomUUID()}.tmp`;
-    writeFileSync(tmp, JSON.stringify({ users: [...this.users.values()], settings: this.settings }, null, 2), { mode: 0o600 });
+    writeFileSync(tmp, JSON.stringify({ users: [...this.users.values()] }, null, 2), { mode: 0o600 });
     renameSync(tmp, this.filePath);
   }
 
@@ -114,6 +111,10 @@ export class UserStore {
       active: this.isActive(user),
       createdAt,
       lastLoginAt: lastLoginAt ?? null,
+      lastPurchase: (() => {
+        const p = user.purchases?.filter((x) => !x.refunded).at(-1);
+        return p ? { productId: p.productId, days: p.days, at: p.at, store: p.store } : null;
+      })(),
     };
   }
 
@@ -320,17 +321,33 @@ export class UserStore {
     return this.view(user);
   }
 
-  updateSettings(patch) {
-    const s = this.settings;
-    const str = (v, max) => String(v ?? '').trim().slice(0, max);
-    if (patch.iban !== undefined) s.iban = str(patch.iban, 40);
-    if (patch.accountName !== undefined) s.accountName = str(patch.accountName, 80);
-    if (patch.whatsapp !== undefined) s.whatsapp = patch.whatsapp ? normalizePhone(patch.whatsapp) : '';
-    for (const k of Object.keys(DEFAULT_SETTINGS.prices)) {
-      if (patch.prices?.[k] !== undefined) s.prices[k] = str(patch.prices[k], 20);
-    }
+  /**
+   * Mağaza satın alımı (RevenueCat bildirimi): ürünün günü kadar süre ekler. Aynı işlem
+   * (transactionId) ikinci kez gelirse yok sayılır. Sonuç: { user, applied } ya da null (kullanıcı yok).
+   */
+  applyPurchase({ userId, productId, transactionId, store = null }) {
+    const user = this.users.get(userId);
+    if (!user) return null;
+    const days = PRODUCTS[productId];
+    if (!days) throw new UserError(400, `Bilinmeyen ürün: ${productId}`);
+    user.purchases ??= [];
+    if (user.purchases.some((p) => p.transactionId === transactionId)) return { user: this.view(user), applied: false };
+    const base = Math.max(this.now(), user.expiresAt ?? 0);
+    user.expiresAt = base + days * DAY_MS;
+    user.purchases.push({ transactionId, productId, days, store, at: new Date(this.now()).toISOString() });
     this.#save();
-    return s;
+    return { user: this.view(user), applied: true };
+  }
+
+  /** İade edilen satın alımın günlerini geri alır (süre şimdiden geriye düşmez). */
+  refundPurchase({ userId, transactionId }) {
+    const user = this.users.get(userId);
+    const purchase = user?.purchases?.find((p) => p.transactionId === transactionId);
+    if (!purchase || purchase.refunded) return null;
+    purchase.refunded = true;
+    user.expiresAt = Math.max(this.now(), (user.expiresAt ?? 0) - purchase.days * DAY_MS);
+    this.#save();
+    return { user: this.view(user) };
   }
 
   #mustGet(id) {

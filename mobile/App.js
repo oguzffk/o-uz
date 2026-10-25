@@ -750,6 +750,8 @@ function AppScreen() {
           showsUserLocation={!navigating}
           showsMyLocationButton={false}
           showsCompass={false}
+        // Android: işaretçiye (girilmez levhası) dokununca harita oraya kaymasın.
+        moveOnMarkerPress={false}
           toolbarEnabled={false}
           onPress={onMapPress}
           onLongPress={onMapLongPress}
@@ -773,16 +775,16 @@ function AppScreen() {
           {route && (
             <Polyline coordinates={route.coordinates.map(toLatLng)} strokeColor="#0a66d8" strokeWidth={7} zIndex={1} />
           )}
+          {/* Kapalı yollar: kırmızı-beyaz şerit (bariyer bandı) + ortada "girilmez" levhası. */}
           {closures.closures.map((c) => (
-            <Polyline
+            <ClosedRoad
               key={c.id}
-              coordinates={c.coordinates.map(toLatLng)}
-              strokeColor="#d70015"
-              strokeWidth={adminMode ? 9 : 6}
-              zIndex={2}
+              closure={c}
+              width={adminMode ? 9 : 7}
+              onPress={() => onMapPress({ nativeEvent: { coordinate: toLatLng(c.midpoint ?? midpointOf(c.coordinates)) } })}
             />
           ))}
-          {/* Yöneticiye, şu an trafiğe açık olan kayıtlı grupları kesik çizgiyle göster. */}
+          {/* Yöneticiye, şu an trafiğe açık olan kayıtlı grupları gri kesik çizgiyle göster. */}
           {adminMode &&
             closures.zones
               .filter((z) => !z.active)
@@ -791,7 +793,7 @@ function AppScreen() {
                 <Polyline
                   key={s.key}
                   coordinates={s.coordinates.map(toLatLng)}
-                  strokeColor="#d70015"
+                  strokeColor="#8e8e93"
                   strokeWidth={4}
                   lineDashPattern={[6, 8]}
                   zIndex={2}
@@ -1471,6 +1473,44 @@ function NavPuck({ position, bearing }) {
   );
 }
 
+// Kapalı yol: beyaz zemin üstüne kırmızı kesik çizgi (kırmızı-beyaz şerit) ve ortasında
+// "girilmez" levhası. Levhaya dokunmak yola dokunmakla aynıdır (yöneticide aç/kapat).
+function ClosedRoad({ closure, width, onPress }) {
+  const coordinates = closure.coordinates.map(toLatLng);
+  // Android özel işaretçiyi resme çevirir; ilk çizimden sonra güncellemeyi kapatmak performans için.
+  const [tracks, setTracks] = useState(true);
+  useEffect(() => {
+    const t = setTimeout(() => setTracks(false), 600);
+    return () => clearTimeout(t);
+  }, []);
+  return (
+    <>
+      <Polyline coordinates={coordinates} strokeColor="#ffffff" strokeWidth={width} zIndex={2} />
+      <Polyline coordinates={coordinates} strokeColor="#d70015" strokeWidth={width} lineDashPattern={[10, 8]} zIndex={3} />
+      <Marker
+        coordinate={toLatLng(closure.midpoint ?? midpointOf(closure.coordinates))}
+        anchor={{ x: 0.5, y: 0.5 }}
+        tracksViewChanges={tracks}
+        onPress={onPress}
+        zIndex={4}
+      >
+        <NoEntrySign />
+      </Marker>
+    </>
+  );
+}
+
+function NoEntrySign() {
+  const styles = useStyles();
+  return (
+    <View style={styles.noEntrySign} accessibilityLabel="Kapalı yol">
+      <View style={styles.noEntrySignBar} />
+    </View>
+  );
+}
+
+const midpointOf = (coords) => coords[Math.floor(coords.length / 2)];
+
 // Seyir sürerken ekranın kendiliğinden kapanmasını engeller.
 function KeepScreenOn() {
   useKeepAwake('navigation');
@@ -1559,6 +1599,18 @@ const baseStyles = StyleSheet.create({
   sideLabel: { fontSize: 10, fontWeight: '600', color: '#3a3a3c', textAlign: 'center' },
   sideLabelActive: { color: '#d70015', fontWeight: '800' },
   sideLabelHighlight: { color: '#0a66d8', fontWeight: '800' },
+  noEntrySign: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#d70015',
+    borderWidth: 2.5,
+    borderColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...shadow,
+  },
+  noEntrySignBar: { width: 14, height: 4.5, borderRadius: 1, backgroundColor: '#fff' },
   noEntry: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: '#d70015', alignItems: 'center', justifyContent: 'center' },
   noEntryOn: { backgroundColor: '#d70015' },
   noEntryBar: { width: 12, height: 3, borderRadius: 1, backgroundColor: '#d70015' },

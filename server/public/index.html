@@ -3,7 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>HERMAP Yönetim</title>
+  <title>HERMAPS Yönetim</title>
+  <link rel="icon" href="logo.png" />
   <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
   <style>
     :root { --bg: #fff; --fg: #1d1d1f; --muted: #6e6e73; --line: #e5e5ea; --red: #d70015; --blue: #0a66d8; }
@@ -63,9 +64,7 @@
     #login input { padding: 10px 12px; border-radius: 10px; margin-bottom: 10px; font-size: 15px; }
     #login .primary { width: 100%; background: var(--blue); color: #fff; border: 0; border-radius: 10px; padding: 11px; font: inherit; font-weight: 700; cursor: pointer; }
     #login .err { color: var(--red); font-weight: 600; margin-bottom: 8px; min-height: 1em; }
-    .wordmark { display: flex; justify-content: center; margin-bottom: 26px; filter: drop-shadow(0 3px 10px rgba(0,0,0,.55)); }
-    .wm { display: flex; align-items: flex-end; color: #fff; font-size: 50px; font-weight: 900; line-height: 1; letter-spacing: 1px; }
-    .wm svg { margin: 0 1px 7px 0; }
+    .wordmark { display: flex; justify-content: center; margin-bottom: 22px; filter: drop-shadow(0 6px 18px rgba(0,0,0,.5)); }
     /* Üye / yönetici yönetimi (yalnızca sahip) */
     #manage { display: none; height: 100%; overflow: auto; padding: 18px 22px; background: #fff; }
     #manage.show { display: block; }
@@ -97,9 +96,7 @@
   <div id="login">
     <div class="box">
       <div class="wordmark">
-        <div class="wm" aria-label="HERMAP">HERM<svg width="38" height="37" viewBox="0 0 42 46" aria-hidden="true"><polygon points="16,0 26,0 42,46 32,46 21,13 10,46 0,46" fill="#fff"/>
-          <clipPath id="ab"><rect x="4" y="25" width="34" height="11" rx="1.5"/></clipPath><rect x="4" y="25" width="34" height="11" rx="1.5" fill="#fff"/>
-          <g clip-path="url(#ab)"><polygon points="-2,36 3,36 9,25 4,25" fill="#d70015"/><polygon points="7,36 12,36 18,25 13,25" fill="#d70015"/><polygon points="16,36 21,36 27,25 22,25" fill="#d70015"/><polygon points="25,36 30,36 36,25 31,25" fill="#d70015"/><polygon points="34,36 39,36 45,25 40,25" fill="#d70015"/></g></svg>P</div>
+        <img src="logo.png" alt="HERMAPS" width="150" height="150" />
       </div>
       <form class="card" id="login-form">
         <h2 id="login-title">Yönetim paneli</h2>

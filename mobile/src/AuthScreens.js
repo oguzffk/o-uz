@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   KeyboardAvoidingView,
   Linking,
   Platform,
@@ -11,7 +12,8 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import HermapLogo from './HermapLogo';
+
+export const LOGO = require('../assets/logo.png');
 
 // Giriş ekranının arkasındaki çizim harita: sokak ızgarası, mavi rota ve iki kapalı yol
 // (kırmızı-beyaz şerit + girilmez levhası). Gerçek harita değil; ağ ya da harita anahtarı gerektirmez.
@@ -61,14 +63,14 @@ export function MapBackdrop() {
       <View style={[styles.route, { left: 143, top: 86, width: 6, height: 286 }]} />
       <View style={[styles.route, { left: 143, top: 86, width: 130, height: 6 }]} />
       {/* iki kapalı yol */}
-      <View style={{ position: 'absolute', left: 25, top: 228, backgroundColor: '#fff' }}>
+      <View style={{ position: 'absolute', left: 25, top: 298, backgroundColor: '#fff' }}>
         <Stripes length={113} />
       </View>
-      <Sign x={81} y={233} />
-      <View style={{ position: 'absolute', left: 200, top: 239, backgroundColor: '#fff' }}>
+      <Sign x={81} y={303} />
+      <View style={{ position: 'absolute', left: 200, top: 309, backgroundColor: '#fff' }}>
         <Stripes vertical length={59} />
       </View>
-      <Sign x={205} y={268} />
+      <Sign x={205} y={338} />
       {/* bir tık koyu */}
       <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(10,14,22,0.45)' }]} />
     </View>
@@ -91,7 +93,8 @@ function Shell({ children, logoTagline = 'Kapalı yolları bilen navigasyon' }) 
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled" bounces={false}>
           <View style={styles.logo}>
-            <HermapLogo size={46} tagline={logoTagline} />
+            <Image source={LOGO} style={styles.logoImage} accessibilityLabel="HERMAPS" />
+            {!!logoTagline && <Text style={styles.tagline}>{logoTagline}</Text>}
           </View>
           <View style={styles.card}>{children}</View>
         </ScrollView>
@@ -391,8 +394,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   signBar: { width: 12, height: 4, borderRadius: 1, backgroundColor: '#fff' },
-  scroll: { flexGrow: 1, justifyContent: 'space-between', paddingTop: 96, paddingBottom: 16, paddingHorizontal: 12 },
-  logo: { alignItems: 'center', marginBottom: 150 },
+  scroll: { flexGrow: 1, justifyContent: 'space-between', paddingTop: 64, paddingBottom: 16, paddingHorizontal: 12 },
+  logo: { alignItems: 'center', marginBottom: 40 },
+  logoImage: { width: 150, height: 150 },
+  tagline: {
+    color: '#fff',
+    fontSize: 13,
+    marginTop: 8,
+    opacity: 0.92,
+    textShadowColor: 'rgba(0,0,0,0.6)',
+    textShadowRadius: 6,
+  },
   card: {
     backgroundColor: '#fff',
     borderRadius: 22,

@@ -4,6 +4,7 @@ import {
   Animated,
   Easing,
   FlatList,
+  Image,
   Keyboard,
   PanResponder,
   Pressable,
@@ -21,8 +22,7 @@ import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-cont
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createApi, defaultApiUrl } from './src/api';
 import { DEMO_OWNER, MAX_STOPS, PUBLIC_VALHALLA_URL, createDemoApi } from './src/demoApi';
-import { ChangePasswordScreen, ExpiredScreen, LoginScreen } from './src/AuthScreens';
-import HermapLogo from './src/HermapLogo';
+import { ChangePasswordScreen, ExpiredScreen, LOGO, LoginScreen } from './src/AuthScreens';
 import MembersSheet from './src/MembersSheet';
 import { clearSession, formatRemaining, loadSession, saveSession } from './src/session';
 import {
@@ -851,7 +851,7 @@ function AppScreen() {
     return (
       <View style={[styles.splash]}>
         <StatusBar style="light" />
-        <HermapLogo size={44} />
+        <Image source={LOGO} style={{ width: 150, height: 150 }} accessibilityLabel="HERMAPS" />
         <ActivityIndicator color="#fff" style={{ marginTop: 24 }} />
       </View>
     );
@@ -1789,7 +1789,7 @@ const baseStyles = StyleSheet.create({
   sideLabel: { fontSize: 10, fontWeight: '600', color: '#3a3a3c', textAlign: 'center' },
   sideLabelActive: { color: '#d70015', fontWeight: '800' },
   sideLabelHighlight: { color: '#0a66d8', fontWeight: '800' },
-  splash: { flex: 1, backgroundColor: '#1c2230', alignItems: 'center', justifyContent: 'center' },
+  splash: { flex: 1, backgroundColor: '#141a21', alignItems: 'center', justifyContent: 'center' },
   timeBadge: {
     alignSelf: 'flex-start',
     flexDirection: 'row',

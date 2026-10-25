@@ -46,6 +46,7 @@ import {
 } from './src/geo';
 import { stopSpeech, useNavigation } from './src/useNavigation';
 import SettingsSheet from './src/SettingsSheet';
+import { LaneStrip, ManeuverIcon } from './src/TurnIcons';
 import { enterPip, pipSupported, setAutoPip, usePipMode } from './src/pip';
 import ZonesSheet from './src/ZonesSheet';
 
@@ -1013,7 +1014,10 @@ function AppScreen() {
         {/* Küçük pencere (PiP): yalnızca kısa yön bandı. */}
         {inPip && navigating && next && (
           <View style={styles.pipBanner} pointerEvents="none">
-            <Text style={styles.pipDistance}>{formatDistance(progress.distanceToNext)}</Text>
+            <View style={styles.bannerRow}>
+              <ManeuverIcon type={nextIsArrival ? 4 : next.type} size={26} />
+              <Text style={styles.pipDistance}>{formatDistance(progress.distanceToNext)}</Text>
+            </View>
             <Text style={styles.pipText} numberOfLines={2}>
               {bannerInstruction}
             </Text>
@@ -1044,10 +1048,18 @@ function AppScreen() {
             ) : navigating && next ? (
               <>
                 <SlideIn from={-24} style={styles.banner}>
-                  <Text style={styles.bannerDistance}>{formatDistance(progress.distanceToNext)}</Text>
-                  <Text style={styles.bannerText} numberOfLines={2}>
-                    {bannerInstruction}
-                  </Text>
+                  <View style={styles.bannerRow}>
+                    <View style={styles.bannerIcon} accessibilityLabel={`Manevra ${next.type}`}>
+                      <ManeuverIcon type={nextIsArrival ? 4 : next.type} size={44} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.bannerDistance}>{formatDistance(progress.distanceToNext)}</Text>
+                      <Text style={styles.bannerText} numberOfLines={2}>
+                        {bannerInstruction}
+                      </Text>
+                    </View>
+                  </View>
+                  {!nextIsArrival && next.lanes && <LaneStrip lanes={next.lanes} />}
                 </SlideIn>
                 {(speedLimit != null || speedKph != null) && (
                   <View style={styles.speedRow} pointerEvents="none">
@@ -1890,6 +1902,8 @@ const baseStyles = StyleSheet.create({
   resultName: { fontSize: 16, fontWeight: '600' },
   resultAddr: { fontSize: 12, color: '#6e6e73', marginTop: 2 },
   banner: { backgroundColor: '#0b5c3b', borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10, ...shadow },
+  bannerRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  bannerIcon: { width: 48, alignItems: 'center' },
   bannerDistance: { color: '#fff', fontSize: 22, fontWeight: '800' },
   bannerText: { color: '#fff', fontSize: 15, marginTop: 2 },
   adminRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8, flexWrap: 'wrap' },

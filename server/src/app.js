@@ -36,7 +36,7 @@ export const MAX_STOPS = 3;
  * Ara durak varsa her durak ayrı bir "leg" olarak gelir; bacaklar tek çizgide birleştirilir,
  * manevra ve hız sınırı indeksleri birleşik çizgiye göre kaydırılır.
  */
-function buildRoute(trip, periodKey, legSpeedLimits = []) {
+function buildRoute(trip, periodKey, legSpeedLimits = [], legLanes = []) {
   const coordinates = [];
   const maneuvers = [];
   const stops = [];
@@ -46,8 +46,9 @@ function buildRoute(trip, periodKey, legSpeedLimits = []) {
     const coords = decodePolyline(leg.shape);
     coordinates.push(...coords);
     const lastLeg = li === trip.legs.length - 1;
-    for (const m of leg.maneuvers) {
+    leg.maneuvers.forEach((m, mi) => {
       const isStop = !lastLeg && ARRIVAL_TYPES.has(m.type);
+      const lanes = isStop ? null : legLanes[li]?.[mi];
       maneuvers.push({
         type: m.type,
         instruction: isStop ? `${li + 1}. ara durağa varış` : fixStreetSuffixes(m.instruction),
@@ -61,8 +62,9 @@ function buildRoute(trip, periodKey, legSpeedLimits = []) {
         beginShapeIndex: m.begin_shape_index + offset,
         endShapeIndex: m.end_shape_index + offset,
         ...(isStop ? { stop: li + 1 } : {}),
+        ...(lanes ? { lanes } : {}),
       });
-    }
+    });
     if (!lastLeg) stops.push({ shapeIndex: coordinates.length - 1 });
     for (const r of legSpeedLimits[li] ?? []) speedLimits.push({ from: r.from + offset, to: r.to + offset, kph: r.kph });
   });
@@ -111,6 +113,39 @@ export async function legSpeedLimits(valhalla, leg, costing) {
   }
 }
 
+/**
+ * Şerit bilgisi (OSM turn:lanes). Valhalla bunu yalnızca OSRM biçimli çıktıda veriyor; aynı
+ * istek o biçimde bir kez daha sorulur ve her manevranın kavşağındaki şeritler alınır.
+ * Sonuç: [rota][bacak][manevra] → şeritler ya da null. Hata olursa şeritsiz devam edilir.
+ */
+async function routeLanes(valhalla, body, trips) {
+  try {
+    const data = await valhalla.route({ ...body, format: 'osrm' });
+    return trips.map((trip, ti) =>
+      trip.legs.map((leg, li) => {
+        const steps = data.routes?.[ti]?.legs?.[li]?.steps ?? [];
+        // Adımlar manevralarla bire bir eşleşmiyorsa (farklı rota) şerit gösterme.
+        if (steps.length !== leg.maneuvers.length) return [];
+        return steps.map((st) => simplifyLanes(st.intersections?.[0]?.lanes));
+      }),
+    );
+  } catch {
+    return [];
+  }
+}
+
+// { indications, valid, active } → { dirs, ok, best }; tüm şeritler uygunsa göstermeye gerek yok.
+function simplifyLanes(lanes) {
+  if (!Array.isArray(lanes) || lanes.length < 2) return null;
+  const out = lanes.map((l) => ({
+    dirs: (l.indications ?? []).filter((d) => d !== 'none'),
+    ok: Boolean(l.valid),
+    best: Boolean(l.active),
+    ...(l.valid_indication ? { use: l.valid_indication } : {}),
+  }));
+  return out.every((l) => l.ok) || !out.some((l) => l.ok) ? null : out;
+}
+
 // Valhalla "rota yok" hataları: 442 yol bulunamadı, 170 bağlantısız bölgeler, 171 yakında uygun yol yok.
 const NO_ROUTE_CODES = new Set([442, 170, 171]);
 
@@ -126,7 +161,8 @@ async function routeWithFallback(valhalla, body) {
       ? body.locations.map((l) => ({ ...l, search_filter: { min_road_class: minRoadClass } }))
       : body.locations;
     try {
-      return { data: await valhalla.route({ ...body, locations }), snappedToRoad: Boolean(minRoadClass) };
+      const used = { ...body, locations };
+      return { data: await valhalla.route(used), snappedToRoad: Boolean(minRoadClass), body: used };
     } catch (err) {
       const retryable = err instanceof ValhallaError && NO_ROUTE_CODES.has(err.details?.error_code);
       if (!retryable || i === attempts.length - 1) throw err;
@@ -505,7 +541,7 @@ export function createApp({
       const wantAlternatives = Boolean(req.body.alternatives) && stops.length === 0;
       // Ücretli yollardan kaçın: yasaklamaz, mümkünse kaçınır (Boğaz geçişlerinin çoğu ücretli).
       const avoidTolls = Boolean(req.body.avoidTolls);
-      const { data, snappedToRoad } = await routeWithFallback(valhalla, {
+      const { data, snappedToRoad, body: usedBody } = await routeWithFallback(valhalla, {
         // Ara duraklar "break": orada durulur, rota durak başına ayrı bacaklara bölünür.
         locations: [origin, ...stops.map((p) => ({ ...p, type: 'break' })), { ...to, type: 'break' }],
         costing,
@@ -519,12 +555,13 @@ export function createApp({
       const departAt = req.body.departAt ? new Date(req.body.departAt) : new Date();
       const traffic = trafficPeriod(Number.isNaN(departAt.getTime()) ? new Date() : departAt);
       const trips = [data.trip, ...(data.alternates ?? []).map((a) => a.trip)];
-      const limits = await Promise.all(
-        trips.map((trip) => Promise.all(trip.legs.map((leg) => legSpeedLimits(valhalla, leg, costing)))),
-      );
+      const [limits, lanes] = await Promise.all([
+        Promise.all(trips.map((trip) => Promise.all(trip.legs.map((leg) => legSpeedLimits(valhalla, leg, costing))))),
+        routeLanes(valhalla, usedBody, trips),
+      ]);
       // Yoğun saat tahminine göre en hızlıdan yavaşa sırala.
       const routes = trips
-        .map((trip, i) => buildRoute(trip, traffic.key, limits[i]))
+        .map((trip, i) => buildRoute(trip, traffic.key, limits[i], lanes[i]))
         .sort((a, b) => a.durationSec - b.durationSec);
       res.json({ closuresVersion: store.version, costing, avoidTolls, snappedToRoad, traffic, ...routes[0], routes });
     } catch (err) {

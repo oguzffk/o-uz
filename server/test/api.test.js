@@ -748,3 +748,51 @@ test('e-posta gönderilemezse anlaşılır hata döner', async () => {
     { mailer: broken },
   );
 });
+
+test('şerit bilgisi: OSRM biçimli istekten manevralara eklenir; eşleşmezse ya da hata olursa şeritsiz', async () => {
+  await withServer(async ({ req, valhalla }) => {
+    const maneuvers = [
+      { type: 1, instruction: 'Başla', length: 0.2, time: 20, begin_shape_index: 0, end_shape_index: 1 },
+      { type: 10, instruction: 'Sağa dönün.', length: 0.2, time: 20, begin_shape_index: 1, end_shape_index: 2 },
+      { type: 4, instruction: 'Hedefinize vardınız.', length: 0, time: 0, begin_shape_index: 2, end_shape_index: 2 },
+    ];
+    const lanes = [
+      { indications: ['straight'], valid: false, active: false },
+      { indications: ['straight'], valid: false, active: false },
+      { indications: ['right'], valid: true, active: true, valid_indication: 'right' },
+    ];
+    let osrm = {
+      routes: [{ legs: [{ steps: [{ intersections: [{}] }, { intersections: [{ lanes }] }, { intersections: [{}] }] }] }],
+    };
+    valhalla.route = async (body) => {
+      valhalla.calls.push(body);
+      if (body.format === 'osrm') {
+        if (!osrm) throw new Error('kapalı');
+        return osrm;
+      }
+      return { trip: { summary: { length: 0.4, time: 40 }, legs: [{ shape: SHAPE, maneuvers }] } };
+    };
+    const body = { from: { lat: 41.03, lon: 28.98 }, to: { lat: 41.04, lon: 28.99 } };
+    const r = await req('/api/route', { method: 'POST', body });
+    assert.equal(r.status, 200);
+    const osrmCall = valhalla.calls.find((c) => c.format === 'osrm');
+    assert.equal(osrmCall.locations.length, 2); // aynı istek
+    assert.equal(r.body.maneuvers[0].lanes, undefined);
+    assert.deepEqual(r.body.maneuvers[1].lanes, [
+      { dirs: ['straight'], ok: false, best: false },
+      { dirs: ['straight'], ok: false, best: false },
+      { dirs: ['right'], ok: true, best: true, use: 'right' },
+    ]);
+
+    // Adım sayısı tutmazsa şerit yok.
+    osrm = { routes: [{ legs: [{ steps: [{ intersections: [{ lanes }] }] }] }] };
+    const r2 = await req('/api/route', { method: 'POST', body });
+    assert.ok(r2.body.maneuvers.every((m) => !m.lanes));
+
+    // OSRM isteği hata verirse rota yine gelir.
+    osrm = null;
+    const r3 = await req('/api/route', { method: 'POST', body });
+    assert.equal(r3.status, 200);
+    assert.ok(r3.body.maneuvers.every((m) => !m.lanes));
+  });
+});

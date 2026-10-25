@@ -87,8 +87,20 @@ function idForShape(shape) {
 const ARRIVAL_TYPES = new Set([4, 5, 6]);
 export const MAX_STOPS = 3;
 
+// { indications, valid, active } → { dirs, ok, best }; tüm şeritler uygunsa göstermeye gerek yok.
+function simplifyLanes(lanes) {
+  if (!Array.isArray(lanes) || lanes.length < 2) return null;
+  const out = lanes.map((l) => ({
+    dirs: (l.indications ?? []).filter((d) => d !== 'none'),
+    ok: Boolean(l.valid),
+    best: Boolean(l.active),
+    ...(l.valid_indication ? { use: l.valid_indication } : {}),
+  }));
+  return out.every((l) => l.ok) || !out.some((l) => l.ok) ? null : out;
+}
+
 // server/src/app.js'teki buildRoute ile aynı biçim: ara duraklı rotanın bacakları tek çizgide birleşir.
-function buildRoute(trip, periodKey, legSpeedLimits = []) {
+function buildRoute(trip, periodKey, legSpeedLimits = [], legLanes = []) {
   const coordinates = [];
   const maneuvers = [];
   const stops = [];
@@ -98,8 +110,9 @@ function buildRoute(trip, periodKey, legSpeedLimits = []) {
     const coords = decodePolyline(leg.shape);
     coordinates.push(...coords);
     const lastLeg = li === trip.legs.length - 1;
-    for (const m of leg.maneuvers) {
+    leg.maneuvers.forEach((m, mi) => {
       const isStop = !lastLeg && ARRIVAL_TYPES.has(m.type);
+      const lanes = isStop ? null : legLanes[li]?.[mi];
       maneuvers.push({
         type: m.type,
         instruction: isStop ? `${li + 1}. ara durağa varış` : fixStreetSuffixes(m.instruction),
@@ -113,8 +126,9 @@ function buildRoute(trip, periodKey, legSpeedLimits = []) {
         beginShapeIndex: m.begin_shape_index + offset,
         endShapeIndex: m.end_shape_index + offset,
         ...(isStop ? { stop: li + 1 } : {}),
+        ...(lanes ? { lanes } : {}),
       });
-    }
+    });
     if (!lastLeg) stops.push({ shapeIndex: coordinates.length - 1 });
     for (const r of legSpeedLimits[li] ?? []) speedLimits.push({ from: r.from + offset, to: r.to + offset, kph: r.kph });
   });
@@ -314,7 +328,8 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL, token = null) {
         ? body.locations.map((l) => ({ ...l, search_filter: { min_road_class: minRoadClass } }))
         : body.locations;
       try {
-        return { data: await valhalla('route', { ...body, locations }), snappedToRoad: Boolean(minRoadClass) };
+        const used = { ...body, locations };
+        return { data: await valhalla('route', used), snappedToRoad: Boolean(minRoadClass), body: used };
       } catch (err) {
         if (!NO_ROUTE_CODES.has(err.code)) throw err;
         if (i === attempts.length - 1) {
@@ -325,6 +340,22 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL, token = null) {
           );
         }
       }
+    }
+  }
+
+  // Sunucudaki routeLanes ile aynı: şerit bilgisi yalnızca OSRM biçimli çıktıda geliyor.
+  async function routeLanes(body, trips) {
+    try {
+      const data = await valhalla('route', { ...body, format: 'osrm' });
+      return trips.map((trip, ti) =>
+        trip.legs.map((leg, li) => {
+          const steps = data.routes?.[ti]?.legs?.[li]?.steps ?? [];
+          if (steps.length !== leg.maneuvers.length) return [];
+          return steps.map((st) => simplifyLanes(st.intersections?.[0]?.lanes));
+        }),
+      );
+    } catch {
+      return [];
     }
   }
 
@@ -396,7 +427,7 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL, token = null) {
         origin.heading = Math.round(heading) % 360;
         origin.heading_tolerance = 60;
       }
-      const { data, snappedToRoad } = await routeWithFallback(closures.length > 0, {
+      const { data, snappedToRoad, body: usedBody } = await routeWithFallback(closures.length > 0, {
         locations: [
           origin,
           ...via.map((p) => ({ lat: p.lat, lon: p.lon, type: 'break' })),
@@ -419,9 +450,10 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL, token = null) {
         for (const leg of trip.legs) legs.push(await legSpeedLimits(leg, costing));
         limits.push(legs);
       }
+      const lanes = await routeLanes(usedBody, trips);
       // Sunucudaki gibi: yoğun saat tahminine göre en hızlıdan yavaşa.
       const routes = trips
-        .map((trip, i) => buildRoute(trip, traffic.key, limits[i]))
+        .map((trip, i) => buildRoute(trip, traffic.key, limits[i], lanes[i]))
         .sort((a, b) => a.durationSec - b.durationSec);
       return { closuresVersion: version, costing, avoidTolls, snappedToRoad, traffic, ...routes[0], routes };
     },

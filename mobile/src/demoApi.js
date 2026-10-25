@@ -619,9 +619,10 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL, token = null) {
       return startSession(u, 'password');
     },
     // Kayıt ol: demo modunda e-posta gönderilmez; kod cevapta döner ve ekranda gösterilir.
-    async register({ name, email, phone, password, acceptPrivacy }) {
+    async register({ name, email, phone, password, acceptPrivacy, acceptTerms }) {
       const st = await loadUsers();
-      if (acceptPrivacy !== true) throw new ApiError("Kayıt için Gizlilik Politikası, KVKK Aydınlatma Metni ve Kullanım Koşulları'nı kabul edin", 400);
+      if (acceptPrivacy !== true) throw new ApiError("Kayıt için Gizlilik Politikası ve KVKK Aydınlatma Metni'ni onaylayın", 400);
+      if (acceptTerms !== true) throw new ApiError("Kayıt için Kullanım Koşulları ve Sorumluluk Reddi'ni kabul edin", 400);
       const cleanName = String(name ?? '').trim().slice(0, 80);
       if (!cleanName) throw new ApiError('Ad soyad girin', 400);
       const cleanEmail = normalizeEmail(email);

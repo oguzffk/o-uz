@@ -42,8 +42,8 @@ export function createApi(baseUrl, token) {
     // Oturum
     // login: e-posta ya da telefon. Eski sunucular yalnızca `phone` alanını okur.
     login: (login, password) => request('/api/auth/login', { method: 'POST', body: { login, phone: login, password } }),
-    register: ({ name, email, phone, password, acceptPrivacy }) =>
-      request('/api/auth/register', { method: 'POST', body: { name, email, phone, password, acceptPrivacy } }),
+    register: ({ name, email, phone, password, acceptPrivacy, acceptTerms }) =>
+      request('/api/auth/register', { method: 'POST', body: { name, email, phone, password, acceptPrivacy, acceptTerms } }),
     deleteAccount: (password) => request('/api/auth/account', { method: 'DELETE', body: { password } }),
     verifyRegistration: (email, code) => request('/api/auth/register/verify', { method: 'POST', body: { email, code } }),
     resetPasswordWithCode: (email, code, newPassword) => request('/api/auth/reset-password', { method: 'POST', body: { email, code, newPassword } }),

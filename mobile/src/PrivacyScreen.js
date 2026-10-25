@@ -6,8 +6,10 @@ import { LEGAL_DOCS } from './legal';
  * Gizlilik Politikası / KVKK Aydınlatma Metni ve altında Kullanım Koşulları / Sorumluluk Reddi
  * (kayıt ekranından, giriş ekranının altından ve Ayarlar'dan açılır).
  */
-export default function PrivacyScreen({ visible, onClose }) {
+export default function PrivacyScreen({ visible, onClose, docId = null }) {
   const insets = useSafeAreaInsets();
+  // docId verilirse yalnızca o metin (kayıttaki kutucuğun bağlantısı), yoksa hepsi alt alta.
+  const docs = docId ? LEGAL_DOCS.filter((d) => d.id === docId) : LEGAL_DOCS;
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       <View style={[styles.container, { paddingTop: insets.top + 8 }]}>
@@ -18,7 +20,7 @@ export default function PrivacyScreen({ visible, onClose }) {
           </Pressable>
         </View>
         <ScrollView contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 32 }]}>
-          {LEGAL_DOCS.map((doc, i) => (
+          {docs.map((doc, i) => (
             <View key={doc.id} style={i > 0 && styles.doc}>
               <Text style={styles.title}>{doc.title}</Text>
               <Text style={styles.meta}>

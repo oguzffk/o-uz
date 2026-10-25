@@ -159,6 +159,30 @@ function CodeStep({ email, code, setCode, demoCode, cooldown, busy, onResend, on
   );
 }
 
+/** Onay kutusu; altı çizili metne dokununca ilgili yasal metin açılır. */
+function Consent({ checked, onToggle, onOpen, label, link, rest }) {
+  return (
+    <View style={styles.consent}>
+      <Pressable
+        onPress={onToggle}
+        hitSlop={8}
+        accessibilityRole="checkbox"
+        accessibilityState={{ checked }}
+        accessibilityLabel={label}
+        style={[styles.checkbox, checked && styles.checkboxOn]}
+      >
+        {checked && <Text style={styles.checkmark}>✓</Text>}
+      </Pressable>
+      <Text style={styles.consentText} onPress={onToggle}>
+        <Text style={styles.consentLink} onPress={onOpen}>
+          {link}
+        </Text>
+        {rest}
+      </Text>
+    </View>
+  );
+}
+
 const codeOk = (code) => /^\d{6}$/.test(code.trim());
 
 /**
@@ -190,13 +214,14 @@ export function LoginScreen({
   const [newPw, setNewPw] = useState('');
   const [demoCode, setDemoCode] = useState(null);
   const [cooldown, startCooldown] = useCooldown();
-  const [accepted, setAccepted] = useState(false); // gizlilik politikası onayı
-  const [privacyOpen, setPrivacyOpen] = useState(false);
+  // Kayıttaki iki onay kutusu: Gizlilik/KVKK ve Kullanım Koşulları/Sorumluluk Reddi.
+  const [accepted, setAccepted] = useState({ privacy: false, terms: false });
+  const [docOpen, setDocOpen] = useState(null); // null | 'all' | 'gizlilik' | 'kullanim-kosullari'
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const set = (key) => (value) => setForm((f) => ({ ...f, [key]: value }));
-  const toggleAccepted = () => {
-    setAccepted((a) => !a);
+  const toggleAccepted = (key) => {
+    setAccepted((a) => ({ ...a, [key]: !a[key] }));
     setError(null);
   };
   const tab = step.startsWith('register') ? 'register' : 'login';
@@ -237,13 +262,15 @@ export function LoginScreen({
       if (!form.name.trim() || !form.email.trim() || !form.phone.trim() || !form.password) throw new Error('Tüm alanları doldurun.');
       if (form.password.length < 6) throw new Error('Şifre en az 6 karakter olmalı.');
       if (form.password !== form.password2) throw new Error('İki şifre aynı değil.');
-      if (!accepted) throw new Error("Devam etmek için Gizlilik Politikası, KVKK Aydınlatma Metni ve Kullanım Koşulları'nı kabul edin.");
+      if (!accepted.privacy) throw new Error("Devam etmek için Gizlilik Politikası ve KVKK Aydınlatma Metni'ni onaylayın.");
+      if (!accepted.terms) throw new Error("Devam etmek için Kullanım Koşulları ve Sorumluluk Reddi'ni kabul edin.");
       const r = await onRegister({
         name: form.name.trim(),
         email: form.email.trim(),
         phone: form.phone,
         password: form.password,
         acceptPrivacy: true,
+        acceptTerms: true,
       });
       codeSent(r, r?.email ?? form.email.trim().toLowerCase(), 'registerCode');
     });
@@ -362,24 +389,22 @@ export function LoginScreen({
             placeholder="••••••"
             onSubmitEditing={submitRegister}
           />
-          <View style={styles.consent}>
-            <Pressable
-              onPress={toggleAccepted}
-              hitSlop={8}
-              accessibilityRole="checkbox"
-              accessibilityState={{ checked: accepted }}
-              accessibilityLabel="Gizlilik Politikası onayı"
-              style={[styles.checkbox, accepted && styles.checkboxOn]}
-            >
-              {accepted && <Text style={styles.checkmark}>✓</Text>}
-            </Pressable>
-            <Text style={styles.consentText} onPress={toggleAccepted}>
-              <Text style={styles.consentLink} onPress={() => setPrivacyOpen(true)}>
-                Gizlilik Politikası, KVKK Aydınlatma Metni ve Kullanım Koşulları
-              </Text>
-              {"'nı okudum, kabul ediyorum."}
-            </Text>
-          </View>
+          <Consent
+            checked={accepted.privacy}
+            onToggle={() => toggleAccepted('privacy')}
+            onOpen={() => setDocOpen('gizlilik')}
+            label="Gizlilik Politikası onayı"
+            link="Gizlilik Politikası ve KVKK Aydınlatma Metni"
+            rest="'ni okudum, onaylıyorum."
+          />
+          <Consent
+            checked={accepted.terms}
+            onToggle={() => toggleAccepted('terms')}
+            onOpen={() => setDocOpen('kullanim-kosullari')}
+            label="Kullanım Koşulları onayı"
+            link="Kullanım Koşulları ve Sorumluluk Reddi"
+            rest="'ni okudum, kabul ediyorum."
+          />
           {errorText}
           <Button busy={busy} onPress={submitRegister}>
             Kayıt ol
@@ -483,7 +508,7 @@ export function LoginScreen({
 
       {!!demoHint && <Text style={styles.demoHint}>{demoHint}</Text>}
       <View style={styles.footer}>
-        <Pressable onPress={() => setPrivacyOpen(true)} hitSlop={8}>
+        <Pressable onPress={() => setDocOpen('all')} hitSlop={8}>
           <Text style={styles.server}>Gizlilik ve Kullanım Koşulları</Text>
         </Pressable>
         <Text style={styles.server}>·</Text>
@@ -491,7 +516,7 @@ export function LoginScreen({
           <Text style={styles.server}>Sunucu: {backendLabel} · değiştir</Text>
         </Pressable>
       </View>
-      <PrivacyScreen visible={privacyOpen} onClose={() => setPrivacyOpen(false)} />
+      <PrivacyScreen visible={!!docOpen} docId={docOpen === 'all' ? null : docOpen} onClose={() => setDocOpen(null)} />
     </Shell>
   );
 }

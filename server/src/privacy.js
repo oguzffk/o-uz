@@ -2,6 +2,8 @@
 // Aynı metinler mobile/src/legal.js'te de var (uygulama demo modunda sunucusuz çalışır);
 // ikisinin aynı kaldığını testler denetler. Köşeli parantezli yerler yayından önce
 // gerçek bilgilerle doldurulmalı.
+// ÖDEME: Metinler ödemenin App Store / Google Play'den alındığını varsayıyor. Ödeme yöntemi
+// değişirse ilgili maddeleri güncelle (README → Yayın öncesi kontrol listesi).
 export const PRIVACY = {
   id: 'gizlilik',
   version: '1.0',

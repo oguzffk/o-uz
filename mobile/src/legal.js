@@ -2,6 +2,8 @@
 // (uygulama içi). Asıl kaynak server/src/privacy.js; demo modunda sunucu olmadığı için burada
 // da bir kopyası var. İkisinin aynı kaldığını sunucu testleri denetler. Köşeli parantezli
 // yerler yayından önce doldurulmalı.
+// ÖDEME: Metinler ödemenin App Store / Google Play'den alındığını varsayıyor. Ödeme yöntemi
+// değişirse ilgili maddeleri güncelle (README → Yayın öncesi kontrol listesi).
 export const PRIVACY = {
   id: 'gizlilik',
   version: '1.0',

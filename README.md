@@ -223,6 +223,20 @@ Oturum `Authorization: Bearer <token>` başlığıyla gönderilir. Rota, arama v
 cd server && npm test
 ```
 
+## Yayın öncesi kontrol listesi
+
+Yayına çıkmadan önce aşağıdakiler gözden geçirilmeli:
+
+- [ ] **Ödeme yöntemi kesinleşince yasal metinleri ve satın alma ekranını güncelle.** Metinler şu an ödemenin **App Store / Google Play** üzerinden alındığını varsayıyor. Ödeme başka bir yolla (ör. iyzico, PayTR, havale) alınacaksa şuralar değişmeli:
+  - `server/src/privacy.js` **ve** `mobile/src/legal.js` (ikisi aynı kalmalı; testler denetler): Gizlilik metninde 2. madde "Satın alma kayıtları" ve 5. madde "Aktarım" (ödeme altyapısı); Kullanım Koşulları'nda 4. madde "Paketler ve ödeme" (iade kuralları) ve 8. madde "Hesabınızı silme"deki iade cümlesi.
+  - `mobile/src/PurchaseScreen.js` ve `mobile/src/purchases.js` (satın alma akışı ve alttaki not), sunucudaki RevenueCat bildirimi (`/api/webhooks/revenuecat`).
+  - Not: Uygulama içinde satılan dijital hizmetler (kullanım süresi) için Google Play ve App Store kendi ödeme sistemlerini şart koşar; başka bir ödeme yolu mağaza kurallarına uygun olmalı.
+- [ ] Yasal metinlerdeki köşeli parantezli yerleri doldur: veri sorumlusu / şirket unvanı, adres, iletişim e-postası. Metin değişince `version` ve `updated` alanlarını artır.
+- [ ] Yasal metinleri bir avukata kontrol ettir (özellikle Kullanım Koşulları 6. madde, sorumluluk reddi).
+- [ ] Uygulamayı demo modundan çıkarıp gerçek sunucuya bağla; sunucuda HTTPS, Brevo (SMTP) ve alan adı hazır olsun.
+- [ ] Google Haritalar anahtarını paket adı (`com.hermaps.app`) ve Play imza SHA-1'i ile kısıtla.
+- [ ] Mağaza sayfalarına gizlilik adresi (`https://alanadiniz/gizlilik`) ve hesap silme adresi (`https://alanadiniz/gizlilik#hesap-silme`) yaz.
+
 ## Prototipin sınırları ve sonraki adımlar
 
 - **Kapatma birimi** iki kavşak arası segmenttir. Uzun bir caddeyi kapatmak için birkaç segmente dokunmak gerekir. Sonraki adım: "tüm caddeyi kapat" (aynı OSM `way_id`'ye sahip segmentler) ve süreli / zamanlanmış kapatmalar (ör. grubu her pazar 08:00–14:00 kapat).

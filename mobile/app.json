@@ -57,6 +57,12 @@
           }
         }
       ]
-    ]
+    ],
+    "owner": "zalimusta",
+    "extra": {
+      "eas": {
+        "projectId": "36b0f2fa-3769-4fb9-b0dd-3a17e6452bfa"
+      }
+    }
   }
 }

@@ -24,6 +24,7 @@ import { MAX_STOPS, createDemoApi } from './src/demoApi';
 import {
   ISTANBUL_REGION,
   bearingDegrees,
+  distanceAlong,
   distanceMeters,
   formatArrival,
   formatDistance,
@@ -31,6 +32,7 @@ import {
   inIstanbul,
   offsetPoint,
   pointAhead,
+  routeLegs,
   speedLimitAt,
   toLatLng,
 } from './src/geo';
@@ -718,12 +720,20 @@ function AppScreen() {
   const speedLimit = onRoute ? speedLimitAt(route, progress.snap.index) : null;
   const speedKph = navigating && location?.speed >= 0 ? Math.round(location.speed * 3.6) : null;
   const overLimit = speedLimit != null && speedKph != null && speedKph > speedLimit + 3;
-  // Kalan süre: seyirde kalan mesafeye oranla, önizlemede rotanın tamamı (yoğun saat tahmini dahil).
-  const remainingSec = route
-    ? navigating && progress
-      ? (route.durationSec * progress.remainingMeters) / Math.max(1, route.distanceKm * 1000)
-      : route.durationSec
-    : 0;
+  // Süre, mesafe ve varış saati sıradaki hedefe göre: ara durak varsa önce o durağa (önizlemede
+  // 1. durağa; seyirde geçilen duraktan sonra bir sonrakine), duraklar bitince hedefe.
+  const legs = useMemo(() => (route ? routeLegs(route) : []), [route]);
+  let legIndex = 0;
+  if (navigating && progress) {
+    legIndex = legs.findIndex((l) => l.endIndex > progress.snap.index);
+    if (legIndex < 0) legIndex = legs.length - 1;
+  }
+  const leg = legs[legIndex];
+  const toStop = Boolean(leg) && legIndex < legs.length - 1;
+  const remainingMeters = !leg ? 0 : navigating && progress ? distanceAlong(route.coordinates, progress.snap, leg.endIndex) : leg.meters;
+  // Kalan süre: bacağın tahmini süresinin (yoğun saat dahil) kalan mesafeye düşen payı.
+  const remainingSec = leg ? (leg.durationSec * remainingMeters) / Math.max(1, leg.meters) : 0;
+  const freeFlowSec = route ? (route.freeFlowDurationSec * (leg?.durationSec ?? 0)) / Math.max(1, route.durationSec) : 0;
   // Kutuya dokunulup henüz yazılmadıysa: son aramalar (Nereden'de en üstte "Konumum").
   const showRecents =
     !navigating &&
@@ -1107,10 +1117,15 @@ function AppScreen() {
                 <ActivityIndicator />
               ) : (
                 <>
+                  {toStop && (
+                    <Text style={styles.legLabel} numberOfLines={1}>
+                      {legIndex + 1}. DURAĞA{stops[legIndex] ? ` · ${stops[legIndex].name}` : ''}
+                    </Text>
+                  )}
                   <View style={styles.summaryRow}>
                     <Text style={styles.summaryMain}>{formatDuration(remainingSec)}</Text>
                     <Text style={styles.summarySub}>
-                      {formatDistance(navigating && progress ? progress.remainingMeters : route.distanceKm * 1000)}
+                      {formatDistance(remainingMeters)}
                       {busy ? '  ·  güncelleniyor…' : ''}
                     </Text>
                     <View style={styles.arrival}>
@@ -1120,7 +1135,7 @@ function AppScreen() {
                   </View>
                   {route.traffic && route.traffic.key !== 'night' && (
                     <Text style={styles.trafficNote}>
-                      {route.traffic.label} tahmini dahil · boş yolda {formatDuration(route.freeFlowDurationSec)}
+                      {route.traffic.label} tahmini dahil · boş yolda {formatDuration(freeFlowSec)}
                     </Text>
                   )}
                   {route.hasToll && (
@@ -1551,6 +1566,7 @@ const baseStyles = StyleSheet.create({
   toastError: { backgroundColor: 'rgba(215,0,21,0.95)' },
   toastText: { color: '#fff', fontSize: 14 },
   bottom: { position: 'absolute', left: 12, right: 12, bottom: 34, backgroundColor: '#fff', borderRadius: 16, padding: 16, ...shadow },
+  legLabel: { fontSize: 12, fontWeight: '800', color: '#b35f00', letterSpacing: 0.3, marginBottom: 2 },
   summaryRow: { flexDirection: 'row', alignItems: 'baseline', gap: 10 },
   summaryMain: { fontSize: 26, fontWeight: '800', color: '#0b8a3e' },
   summarySub: { fontSize: 16, color: '#3a3a3c' },
@@ -1768,6 +1784,7 @@ const nightOverrides = StyleSheet.create({
   demoPillText: { color: NIGHT.sub },
   bottom: { backgroundColor: NIGHT.surface },
   summaryMain: { color: '#30d158' },
+  legLabel: { color: '#ffb340' },
   summarySub: { color: '#d1d1d6' },
   arrivalLabel: { color: NIGHT.sub },
   arrivalTime: { color: NIGHT.text },

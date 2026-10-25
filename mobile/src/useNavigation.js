@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react';
 import * as Speech from 'expo-speech';
-import { distanceAlong, snapToRoute } from './geo';
+import { distanceAlong, distanceMeters, snapToRoute } from './geo';
 
 const OFF_ROUTE_METERS = 45;
 const OFF_ROUTE_FIXES = 3; // GPS sıçramalarında hemen yeniden rota almamak için
@@ -63,6 +63,14 @@ export function useNavigation({ route, location, active, voice = true, onOffRout
   useEffect(() => {
     if (!active || !progress) return;
     lastIndex.current = progress.snap.index;
+    // Ara durağa varıldıysa takip durağın ötesinden sürer. Durak sonrası aynı sokaktan geri
+    // dönülüyorsa (U dönüşü) konum, üst üste binen önceki bacağa oturtulmasın.
+    const here = [location.lat, location.lon];
+    // Yalnızca sıradaki durak: rota sonraki bir durağın yanından erken geçerse o durak atlanmasın.
+    const nextStop = (route.stops ?? []).find((st) => st.shapeIndex > lastIndex.current);
+    if (nextStop && distanceMeters(here, route.coordinates[nextStop.shapeIndex]) < ARRIVE_METERS) {
+      lastIndex.current = nextStop.shapeIndex;
+    }
 
     if (progress.snap.distance > OFF_ROUTE_METERS) {
       offRouteCount.current += 1;

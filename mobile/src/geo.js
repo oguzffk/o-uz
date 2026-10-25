@@ -113,3 +113,24 @@ export function speedLimitAt(route, index) {
   const run = route?.speedLimits?.find((r) => r.from <= index && index < r.to);
   return run ? run.kph : null;
 }
+
+/**
+ * Rotayı ara duraklara göre bacaklara böler: [{ index, endIndex, meters, durationSec }].
+ * Son bacak hedefe gider; durak yoksa tek bacak rotanın tamamıdır.
+ */
+export function routeLegs(route) {
+  const coords = route.coordinates;
+  const ends = [...(route.stops ?? []).map((s) => s.shapeIndex), coords.length - 1];
+  const legs = ends.map((endIndex, index) => ({ index, endIndex, meters: 0, durationSec: 0 }));
+  let leg = 0;
+  for (const m of route.maneuvers) {
+    legs[leg].durationSec += m.durationSec;
+    if (m.stop && leg < legs.length - 1) leg += 1; // durağa varış manevrası bacağı bitirir
+  }
+  let start = 0;
+  for (const l of legs) {
+    for (let i = start; i < l.endIndex; i++) l.meters += distanceMeters(coords[i], coords[i + 1]);
+    start = l.endIndex;
+  }
+  return legs;
+}

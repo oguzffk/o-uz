@@ -6,7 +6,11 @@
 Sürüm 1'de olanlar: akıcı giden yön oku, geride kalan rota çizgisinin silinmesi, dönüş ve
 şerit okları, "Ardından" kutusu, rotadan çıkınca "10 m / 1 dk" hatasının düzeltmesi.
 
-Aşağıdakiler sürüm 1'den **sonra** eklendi ve henüz APK'ya girmedi. İstendiğinde güncel
+**Sürüm 1.1** = sürüm 1 + **kayıtlı grup arama** (aşağıda 5. madde):
+`cba88c00175980ad92a791782c0c2171286db634` —
+[ZIP](https://github.com/oguzffk/o-uz/archive/cba88c00175980ad92a791782c0c2171286db634.zip).
+
+Aşağıdakiler sürüm 1'den **sonra** eklendi; 5. madde sürüm 1.1'e girdi, 1–4 henüz APK'ya girmedi. İstendiğinde güncel
 dalın ZIP'inden ([claude/istanbul-navigation-app-wkh2ta](https://github.com/oguzffk/o-uz/archive/refs/heads/claude/istanbul-navigation-app-wkh2ta.zip))
 yeni APK yapılır; hepsi birlikte gelir.
 
@@ -16,7 +20,7 @@ yeni APK yapılır; hepsi birlikte gelir.
 | 2 | **Gizlilik Politikası ve KVKK Aydınlatma Metni** | Kayıt ekranı, giriş ekranının altı, Ayarlar |
 | 3 | **Hesabımı sil** | Ayarlar |
 | 4 | **Kullanım Koşulları ve Sorumluluk Reddi** + ayrı onay kutusu | Kayıt ekranı, Ayarlar |
-| 5 | **Kayıtlı grup arama** | Yol kapat → Gruplar |
+| 5 | **Kayıtlı grup arama** (sürüm 1.1'de) | Yol kapat → Gruplar |
 
 ## 1. Kayıt ol / Giriş yap
 

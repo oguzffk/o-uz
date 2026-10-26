@@ -1,6 +1,14 @@
 import { useState } from 'react';
 import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
+// Aramada büyük/küçük harf ve Türkçe karakter farkı gözetilmez ("isk" → "İSKİ Kazısı").
+const fold = (t) =>
+  String(t)
+    .toLocaleLowerCase('tr-TR')
+    .replace(/[çğıöşü]/g, (c) => ({ ç: 'c', ğ: 'g', ı: 'i', ö: 'o', ş: 's', ü: 'u' })[c])
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+
 /**
  * Kayıtlı kapatma grupları: haritada kapatılan yolları bir isimle kaydetme ve
  * kayıtlı bir grubu tek dokunuşla trafiğe kapatma / açma.
@@ -9,6 +17,8 @@ export default function ZonesSheet({ visible, zones, unsavedCount, closedCount, 
   const [name, setName] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [busyId, setBusyId] = useState(null);
+  const [query, setQuery] = useState('');
+  const shown = query.trim() ? zones.filter((z) => fold(z.name).includes(fold(query.trim()))) : zones;
 
   const run = async (id, fn) => {
     setBusyId(id);
@@ -27,7 +37,10 @@ export default function ZonesSheet({ visible, zones, unsavedCount, closedCount, 
   const canSave = name.trim().length > 0 && unsavedCount > 0;
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose} onShow={() => setConfirmDelete(null)}>
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose} onShow={() => {
+        setConfirmDelete(null);
+        setQuery('');
+      }}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.backdrop}>
         <Pressable style={{ flex: 1 }} onPress={onClose} />
         <View style={styles.sheet}>
@@ -87,9 +100,33 @@ export default function ZonesSheet({ visible, zones, unsavedCount, closedCount, 
               </Pressable>
             ))}
 
-          <ScrollView style={styles.list} contentContainerStyle={{ gap: 10 }}>
+          {zones.length > 0 && (
+            <View style={styles.searchRow}>
+              <Text style={styles.searchIcon}>🔍</Text>
+              <TextInput
+                style={styles.searchInput}
+                value={query}
+                onChangeText={setQuery}
+                placeholder="Kayıtlı grup ara"
+                placeholderTextColor="#8e8e93"
+                autoCorrect={false}
+                returnKeyType="search"
+                accessibilityLabel="Kayıtlı grup ara"
+              />
+              {!!query && (
+                <Pressable onPress={() => setQuery('')} hitSlop={10} accessibilityLabel="Aramayı temizle">
+                  <Text style={styles.searchClear}>✕</Text>
+                </Pressable>
+              )}
+            </View>
+          )}
+
+          <ScrollView style={styles.list} contentContainerStyle={{ gap: 10 }} keyboardShouldPersistTaps="handled">
             {zones.length === 0 && <Text style={styles.empty}>Henüz kayıtlı grup yok.</Text>}
-            {zones.map((z) => {
+            {zones.length > 0 && shown.length === 0 && (
+              <Text style={styles.empty}>{`"${query.trim()}" adında kayıtlı grup yok.`}</Text>
+            )}
+            {shown.map((z) => {
               const km = z.segments.reduce((sum, s) => sum + s.lengthMeters, 0) / 1000;
               return (
                 <View key={z.id} style={styles.zone}>
@@ -156,7 +193,19 @@ const styles = StyleSheet.create({
   saveButton: { backgroundColor: '#0a66d8', borderRadius: 10, paddingHorizontal: 16, justifyContent: 'center' },
   saveText: { color: '#fff', fontWeight: '700', fontSize: 15 },
   disabled: { opacity: 0.45 },
-  list: { marginTop: 16 },
+  list: { marginTop: 12 },
+  searchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 16,
+    backgroundColor: '#f2f2f7',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+  },
+  searchIcon: { fontSize: 14 },
+  searchInput: { flex: 1, minWidth: 0, paddingVertical: 10, fontSize: 16, color: '#1c1c1e' },
+  searchClear: { color: '#8e8e93', fontSize: 16, fontWeight: '700', paddingHorizontal: 2 },
   openAll: { marginTop: 14, borderWidth: 1.5, borderColor: '#0b8a3e', borderRadius: 10, paddingVertical: 11, alignItems: 'center' },
   openAllText: { color: '#0b8a3e', fontWeight: '700', fontSize: 15 },
   openAllConfirm: { marginTop: 14, backgroundColor: '#e3f5ea', borderRadius: 10, padding: 12, gap: 10 },

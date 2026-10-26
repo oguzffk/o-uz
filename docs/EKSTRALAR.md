@@ -15,7 +15,7 @@ ve yön bandı görünür; "Seyri bitir" paneli görünmez):
 `a0152dd1c216303831e4a2b5d0a7658fc2439302` —
 [ZIP](https://github.com/oguzffk/o-uz/archive/a0152dd1c216303831e4a2b5d0a7658fc2439302.zip).
 
-Aşağıdakiler sürüm 1'den **sonra** eklendi; 5. madde sürüm 1.1'e girdi, 1–4 henüz APK'ya girmedi. İstendiğinde güncel
+Aşağıdakiler sürüm 1'den **sonra** eklendi; 5. madde sürüm 1.1'e, 6. madde sürüm 1.2'ye girdi, 1–4 henüz APK'ya girmedi. İstendiğinde güncel
 dalın ZIP'inden ([claude/istanbul-navigation-app-wkh2ta](https://github.com/oguzffk/o-uz/archive/refs/heads/claude/istanbul-navigation-app-wkh2ta.zip))
 yeni APK yapılır; hepsi birlikte gelir.
 
@@ -26,6 +26,7 @@ yeni APK yapılır; hepsi birlikte gelir.
 | 3 | **Hesabımı sil** | Ayarlar |
 | 4 | **Kullanım Koşulları ve Sorumluluk Reddi** + ayrı onay kutusu | Kayıt ekranı, Ayarlar |
 | 5 | **Kayıtlı grup arama** (sürüm 1.1'de) | Yol kapat → Gruplar |
+| 6 | **Küçük pencere düzeltmesi** (sürüm 1.2'de) | Seyirde ana ekran tuşu / Küçült |
 
 ## 1. Kayıt ol / Giriş yap
 
@@ -72,6 +73,16 @@ yeni APK yapılır; hepsi birlikte gelir.
   Türkçe karakter farkı gözetilmez ("isk" → "İSKİ Kazısı", "sisli" → "Şişli").
 - **✕** aramayı temizler. Bulunamazsa "… adında kayıtlı grup yok." yazar.
 - Aramada çıkan grubun **Trafiğe aç / kapat, Düzenle, Sil** düğmeleri aynen çalışır.
+
+## 6. Küçük pencere (PiP) düzeltmesi
+
+- Seyir sırasında ana ekran tuşuna ya da **Küçült**'e basınca uygulama köşede küçük pencerede
+  devam eder.
+- Önceden küçük pencerede büyük ekran düzeni ("Seyri bitir" paneli, yan düğmeler) sığmaya
+  çalışıyordu; harita görünmüyordu. Artık yalnızca **harita, ok, mavi çizgi ve yön bandı**
+  (dönüş oku, mesafe, talimat) görünür.
+- Ok küçük pencerede de akıcı ilerler; harita biraz uzaklaşır ki önündeki yol daha çok görünsün.
+- Pencereye dokunup büyütünce bütün düğmeler geri gelir.
 
 ## Yayından önce
 

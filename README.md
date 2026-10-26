@@ -166,7 +166,7 @@ Telefonda Expo Go ile QR kodu okutun. Giriş ekranının altındaki **Sunucu: �
 | Ücretli yollardan kaçın | Rota panelindeki anahtar ya da Ayarlar. Yasaklamaz, mümkünse kaçınır; ücretsiz yol yoksa rota ücretli yolu kullanır ve bunu belirtir (Boğaz geçişlerinin çoğu ücretli) |
 | Küçük pencere (resim içinde resim) | Yalnızca Android APK'da (Expo Go'da yok). Seyir sırasında ana ekran tuşuna basınca (Android 12+) ya da sağ paneldeki **Küçült** ile uygulama köşede küçük pencerede yönlendirmeye devam eder |
 | Yol kapatma | Sahip ve yöneticide sağ paneldeki **Yol kapat** → sokağa **dokunun** = kapat/aç. Kapalı yollar haritada kırmızı-beyaz şerit ve ortasında **girilmez** levhasıyla görünür; yönetici modunda levhaya dokunmak da yolu açar. Trafiğe açık kayıtlı gruplar yöneticiye gri kesik çizgiyle gösterilir |
-| Grup kaydet / aç / kapat / düzenle | Sağ panelde **Yol kapat** → **Gruplar**; **Düzenle** ile haritada yol ekleyip çıkarın, adını değiştirin; **Tüm yolları trafiğe aç** hepsini birden açar |
+| Grup kaydet / aç / kapat / düzenle | Sağ panelde **Yol kapat** → **Gruplar**; listenin üstündeki **Kayıtlı grup ara** kutusuna adının bir kısmı yazılınca yalnızca eşleşen gruplar kalır (büyük/küçük harf ve Türkçe karakter farkı gözetilmez; ✕ temizler); **Düzenle** ile haritada yol ekleyip çıkarın, adını değiştirin; **Tüm yolları trafiğe aç** hepsini birden açar |
 
 Telefon İstanbul dışındaysa (ör. emülatör) ilk basılı tutma **başlangıç**, ikincisi **varış** noktasını seçer; böylece rota önizlemesini her yerden deneyebilirsiniz.
 

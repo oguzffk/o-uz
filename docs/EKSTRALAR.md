@@ -10,6 +10,11 @@ Sürüm 1'de olanlar: akıcı giden yön oku, geride kalan rota çizgisinin sili
 `cba88c00175980ad92a791782c0c2171286db634` —
 [ZIP](https://github.com/oguzffk/o-uz/archive/cba88c00175980ad92a791782c0c2171286db634.zip).
 
+**Sürüm 1.2** = sürüm 1.1 + **küçük pencere (PiP) düzeltmesi** (küçük pencerede yalnızca harita, ok
+ve yön bandı görünür; "Seyri bitir" paneli görünmez):
+`a0152dd1c216303831e4a2b5d0a7658fc2439302` —
+[ZIP](https://github.com/oguzffk/o-uz/archive/a0152dd1c216303831e4a2b5d0a7658fc2439302.zip).
+
 Aşağıdakiler sürüm 1'den **sonra** eklendi; 5. madde sürüm 1.1'e girdi, 1–4 henüz APK'ya girmedi. İstendiğinde güncel
 dalın ZIP'inden ([claude/istanbul-navigation-app-wkh2ta](https://github.com/oguzffk/o-uz/archive/refs/heads/claude/istanbul-navigation-app-wkh2ta.zip))
 yeni APK yapılır; hepsi birlikte gelir.

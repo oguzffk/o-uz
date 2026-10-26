@@ -15,7 +15,11 @@ ve yön bandı görünür; "Seyri bitir" paneli görünmez):
 `a0152dd1c216303831e4a2b5d0a7658fc2439302` —
 [ZIP](https://github.com/oguzffk/o-uz/archive/a0152dd1c216303831e4a2b5d0a7658fc2439302.zip).
 
-Aşağıdakiler sürüm 1'den **sonra** eklendi; 5. madde sürüm 1.1'e, 6. madde sürüm 1.2'ye girdi, 1–4 henüz APK'ya girmedi. İstendiğinde güncel
+**Sürüm 1.3** = sürüm 1.2 + **küçük alt panel** (Google Haritalar tarzı):
+`2491cc0986a93fd7d1a2229acb4d545a419a4062` —
+[ZIP](https://github.com/oguzffk/o-uz/archive/2491cc0986a93fd7d1a2229acb4d545a419a4062.zip).
+
+Aşağıdakiler sürüm 1'den **sonra** eklendi; 5. madde sürüm 1.1'e, 6. madde sürüm 1.2'ye, 7. madde sürüm 1.3'e girdi, 1–4 henüz APK'ya girmedi. İstendiğinde güncel
 dalın ZIP'inden ([claude/istanbul-navigation-app-wkh2ta](https://github.com/oguzffk/o-uz/archive/refs/heads/claude/istanbul-navigation-app-wkh2ta.zip))
 yeni APK yapılır; hepsi birlikte gelir.
 
@@ -27,6 +31,7 @@ yeni APK yapılır; hepsi birlikte gelir.
 | 4 | **Kullanım Koşulları ve Sorumluluk Reddi** + ayrı onay kutusu | Kayıt ekranı, Ayarlar |
 | 5 | **Kayıtlı grup arama** (sürüm 1.1'de) | Yol kapat → Gruplar |
 | 6 | **Küçük pencere düzeltmesi** (sürüm 1.2'de) | Seyirde ana ekran tuşu / Küçült |
+| 7 | **Küçük alt panel** (sürüm 1.3'te) | Seyirde ekranın altı |
 
 ## 1. Kayıt ol / Giriş yap
 
@@ -83,6 +88,17 @@ yeni APK yapılır; hepsi birlikte gelir.
   (dönüş oku, mesafe, talimat) görünür.
 - Ok küçük pencerede de akıcı ilerler; harita biraz uzaklaşır ki önündeki yol daha çok görünsün.
 - Pencereye dokunup büyütünce bütün düğmeler geri gelir.
+
+## 7. Küçük alt panel (Google Haritalar tarzı)
+
+- Seyir sırasında alt panel küçüldü; harita daha çok görünüyor.
+- Ortada büyük yeşil **kalan süre**, altında **"mesafe · saat varış"** (ör. "27 km · 18:43 varış").
+  Ara durak varsa üstte "1. DURAĞA · …" yazar.
+- Solda **✕** seyri bitirir. Yanlışlıkla basılmasın diye önce **"Seyir bitsin mi?"** diye sorar
+  (Vazgeç / Bitir). 5 saniye içinde cevap verilmezse soru kapanır.
+- Trafik tahmini ve ücretli yol notları seyirde gösterilmez, rota önizlemesinde durur.
+  ₺ işareti yok.
+- Gece modunda koyu renkli.
 
 ## Yayından önce
 

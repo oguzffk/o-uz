@@ -124,7 +124,7 @@ export default function ZonesSheet({ visible, zones, unsavedCount, closedCount, 
           <ScrollView style={styles.list} contentContainerStyle={{ gap: 10 }} keyboardShouldPersistTaps="handled">
             {zones.length === 0 && <Text style={styles.empty}>Henüz kayıtlı grup yok.</Text>}
             {zones.length > 0 && shown.length === 0 && (
-              <Text style={styles.empty}>"{query.trim()}" adında kayıtlı grup yok.</Text>
+              <Text style={styles.empty}>{`"${query.trim()}" adında kayıtlı grup yok.`}</Text>
             )}
             {shown.map((z) => {
               const km = z.segments.reduce((sum, s) => sum + s.lengthMeters, 0) / 1000;

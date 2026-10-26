@@ -1009,6 +1009,7 @@ function AppScreen() {
               bearing={bearing}
               speed={location.speed}
               follow={centered}
+              compact={inPip}
               followStartedAt={followStartedAt}
             />
           )}
@@ -1700,8 +1701,9 @@ function MyLocationRow({ onPress }) {
 }
 
 // Hız arttıkça kamera biraz uzaklaşır; ok ekranın alt kısmında kalsın diye merkez ileride.
-const followZoom = (speed) => (speed > 17 ? 16.6 : speed > 8 ? 17.3 : 17.9);
-const followOffset = (speed) => (speed > 17 ? 110 : 55);
+// Küçük pencerede (compact) biraz uzaklaşılır ki önümüzdeki yol daha çok görünsün.
+const followZoom = (speed, compact = false) => (speed > 17 ? 16.6 : speed > 8 ? 17.3 : 17.9) - (compact ? 0.9 : 0);
+const followOffset = (speed, compact = false) => (speed > 17 ? 110 : 55) * (compact ? 0.5 : 1);
 
 const lerp = (a, b, t) => a + (b - a) * t;
 const lerpAngle = (a, b, t) => {
@@ -1720,13 +1722,13 @@ const THEN_METERS = 300;
 const FRAME_MS = 33;
 const LINE_MS = 100;
 const MAX_COAST_MS = 1500;
-function NavFollower({ mapRef, coords, cum, travelled, onRoute, position, bearing, speed, follow, followStartedAt }) {
+function NavFollower({ mapRef, coords, cum, travelled, onRoute, position, bearing, speed, follow, followStartedAt, compact }) {
   const anim = useRef(null);
   const [frame, setFrame] = useState(() => ({ point: position, bearing, dist: travelled }));
   const [line, setLine] = useState(() => ({ index: -1, coords: [] }));
-  const props = useRef({ mapRef, follow, followStartedAt, speed });
+  const props = useRef({ mapRef, follow, followStartedAt, speed, compact });
   useEffect(() => {
-    props.current = { mapRef, follow, followStartedAt, speed };
+    props.current = { mapRef, follow, followStartedAt, speed, compact };
   });
 
   // Yeni ölçüm: animasyon o an gösterilen yerden yeni hedefe doğru yeniden kurulur.
@@ -1799,11 +1801,11 @@ function NavFollower({ mapRef, coords, cum, travelled, onRoute, position, bearin
         setLine({ index: lineIndex, coords: [toLatLng(at.point), ...lineTail] });
       }
 
-      const { mapRef: map, follow: following, followStartedAt: started, speed: sp } = props.current;
+      const { mapRef: map, follow: following, followStartedAt: started, speed: sp, compact: small } = props.current;
       if (!following || now - started.current < 650) return;
-      if (!moved && Math.abs(a.zoom - followZoom(sp)) < 0.01) return;
-      a.zoom = lerp(a.zoom, followZoom(sp), 0.05);
-      a.offset = lerp(a.offset, followOffset(sp), 0.05);
+      if (!moved && Math.abs(a.zoom - followZoom(sp, small)) < 0.01) return;
+      a.zoom = lerp(a.zoom, followZoom(sp, small), 0.05);
+      a.offset = lerp(a.offset, followOffset(sp, small), 0.05);
       const [lat, lon] = offsetPoint(point, shown.bearing, a.offset);
       map.current?.setCamera({ center: { latitude: lat, longitude: lon }, heading: shown.bearing, pitch: 55, zoom: a.zoom });
     };

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Platform } from 'react-native';
+import { Platform, useWindowDimensions } from 'react-native';
 import { requireOptionalNativeModule } from 'expo';
 
 /**
@@ -24,12 +24,29 @@ export function enterPip() {
   native?.enterPipMode({ ...ASPECT });
 }
 
+// Küçük pencere en fazla bu kadar büyük olur (dp). Telefon ekranı her iki yönde de daha büyüktür.
+const PIP_MAX_DP = 480;
+
+/**
+ * Uygulama küçük pencerede mi? expo-pip'in olayı bazı cihazlarda hiç gelmiyor (modül, ekran
+ * henüz açılmadan yüklendiği için olayı dinleyen parçayı ekrana ekleyemiyor). Bu yüzden pencere
+ * boyutu her değiştiğinde Android'e doğrudan da sorulur; o da cevap vermezse pencerenin
+ * küçüldüğüne bakılır.
+ */
 export function usePipMode() {
-  const [inPip, setInPip] = useState(false);
+  const [eventPip, setEventPip] = useState(false);
+  const { width, height } = useWindowDimensions();
   useEffect(() => {
     if (!native) return undefined;
-    const sub = native.addListener('onPipModeChange', ({ isInPipMode }) => setInPip(isInPipMode));
+    const sub = native.addListener('onPipModeChange', ({ isInPipMode }) => setEventPip(isInPipMode));
     return () => sub.remove();
   }, []);
-  return inPip;
+  if (!native) return false;
+  let asked = false;
+  try {
+    asked = native.isInPipMode() === true;
+  } catch {
+    asked = false;
+  }
+  return eventPip || asked || (width < PIP_MAX_DP && height < PIP_MAX_DP);
 }

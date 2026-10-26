@@ -1334,6 +1334,13 @@ function AppScreen() {
             <SlideIn key={navigating ? 'nav' : 'preview'} from={40}>
               {busy && !route ? (
                 <ActivityIndicator />
+              ) : navigating ? (
+                <NavSummary
+                  legText={toStop ? `${legIndex + 1}. DURAĞA${stops[legIndex] ? ` · ${stops[legIndex].name}` : ''}` : null}
+                  duration={formatDuration(remainingSec)}
+                  detail={`${formatDistance(remainingMeters)} · ${formatArrival(remainingSec)} varış${busy ? ' · güncelleniyor…' : ''}`}
+                  onEnd={finishNavigation}
+                />
               ) : (
                 <>
                   {toStop && (
@@ -1397,21 +1404,13 @@ function AppScreen() {
                     </View>
                   )}
                   <View style={styles.actions}>
-                    {navigating ? (
-                      <Pressable style={[styles.button, styles.stop]} onPress={finishNavigation}>
-                        <Text style={styles.buttonText}>Seyri bitir</Text>
+                    <Pressable style={[styles.button, styles.secondary]} onPress={clearTrip}>
+                      <Text style={styles.secondaryText}>Temizle</Text>
+                    </Pressable>
+                    {canNavigate && (
+                      <Pressable style={styles.button} onPress={startNavigation}>
+                        <Text style={styles.buttonText}>Başla</Text>
                       </Pressable>
-                    ) : (
-                      <>
-                        <Pressable style={[styles.button, styles.secondary]} onPress={clearTrip}>
-                          <Text style={styles.secondaryText}>Temizle</Text>
-                        </Pressable>
-                        {canNavigate && (
-                          <Pressable style={styles.button} onPress={startNavigation}>
-                            <Text style={styles.buttonText}>Başla</Text>
-                          </Pressable>
-                        )}
-                      </>
                     )}
                   </View>
                 </>
@@ -1833,6 +1832,52 @@ function NavFollower({ mapRef, coords, cum, travelled, onRoute, position, bearin
   );
 }
 
+// Seyirde alt panel (Google Haritalar tarzı): ortada kalan süre, altında mesafe ve varış saati;
+// solda ✕ seyri bitirir. Yanlışlıkla basılmasın diye ✕ önce kısa bir onay sorar.
+function NavSummary({ legText, duration, detail, onEnd }) {
+  const styles = useStyles();
+  const [confirming, setConfirming] = useState(false);
+  useEffect(() => {
+    if (!confirming) return undefined;
+    const t = setTimeout(() => setConfirming(false), 5000); // cevap verilmezse onay kapanır
+    return () => clearTimeout(t);
+  }, [confirming]);
+
+  if (confirming) {
+    return (
+      <View style={styles.navSummary}>
+        <Text style={[styles.navEndQuestion, { flex: 1 }]}>Seyir bitsin mi?</Text>
+        <Pressable style={[styles.navEndChoice, styles.secondary]} onPress={() => setConfirming(false)}>
+          <Text style={styles.secondaryText}>Vazgeç</Text>
+        </Pressable>
+        <Pressable style={[styles.navEndChoice, styles.stop]} onPress={onEnd}>
+          <Text style={styles.buttonText}>Bitir</Text>
+        </Pressable>
+      </View>
+    );
+  }
+  return (
+    <View style={styles.navSummary}>
+      <Pressable style={styles.navEnd} onPress={() => setConfirming(true)} hitSlop={6} accessibilityLabel="Seyri bitir">
+        <Text style={styles.navEndText}>✕</Text>
+      </Pressable>
+      <View style={styles.navSummaryCenter}>
+        {!!legText && (
+          <Text style={styles.legLabel} numberOfLines={1}>
+            {legText}
+          </Text>
+        )}
+        <Text style={styles.navDuration}>{duration}</Text>
+        <Text style={styles.navDetail} numberOfLines={1}>
+          {detail}
+        </Text>
+      </View>
+      {/* ✕ ile denge: süre tam ortada dursun */}
+      <View style={styles.navEndSpacer} />
+    </View>
+  );
+}
+
 // Seyirdeki yön oku. Harita düzlemine yatık (flat) olduğu için harita döndükçe
 // birlikte döner; kamera gidiş yönüne baktığında ok hep yukarıyı gösterir.
 function NavPuck({ position, bearing }) {
@@ -1959,6 +2004,15 @@ const baseStyles = StyleSheet.create({
   toastText: { color: '#fff', fontSize: 14 },
   bottom: { position: 'absolute', left: 12, right: 12, bottom: 34, backgroundColor: '#fff', borderRadius: 16, padding: 16, ...shadow },
   legLabel: { fontSize: 12, fontWeight: '800', color: '#b35f00', letterSpacing: 0.3, marginBottom: 2 },
+  navSummary: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 56 },
+  navSummaryCenter: { flex: 1, alignItems: 'center' },
+  navDuration: { fontSize: 26, fontWeight: '800', color: '#0b8a3e', lineHeight: 31 },
+  navDetail: { fontSize: 15, color: '#6e6e73', fontWeight: '500' },
+  navEnd: { width: 46, height: 46, borderRadius: 23, backgroundColor: '#f2f2f7', alignItems: 'center', justifyContent: 'center' },
+  navEndText: { fontSize: 20, fontWeight: '700', color: '#1c1c1e' },
+  navEndSpacer: { width: 46 },
+  navEndQuestion: { fontSize: 17, fontWeight: '700', color: '#1c1c1e' },
+  navEndChoice: { borderRadius: 12, paddingVertical: 12, paddingHorizontal: 18, alignItems: 'center' },
   summaryRow: { flexDirection: 'row', alignItems: 'baseline', gap: 10 },
   summaryMain: { fontSize: 26, fontWeight: '800', color: '#0b8a3e' },
   summarySub: { fontSize: 16, color: '#3a3a3c' },
@@ -2197,6 +2251,11 @@ const nightOverrides = StyleSheet.create({
   summaryMain: { color: '#30d158' },
   legLabel: { color: '#ffb340' },
   summarySub: { color: '#d1d1d6' },
+  navDuration: { color: '#30d158' },
+  navDetail: { color: NIGHT.sub },
+  navEnd: { backgroundColor: NIGHT.raised },
+  navEndText: { color: NIGHT.text },
+  navEndQuestion: { color: NIGHT.text },
   arrivalLabel: { color: NIGHT.sub },
   arrivalTime: { color: NIGHT.text },
   optionArrival: { color: '#d1d1d6' },

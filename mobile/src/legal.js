@@ -105,8 +105,8 @@ export const PRIVACY = {
 
 export const TERMS = {
   id: 'kullanim-kosullari',
-  version: '1.0',
-  updated: '25 Ekim 2026',
+  version: '1.1',
+  updated: '27 Ekim 2026',
   title: 'Kullanım Koşulları ve Sorumluluk Reddi',
   intro:
     'Bu koşullar, HERMAPS uygulamasını ("Uygulama") kullanımınıza ilişkin kuralları belirler. Uygulamaya kayıt olarak veya uygulamayı kullanarak bu koşulları kabul etmiş olursunuz. Lütfen özellikle 5. ve 6. maddeleri dikkatle okuyun.',
@@ -156,7 +156,8 @@ export const TERMS = {
       title: '6. Sorumluluk reddi',
       body: [
         'Rota, varış süresi, mesafe, kapalı yol, hız sınırı, şerit ve trafik tahmini bilgileri yalnızca bilgilendirme amaçlıdır. Harita verileri OpenStreetMap ve diğer üçüncü taraf kaynaklardan gelir; eksik, hatalı veya güncel olmayan bilgiler içerebilir.',
-        'Kapalı yol bilgileri yetkili yöneticiler tarafından girilir. Bir yolun uygulamada açık görünmesi gerçekte açık olduğu, kapalı görünmesi de gerçekte kapalı olduğu anlamına gelmez.',
+        'Yolların uygulamada trafiğe kapatılması ve açılması yalnızca kullanıcılar (yetkili kullanıcı hesapları) tarafından yapılır; HERMAPS yolları kendisi kapatmaz veya açmaz. Kullanıcıların "Bildir" ile gönderdiği yol çalışması, kaza ve benzeri bildirimler de kullanıcılara aittir ve tarafımızca doğrulanmaz.',
+        'Kapalı yol ve bildirim bilgilerinin doğruluğundan, eksikliğinden veya güncel olmamasından ve bu bilgilere dayanılarak verilen kararlardan doğan sonuçlardan HERMAPS sorumlu değildir. Bir yolun uygulamada açık görünmesi gerçekte açık olduğu, kapalı görünmesi de gerçekte kapalı olduğu anlamına gelmez.',
         'GPS sinyali; tünel, köprü altı, yüksek binalar veya telefonunuzdan kaynaklanan nedenlerle zayıflayabilir ya da hatalı olabilir. Bu durumda konumunuz ve yönlendirme yanlış olabilir.',
         'Hizmet "olduğu gibi" sunulur. Hizmetin kesintisiz, hatasız veya her zaman erişilebilir olacağını garanti etmeyiz; bakım, internet bağlantısı, sunucu veya üçüncü taraf hizmetlerinden kaynaklanan kesintiler yaşanabilir.',
         'Mevzuatın izin verdiği ölçüde; uygulamanın kullanımından veya kullanılamamasından doğan trafik kazaları, trafik cezaları, gecikmeler, randevu veya iş kayıpları, yakıt ve diğer doğrudan veya dolaylı zararlardan sorumlu değiliz. Kast veya ağır kusurumuzdan doğan zararlara ilişkin sorumluluğumuz saklıdır.',

@@ -322,6 +322,9 @@ function AppScreen() {
 
   // --- Rota ---
   const routeRequest = useRef(0);
+  // Seyirde aracın gerçekten gittiği yön (derece): rotanın bulunulan noktadaki yönü ya da son
+  // hareket yönü. Bilinmiyorsa null. Yeniden rota bu yönden başlar (aşağıda).
+  const travelHeading = useRef(null);
   const requestRoute = useCallback(
     async ({ to = destination, from = origin, via, quiet = false } = {}) => {
       if (!to) return;
@@ -341,7 +344,13 @@ function AppScreen() {
       const reqId = ++routeRequest.current;
       setBusy(true);
       try {
-        const heading = navigating && from === location ? location.heading : undefined;
+        // Yeniden rotada araç gittiği yönden devam etsin. Telefonun pusulası duran araçta 0 (kuzey)
+        // döndüğü için ona yalnızca hareket halindeyken ve gidiş yönü bilinmiyorsa güvenilir;
+        // yoksa güneye giderken durup önündeki yolu kapatınca rota geri (kuzeye) döndürüyordu.
+        const heading =
+          navigating && from === location
+            ? (travelHeading.current ?? (location.speed > 3 && location.heading >= 0 ? location.heading : undefined))
+            : undefined;
         // Seyir sırasında (yeniden rota) tek rota yeter; önizlemede alternatifler de istenir.
         const r = await api.route({
           from,
@@ -460,20 +469,25 @@ function AppScreen() {
   const puck = navigating && gpsUsable ? (onRoute ? progress.snap.point : [location.lat, location.lon]) : null;
 
   let bearing = lastBearing.current;
+  let bearingKnown = false; // bu konumda gidiş yönü gerçekten biliniyor mu
   if (navigating && gpsUsable) {
     if (onRoute) {
       bearing = bearingDegrees(progress.snap.point, pointAhead(route.coordinates, progress.snap, 25));
+      bearingKnown = true;
     } else if (lastFix.current && distanceMeters(lastFix.current, [location.lat, location.lon]) > 8) {
       bearing = bearingDegrees(lastFix.current, [location.lat, location.lon]);
+      bearingKnown = true;
     }
   }
 
   useEffect(() => {
     if (!navigating || !gpsUsable) {
       lastFix.current = null;
+      travelHeading.current = null;
       return;
     }
     lastBearing.current = bearing;
+    if (bearingKnown) travelHeading.current = Math.round(bearing);
     const here = [location.lat, location.lon];
     if (!lastFix.current || distanceMeters(lastFix.current, here) > 8) lastFix.current = here;
     // bearing konumdan türetiliyor; konum değişimi yeterli tetikleyici.

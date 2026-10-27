@@ -156,7 +156,7 @@ export const TERMS = {
       title: '6. Sorumluluk reddi',
       body: [
         'Rota, varış süresi, mesafe, kapalı yol, hız sınırı, şerit ve trafik tahmini bilgileri yalnızca bilgilendirme amaçlıdır. Harita verileri OpenStreetMap ve diğer üçüncü taraf kaynaklardan gelir; eksik, hatalı veya güncel olmayan bilgiler içerebilir.',
-        'Yolların uygulamada trafiğe kapatılması ve açılması yalnızca kullanıcılar (yetkili kullanıcı hesapları) tarafından yapılır; HERMAPS yolları kendisi kapatmaz veya açmaz. Kullanıcıların "Bildir" ile gönderdiği yol çalışması, kaza ve benzeri bildirimler de kullanıcılara aittir ve tarafımızca doğrulanmaz.',
+        'Yolların uygulamada trafiğe kapatılması ve açılması yalnızca kullanıcılar tarafından yapılır; HERMAPS yolları kendisi kapatmaz veya açmaz. Kullanıcıların "Bildir" ile gönderdiği yol çalışması, kaza ve benzeri bildirimler de kullanıcılara aittir ve tarafımızca doğrulanmaz.',
         'Kapalı yol ve bildirim bilgilerinin doğruluğundan, eksikliğinden veya güncel olmamasından ve bu bilgilere dayanılarak verilen kararlardan doğan sonuçlardan HERMAPS sorumlu değildir. Bir yolun uygulamada açık görünmesi gerçekte açık olduğu, kapalı görünmesi de gerçekte kapalı olduğu anlamına gelmez.',
         'GPS sinyali; tünel, köprü altı, yüksek binalar veya telefonunuzdan kaynaklanan nedenlerle zayıflayabilir ya da hatalı olabilir. Bu durumda konumunuz ve yönlendirme yanlış olabilir.',
         'Hizmet "olduğu gibi" sunulur. Hizmetin kesintisiz, hatasız veya her zaman erişilebilir olacağını garanti etmeyiz; bakım, internet bağlantısı, sunucu veya üçüncü taraf hizmetlerinden kaynaklanan kesintiler yaşanabilir.',

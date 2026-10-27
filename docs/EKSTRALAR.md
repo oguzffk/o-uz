@@ -85,7 +85,7 @@ yeni APK yapılır; hepsi birlikte gelir.
   - üyelik ve paketler (cayma hakkı istisnası, iadeler);
   - trafik kuralları ve sürüş güvenliği;
   - sorumluluk reddi (rota, kapalı yol, hız sınırı bilgileri bilgilendirme amaçlıdır);
-  - yolları uygulamada yalnızca kullanıcılar (yetkili hesaplar) kapatıp açar; kapalı yol ve
+  - yolları uygulamada yalnızca kullanıcılar kapatıp açar; kapalı yol ve
     bildirim bilgilerinden HERMAPS sorumlu değildir;
   - yasak kullanımlar;
   - uygulanacak hukuk.

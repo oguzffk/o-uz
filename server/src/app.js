@@ -238,6 +238,7 @@ export function createApp({
   mailer = { configured: false, sendLoginCode: async () => {} },
   nominatimUrl = 'https://nominatim.openstreetmap.org',
   hereApiKey = null, // varsa adres arama HERE'den yapılır (siteler, işletmeler daha eksiksiz)
+  reports = null, // kullanıcı bildirimleri (ReportStore); verilmezse bildirim uçları kapalı
   fetchImpl = fetch,
   now = () => Date.now(),
   revenuecat = { webhookAuth: null, allowSandbox: false },
@@ -469,6 +470,33 @@ export function createApp({
     } catch (err) {
       next(err);
     }
+  });
+
+  // --- Kullanıcı bildirimleri ---
+  // Her aktif kullanıcı bulunduğu yerdeki yol çalışması, kaza vb. durumu bildirebilir; bu yolu
+  // kapatmaz. Sahip ve yöneticiler bildirimleri görür, gerekirse yolu kendileri kapatır.
+  app.post('/api/reports', requireActive, async (req, res, next) => {
+    try {
+      if (!reports) throw new HttpError(503, 'Bildirim alınamıyor');
+      const point = parsePoint(req.body, 'Konum');
+      const edge = await valhalla.locateEdge(point).catch(() => null);
+      const road = edge && edge.distanceMeters <= MAX_SNAP_METERS ? edge.names.join(' / ') || null : null;
+      const report = reports.add({ type: req.body.type, ...point, road, user: req.user });
+      res.json({ report });
+    } catch (err) {
+      next(err.status && !(err instanceof HttpError) ? new HttpError(err.status, err.message) : err);
+    }
+  });
+
+  app.get('/api/reports', ...staff, (req, res) => {
+    res.json({ reports: reports ? reports.list() : [] });
+  });
+
+  // Bildirimi listeden kaldır (yoksay ya da yol kapatıldıktan sonra).
+  app.delete('/api/reports/:id', ...staff, (req, res) => {
+    const removed = reports?.remove(req.params.id);
+    if (!removed) return res.status(404).json({ error: 'Bildirim bulunamadı' });
+    res.json({ ok: true });
   });
 
   // Tüm yolları tek seferde trafiğe açar (gruplar silinmez, yalnızca açılır).

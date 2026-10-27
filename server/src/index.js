@@ -2,6 +2,7 @@ import { fileURLToPath } from 'node:url';
 import { createApp } from './app.js';
 import { ClosureStore } from './closures.js';
 import { UserStore } from './users.js';
+import { ReportStore } from './reports.js';
 import { createValhallaClient } from './valhalla.js';
 import { createMailer } from './mailer.js';
 
@@ -9,9 +10,11 @@ const PORT = Number(process.env.PORT ?? 3000);
 const VALHALLA_URL = process.env.VALHALLA_URL ?? 'http://localhost:8002';
 const DATA_FILE = process.env.CLOSURES_FILE ?? fileURLToPath(new URL('../data/closures.json', import.meta.url));
 const USERS_FILE = process.env.USERS_FILE ?? fileURLToPath(new URL('../data/users.json', import.meta.url));
+const REPORTS_FILE = process.env.REPORTS_FILE ?? fileURLToPath(new URL('../data/reports.json', import.meta.url));
 
 const store = new ClosureStore(DATA_FILE);
 const users = new UserStore(USERS_FILE);
+const reports = new ReportStore(REPORTS_FILE);
 
 // İlk açılışta sahip hesabı: OWNER_PHONE (+ isteğe bağlı OWNER_PASSWORD). Şifre verilmezse rastgele
 // üretilir ve yalnızca bu sefer konsola yazılır; sabit varsayılan şifre yoktur.
@@ -37,6 +40,7 @@ const app = createApp({
   valhalla: createValhallaClient(VALHALLA_URL),
   store,
   users,
+  reports,
   mailer,
   nominatimUrl: process.env.NOMINATIM_URL,
   hereApiKey: process.env.HERE_API_KEY || null,

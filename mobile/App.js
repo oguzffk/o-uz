@@ -49,11 +49,14 @@ import SettingsSheet from './src/SettingsSheet';
 import { LaneStrip, ManeuverIcon } from './src/TurnIcons';
 import { enterPip, pipSupported, setAutoPip, usePipMode } from './src/pip';
 import ZonesSheet from './src/ZonesSheet';
+import { ReportSheet, ReportsSheet, reportIcon } from './src/ReportSheets';
 
 const SETTINGS_KEY = 'nav-settings-v1';
 const RECENTS_KEY = 'recent-places-v1';
 const MAX_RECENTS = 8;
 const CLOSURE_POLL_MS = 5000;
+// Sahip / yönetici yeni bildirimleri bu sıklıkla kontrol eder.
+const REPORT_POLL_MS = 15000;
 
 // Demo modu kendi sunucumuz olmadan herkese açık Valhalla'yı kullanır (bkz. src/demoApi.js).
 // Oturum hangi sunucuya aitse onu belirten anahtar (sunucu değişince oturum geçersiz).
@@ -115,6 +118,10 @@ function AppScreen() {
   const [routeOptions, setRouteOptions] = useState([]); // önizlemede alternatifler dahil tüm rotalar
   const [closures, setClosures] = useState({ version: -1, closures: [], zones: [] });
   const [zonesOpen, setZonesOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false); // kullanıcı: "Bildir"
+  const [reportsOpen, setReportsOpen] = useState(false); // sahip / yönetici: gelen bildirimler
+  const [reports, setReports] = useState([]);
+  const seenReports = useRef(null); // daha önce görülen bildirimler (yeni gelince uyarı için)
   const [editing, setEditing] = useState(null); // düzenlenen grup: { id, name }
   const [navigating, setNavigating] = useState(false);
 
@@ -414,6 +421,63 @@ function AppScreen() {
       clearInterval(id);
     };
   }, [api, showToast]);
+
+  // Sahip / yönetici: kullanıcı bildirimleri. Yeni gelen bildirim ekranda kısa uyarı olarak görünür.
+  const userId = user?.id;
+  useEffect(() => {
+    if (!api || !isStaff) return undefined;
+    let stopped = false;
+    const tick = async () => {
+      try {
+        const { reports: list } = await api.reports();
+        if (stopped) return;
+        setReports(list);
+        const seen = seenReports.current;
+        const fresh = seen ? list.filter((r) => !seen.has(r.id) && r.userId !== userId) : [];
+        seenReports.current = new Set(list.map((r) => r.id));
+        if (fresh.length === 1) {
+          const r = fresh[0];
+          showToast(`${reportIcon(r.type)} Yeni bildirim: ${[r.label, r.road].filter(Boolean).join(' · ')}`);
+        } else if (fresh.length > 1) {
+          showToast(`${fresh.length} yeni bildirim var. "Bildirim"e bakın.`);
+        }
+      } catch {
+        // Sunucu geçici olarak erişilemezse sessizce tekrar denenir.
+      }
+    };
+    tick();
+    const id = setInterval(tick, REPORT_POLL_MS);
+    return () => {
+      stopped = true;
+      clearInterval(id);
+      seenReports.current = null; // çıkış / hesap değişince liste sıfırlanır
+      setReports([]);
+    };
+  }, [api, isStaff, userId, showToast]);
+
+  const sendReport = async (type) => {
+    if (!location) throw new Error('Konumunuz henüz bulunamadı.');
+    await api.sendReport({ type, lat: location.lat, lon: location.lon });
+    showToast('Bildiriminiz yöneticilere iletildi. Teşekkürler!');
+  };
+
+  // "Haritada göster": yol kapatma açılır ve harita bildirimin olduğu yere gider.
+  const showReport = (r) => {
+    setReportsOpen(false);
+    setCentered(false);
+    if (!adminMode) setAdminMode(true);
+    showToast('Yolu kapatmak gerekiyorsa yola dokunun.');
+    mapRef.current?.animateCamera({ center: { latitude: r.lat, longitude: r.lon }, zoom: 17 }, { duration: 700 });
+  };
+
+  const dismissReport = async (r) => {
+    try {
+      await api.dismissReport(r.id);
+      setReports((list) => list.filter((x) => x.id !== r.id));
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  };
 
   useEffect(() => {
     if (!route) return undefined;
@@ -795,6 +859,8 @@ function AppScreen() {
     setMembersOpen(false);
     setPurchaseOpen(false);
     setZonesOpen(false);
+    setReportOpen(false);
+    setReportsOpen(false);
     stopNavigation();
     setRoute(null);
     setRouteOptions([]);
@@ -985,6 +1051,7 @@ function AppScreen() {
             />
           ))}
           {destination && <Marker coordinate={toLatLng([destination.lat, destination.lon])} title={destination.name} />}
+          {isStaff && reports.map((r) => <ReportMarker key={`report:${r.id}`} report={r} onPress={() => setReportsOpen(true)} />)}
           {puck && travelled != null && (
             <NavFollower
               mapRef={mapRef}
@@ -1320,6 +1387,7 @@ function AppScreen() {
                   duration={formatDuration(remainingSec)}
                   detail={`${formatDistance(remainingMeters)} · ${formatArrival(remainingSec)} varış${busy ? ' · güncelleniyor…' : ''}`}
                   onEnd={() => clearTrip()}
+                  onReport={() => setReportOpen(true)}
                 />
               ) : (
                 <>
@@ -1419,6 +1487,15 @@ function AppScreen() {
                 </View>
               </SideButton>
             )}
+            {isStaff && (
+              <SideButton
+                label={reports.length ? `Bildirim\n(${reports.length})` : 'Bildirim'}
+                highlight={reports.length > 0}
+                onPress={() => setReportsOpen(true)}
+              >
+                <Text style={styles.sideGlyph}>🔔</Text>
+              </SideButton>
+            )}
             {isStaff && adminMode && (
               <SideButton label={`Gruplar${closures.zones.length ? ` (${closures.zones.length})` : ''}`} onPress={() => setZonesOpen(true)}>
                 <Text style={styles.sideGlyph}>☰</Text>
@@ -1465,6 +1542,17 @@ function AppScreen() {
         )}
 
         {!inPip && <Text style={[styles.attribution, { bottom: insets.bottom + 4 }]}>© OpenStreetMap katkıcıları</Text>}
+
+        <ReportSheet visible={reportOpen} onClose={() => setReportOpen(false)} onSend={sendReport} />
+        {isStaff && (
+          <ReportsSheet
+            visible={reportsOpen}
+            reports={reports}
+            onClose={() => setReportsOpen(false)}
+            onShow={showReport}
+            onDismiss={dismissReport}
+          />
+        )}
 
         <ZonesSheet
           visible={zonesOpen}
@@ -1808,8 +1896,9 @@ function NavFollower({ mapRef, coords, cum, travelled, onRoute, position, bearin
 }
 
 // Seyirde alt panel (Google Haritalar tarzı): ortada kalan süre, altında mesafe ve varış saati;
-// solda ✕ seyri bitirir. Yanlışlıkla basılmasın diye ✕ önce kısa bir onay sorar.
-function NavSummary({ legText, duration, detail, onEnd }) {
+// solda ✕ seyri bitirir, sağda ＋ "Bildir" (yol çalışması, kaza...). Yanlışlıkla basılmasın diye
+// ✕ önce kısa bir onay sorar.
+function NavSummary({ legText, duration, detail, onEnd, onReport }) {
   const styles = useStyles();
   const [confirming, setConfirming] = useState(false);
   useEffect(() => {
@@ -1847,8 +1936,13 @@ function NavSummary({ legText, duration, detail, onEnd }) {
           {detail}
         </Text>
       </View>
-      {/* ✕ ile denge: süre tam ortada dursun */}
-      <View style={styles.navEndSpacer} />
+      {/* ✕ ile aynı genişlikte: süre tam ortada dursun */}
+      <Pressable style={styles.navReport} onPress={onReport} hitSlop={6} accessibilityLabel="Bildir">
+        <View style={styles.navReportCircle}>
+          <Text style={styles.navReportPlus}>＋</Text>
+        </View>
+        <Text style={styles.navReportLabel}>Bildir</Text>
+      </Pressable>
     </View>
   );
 }
@@ -1919,6 +2013,29 @@ function NoEntrySign() {
   );
 }
 
+// Sahip / yöneticinin haritasında kullanıcı bildirimi (🚧, 💥...). Dokununca bildirim listesi açılır.
+function ReportMarker({ report, onPress }) {
+  const styles = useStyles();
+  const [tracks, setTracks] = useState(true);
+  useEffect(() => {
+    const t = setTimeout(() => setTracks(false), 600);
+    return () => clearTimeout(t);
+  }, []);
+  return (
+    <Marker
+      coordinate={toLatLng([report.lat, report.lon])}
+      anchor={{ x: 0.5, y: 0.5 }}
+      tracksViewChanges={tracks}
+      onPress={onPress}
+      zIndex={5}
+    >
+      <View style={styles.reportPin} accessibilityLabel={`Bildirim: ${report.label}`}>
+        <Text style={styles.reportPinIcon}>{reportIcon(report.type)}</Text>
+      </View>
+    </Marker>
+  );
+}
+
 const midpointOf = (coords) => coords[Math.floor(coords.length / 2)];
 
 // Seyir sürerken ekranın kendiliğinden kapanmasını engeller.
@@ -1985,7 +2102,21 @@ const baseStyles = StyleSheet.create({
   navDetail: { fontSize: 15, color: '#6e6e73', fontWeight: '500' },
   navEnd: { width: 46, height: 46, borderRadius: 23, backgroundColor: '#f2f2f7', alignItems: 'center', justifyContent: 'center' },
   navEndText: { fontSize: 20, fontWeight: '700', color: '#1c1c1e' },
-  navEndSpacer: { width: 46 },
+  navReport: { width: 46, alignItems: 'center' },
+  navReportCircle: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#f08c00', alignItems: 'center', justifyContent: 'center' },
+  navReportPlus: { fontSize: 22, fontWeight: '800', color: '#fff', lineHeight: 26 },
+  navReportLabel: { fontSize: 11.5, fontWeight: '700', color: '#1c1c1e', marginTop: 2 },
+  reportPin: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#fff',
+    borderWidth: 2,
+    borderColor: '#f08c00',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  reportPinIcon: { fontSize: 17 },
   navEndQuestion: { fontSize: 17, fontWeight: '700', color: '#1c1c1e' },
   navEndChoice: { borderRadius: 12, paddingVertical: 12, paddingHorizontal: 18, alignItems: 'center' },
   summaryRow: { flexDirection: 'row', alignItems: 'baseline', gap: 10 },
@@ -2230,6 +2361,7 @@ const nightOverrides = StyleSheet.create({
   navDetail: { color: NIGHT.sub },
   navEnd: { backgroundColor: NIGHT.raised },
   navEndText: { color: NIGHT.text },
+  navReportLabel: { color: NIGHT.text },
   navEndQuestion: { color: NIGHT.text },
   arrivalLabel: { color: NIGHT.sub },
   arrivalTime: { color: NIGHT.text },

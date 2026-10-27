@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { distanceMeters, snapToRoute } from './geo';
+import { distanceMeters, inIstanbul, snapToRoute } from './geo';
 import { adjustedTime, trafficPeriod } from './traffic';
 import { fixStreetSuffixes } from './turkish';
 import { ApiError } from './api';
@@ -13,6 +13,11 @@ import { searchPlaces } from './search';
  */
 export const PUBLIC_VALHALLA_URL = 'https://valhalla1.openstreetmap.de';
 const STORAGE_KEY = 'demo-closures-v1';
+const REPORTS_KEY = 'demo-reports-v1';
+// server/src/reports.js ile aynı: bildirim türleri, 24 saat ömür, kullanıcı başına 30 sn bekleme.
+const REPORT_TYPES = { roadwork: 'Yol çalışması', accident: 'Kaza', closed: 'Yol kapalı', breakdown: 'Araç arızası', other: 'Diğer' };
+const REPORT_TTL_MS = 24 * 60 * 60 * 1000;
+const REPORT_COOLDOWN_MS = 30 * 1000;
 const MAX_SNAP_METERS = 40;
 // Sunucudaki gibi: dokunulan nokta kapalı bir yola bu kadar yakınsa (metre) o yol açılır; bulunan
 // en yakın yoldan en fazla BIAS kadar uzak olmalı (yan yana şeritlerde diğerini kapatabilmek için).
@@ -264,6 +269,21 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL, token = null) {
     return u;
   }
 
+  // En yenisi başta; 24 saatten eskiler atılır.
+  async function loadReports() {
+    let list = [];
+    try {
+      list = JSON.parse(await AsyncStorage.getItem(REPORTS_KEY)) || [];
+    } catch {
+      list = [];
+    }
+    const cutoff = Date.now() - REPORT_TTL_MS;
+    return list.filter((r) => Date.parse(r.createdAt) > cutoff);
+  }
+  async function saveReports(list) {
+    await AsyncStorage.setItem(REPORTS_KEY, JSON.stringify(list)).catch(() => {});
+  }
+
   let state = null; // { version, closures (kaydedilmemiş), zones } — sunucudaki ClosureStore'un küçük kopyası
 
   async function load() {
@@ -474,6 +494,47 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL, token = null) {
     async search(q) {
       await requireActive();
       return { results: await searchPlaces(q) };
+    },
+
+    // Bildirimler yalnızca bu telefonda tutulur (demo); gerçek sunucuda yöneticilere gider.
+    async sendReport({ type, lat, lon }) {
+      const u = await requireActive();
+      if (!REPORT_TYPES[type]) throw new ApiError('Geçersiz bildirim türü', 400);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon) || !inIstanbul({ lat, lon })) {
+        throw new ApiError('Konum İstanbul dışında', 400);
+      }
+      const list = await loadReports();
+      const last = list.find((r) => r.userId === u.id);
+      if (last && Date.now() - Date.parse(last.createdAt) < REPORT_COOLDOWN_MS) {
+        throw new ApiError('Az önce bildirim gönderdiniz. Biraz sonra tekrar deneyin.', 429);
+      }
+      const road = await locateNearest(lat, lon).then((f) => f?.segment.name ?? null, () => null);
+      const report = {
+        id: randomToken(),
+        type,
+        label: REPORT_TYPES[type],
+        lat,
+        lon,
+        road,
+        userId: u.id,
+        userName: u.name,
+        createdAt: new Date().toISOString(),
+      };
+      await saveReports([report, ...list]);
+      return { report };
+    },
+
+    async reports() {
+      await requireStaff();
+      return { reports: await loadReports() };
+    },
+
+    async dismissReport(id) {
+      await requireStaff();
+      const list = await loadReports();
+      if (!list.some((r) => r.id === id)) throw new ApiError('Bildirim bulunamadı', 404);
+      await saveReports(list.filter((r) => r.id !== id));
+      return { ok: true };
     },
 
     async toggleClosure({ lat, lon }) {

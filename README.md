@@ -191,6 +191,8 @@ Uygulama RevenueCat'e kullanıcıyı sunucudaki kullanıcı kimliğiyle tanıtı
 | `POST /api/zones/:id/toggle-segment` `{lat,lon}` 🔒 | Grup düzenleme: dokunulan yol gruptaysa çıkarır, değilse ekler |
 | `DELETE /api/zones/:id` 🔒 | Grubu siler |
 | `POST /api/closures/open-all` 🔒 | Tüm yolları trafiğe açar: kaydedilmemiş kapatmalar silinir, gruplar silinmez ama açılır |
+| `POST /api/reports` `{type, lat, lon}` | Kullanıcı bildirimi (`roadwork` yol çalışması, `accident` kaza, `closed` yol kapalı, `breakdown` araç arızası, `other` diğer). Yol **kapanmaz**; en yakın yolun adı eklenip yöneticilere iletilir. Aynı kullanıcı 30 sn'de bir gönderebilir (`429`) |
+| `GET /api/reports` 🔒 · `DELETE /api/reports/:id` 🔒 | Son 24 saatin bildirimleri (en yenisi başta) · bildirimi kaldırır. Gerekirse yolu yönetici `POST /api/closures/toggle` ile kendisi kapatır |
 | `GET /api/search?q=` | İstanbul ile sınırlı adres ve yer arama. `HERE_API_KEY` varsa HERE (Discover; site, rezidans ve işletmelerde çok daha eksiksiz, binanın yola bağlandığı nokta döner), yoksa ya da HERE hata verirse OpenStreetMap (Nominatim) |
 | `POST /api/auth/email-code` `{email}` | Kayıtlı adrese 6 haneli giriş kodu gönderir (adres kayıtlı olmasa da cevap aynı). Aynı adrese dakikada 1, saatte 5; aynı IP'den saatte 30 istek |
 | `POST /api/auth/email-login` `{email, code}` | Kod doğruysa oturum açar: `{token, user}`. Kod 10 dakika ve 5 deneme geçerli, tek kullanımlık. Aynı hesabın önceki oturumu kapanır |

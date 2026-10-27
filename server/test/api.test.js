@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { createApp } from '../src/app.js';
 import { ClosureStore } from '../src/closures.js';
 import { UserStore } from '../src/users.js';
+import { ReportStore } from '../src/reports.js';
 import { decodePolyline, midpointAlong } from '../src/geo.js';
 
 // Valhalla'nın gerçek locate cevabından alınmış bir kenar geometrisi.
@@ -42,7 +43,8 @@ async function withServer(fn, { now, mailer: customMailer, revenuecat = { webhoo
   const users = new UserStore(join(dir, 'users.json'), { now: now ?? (() => clock.t) });
   const mail = []; // gönderilen giriş kodları
   const mailer = customMailer ?? { configured: true, sendLoginCode: async (to, code, kind = 'login') => mail.push({ to, code, kind }) };
-  const app = createApp({ valhalla, store, users, mailer, revenuecat, now: now ?? (() => clock.t) });
+  const reports = new ReportStore(join(dir, 'reports.json'), { now: now ?? (() => clock.t) });
+  const app = createApp({ valhalla, store, users, reports, mailer, revenuecat, now: now ?? (() => clock.t) });
   const server = app.listen(0);
   const base = `http://localhost:${server.address().port}`;
   const raw = (path, { method = 'GET', body, token } = {}) =>
@@ -1020,5 +1022,50 @@ test('yol kapat: kapalı yola tekrar dokununca, en yakın yol yan sokak çıksa 
     const far = await tap(41.03, 28.9805, { ...edge(B, 300, 'Uzak') });
     assert.equal(far.body.action, 'opened');
     assert.equal(far.body.closure.name, 'A Sokak');
+  });
+});
+
+test('bildirim: üye konumundaki durumu bildirir (yol kapanmaz), yalnızca sahip/yönetici görür ve kaldırır', async () => {
+  await withServer(async ({ req, raw, users, ownerToken, adminToken, clock, valhalla }) => {
+    users.create({ name: 'Üye Ali', email: 'ali@ornek.com', role: 'member' });
+    const member = users.findByEmail('ali@ornek.com');
+    users.extend(member.id, 1);
+    // Üye oturumu doğrudan açılır (e-posta kodu testleri ayrıca var).
+    const issued = users.createEmailCode('ali@ornek.com');
+    const session = users.loginWithEmailCode('ali@ornek.com', issued.code);
+    const memberToken = session.token;
+    valhalla.locateEdge = async () => ({ shapeEncoded: SHAPE, coordinates: decodePolyline(SHAPE), wayId: 1, names: ['15. Sokak'], distanceMeters: 4 });
+
+    const send = (body, token = memberToken) => raw('/api/reports', { method: 'POST', token, body });
+    assert.equal((await send({ type: 'patlama', lat: 41.03, lon: 28.98 })).status, 400);
+    assert.equal((await send({ type: 'accident', lat: 50, lon: 10 })).status, 400); // İstanbul dışı
+    assert.equal((await send({ type: 'accident', lat: 41.03, lon: 28.98 }, null)).status, 401);
+    const ok = await send({ type: 'accident', lat: 41.03, lon: 28.98 });
+    assert.equal(ok.status, 200, JSON.stringify(ok.body));
+    assert.equal(ok.body.report.label, 'Kaza');
+    assert.equal(ok.body.report.road, '15. Sokak');
+    assert.equal(ok.body.report.userName, 'Üye Ali');
+    // Bildirim yolu kapatmaz.
+    assert.equal((await req('/api/closures')).body.closures.length, 0);
+    // 30 sn içinde ikinci bildirim yok.
+    assert.equal((await send({ type: 'roadwork', lat: 41.03, lon: 28.98 })).status, 429);
+    clock.t += 31000;
+    assert.equal((await send({ type: 'roadwork', lat: 41.031, lon: 28.981 })).status, 200);
+
+    // Üye bildirimleri göremez, yönetici ve sahip görür (en yenisi başta).
+    assert.equal((await raw('/api/reports', { token: memberToken })).status, 403);
+    const list = await req('/api/reports', { token: adminToken });
+    assert.deepEqual(list.body.reports.map((r) => r.label), ['Yol çalışması', 'Kaza']);
+    assert.equal((await req('/api/reports', { token: ownerToken })).body.reports.length, 2);
+
+    // Yönetici kaldırır; üye kaldıramaz.
+    const id = list.body.reports[0].id;
+    assert.equal((await raw(`/api/reports/${id}`, { method: 'DELETE', token: memberToken })).status, 403);
+    assert.equal((await req(`/api/reports/${id}`, { method: 'DELETE', token: adminToken })).status, 200);
+    assert.equal((await req('/api/reports', { token: adminToken })).body.reports.length, 1);
+
+    // 24 saatten eski bildirimler listeden düşer.
+    clock.t += 25 * 60 * 60 * 1000;
+    assert.equal((await req('/api/reports', { token: adminToken })).body.reports.length, 0);
   });
 });

@@ -59,6 +59,11 @@ export function createApi(baseUrl, token) {
       request('/api/route', { method: 'POST', body: { from, to, via, costing, heading, alternatives, avoidTolls } }),
     search: (q) => request(`/api/search?q=${encodeURIComponent(q)}`),
 
+    // Bildirimler: herkes gönderir (yol kapanmaz), sahip + yönetici görür ve kaldırır
+    sendReport: ({ type, lat, lon }) => request('/api/reports', { method: 'POST', body: { type, lat, lon } }),
+    reports: () => request('/api/reports'),
+    dismissReport: (id) => request(`/api/reports/${id}`, { method: 'DELETE' }),
+
     // Yol kapatma ve gruplar (sahip + yönetici)
     toggleClosure: ({ lat, lon }) => request('/api/closures/toggle', { method: 'POST', body: { lat, lon } }),
     saveZone: (name) => request('/api/zones', { method: 'POST', body: { name } }),

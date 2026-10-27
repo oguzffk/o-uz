@@ -44,6 +44,7 @@ services:
       - REVENUECAT_ALLOW_SANDBOX=${REVENUECAT_ALLOW_SANDBOX:-}
       - CLOSURES_FILE=/data/closures.json
       - USERS_FILE=/data/users.json
+      - REPORTS_FILE=/data/reports.json
     volumes:
       - ./server/data:/data
     depends_on:

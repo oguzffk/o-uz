@@ -90,6 +90,9 @@ SMTP_PORT=587
 SMTP_USER=brevo-giris-adresiniz
 SMTP_PASS=brevo-smtp-anahtariniz
 MAIL_FROM="HERMAPS <kod@alanadiniz.com>"
+
+# Adres arama: HERE anahtarı (site, rezidans ve işletmeler için; yoksa OpenStreetMap araması)
+HERE_API_KEY=here-anahtariniz
 ```
 
 SMTP ayarlı değilse e-posta gönderilmez; giriş kodları sunucu kayıtlarına (`docker compose logs api`) yazılır — yalnızca yerel deneme içindir. E-postaların spama düşmemesi için gönderen adres kendi alan adınızda olmalı ve Brevo'nun verdiği SPF/DKIM kayıtları alan adına eklenmeli.
@@ -155,6 +158,7 @@ Telefonda Expo Go ile QR kodu okutun. Giriş ekranının altındaki **Sunucu: �
 | Süre paketleri | **1 gün 119,99 TL · 3 gün 299,99 TL · 1 hafta 559,99 TL**. Ödeme App Store / Google Play'den alınır (otomatik yenilenmez); fiyatlar mağazadan gelir. Satın alma yalnızca uygulamanın mağaza / APK sürümünde çalışır, Expo Go'da çalışmaz. **Demo modunda** "Satın al (demo)" ile gerçek ödeme olmadan süre eklenir |
 | Nereden / Nereye | Üstteki iki kutu. **Nereden** varsayılan olarak **Konumum**; başka bir yer de aranabilir (listenin başında "Konumum" seçeneği). **⇅** ikisini yer değiştirir. Haritada **basılı tutmak** varışı seçer |
 | Ara durak | Rota çizilince kartın altındaki **＋ Ara durak ekle** (en fazla 3). Durak aranır ya da haritada basılı tutularak seçilir; **✕** kaldırır, sağdaki **≡** tutamağından sürükleyerek sırası değiştirilir (rota yeni sırayla yeniden hesaplanır), **⇅** durakların sırasını da ters çevirir. Duraklı rotada alternatif rota verilmez. Alt paneldeki süre, mesafe ve varış saati sıradaki durağa göredir ("1. DURAĞA · Market"); durak geçilince bir sonrakine, duraklar bitince hedefe geçer. Seyirde durağa yaklaşınca "1. ara durağa varmak üzeresiniz" denir; geçilen duraklar yeniden rota hesaplanırken atlanır |
+| Adres arama | Arama HERE'in yer veritabanından yapılır (siteler, rezidanslar, işletmeler). Sunucuda `HERE_API_KEY`; demo modunda EAS ortam değişkeni `EXPO_PUBLIC_HERE_API_KEY` (expo.dev → proje → Environment variables, ortam **preview**, görünürlük **Sensitive**). Anahtar yoksa ya da HERE cevap vermezse OpenStreetMap araması kullanılır. HERE anahtarı: platform.here.com → hesap aç → Access Manager → Apps → **Create app** → **API Keys → Create API key** |
 | Son aramalar | Bir kutuya dokununca (yazmadan) son seçilen yerler listelenir; cihazda saklanır, **Temizle** ile silinir |
 | Rota seçenekleri | En fazla 3 rota; gri alternatife ya da alttaki karta dokunarak seçin. Her kartta süre, mesafe ve **varış saati** |
 | Seyre başla | **Başla** (yalnızca Nereden = Konumum iken; başka başlangıçta rota önizlemesi). Harita yön okunu arkadan takip eder, talimatlar Türkçe okunur, rotadan çıkınca yeni rota hesaplanır |
@@ -198,7 +202,7 @@ Uygulama RevenueCat'e kullanıcıyı sunucudaki kullanıcı kimliğiyle tanıtı
 | `POST /api/zones/:id/toggle-segment` `{lat,lon}` 🔒 | Grup düzenleme: dokunulan yol gruptaysa çıkarır, değilse ekler |
 | `DELETE /api/zones/:id` 🔒 | Grubu siler |
 | `POST /api/closures/open-all` 🔒 | Tüm yolları trafiğe açar: kaydedilmemiş kapatmalar silinir, gruplar silinmez ama açılır |
-| `GET /api/search?q=` | İstanbul ile sınırlı adres arama (Nominatim) |
+| `GET /api/search?q=` | İstanbul ile sınırlı adres ve yer arama. `HERE_API_KEY` varsa HERE (Discover; site, rezidans ve işletmelerde çok daha eksiksiz, binanın yola bağlandığı nokta döner), yoksa ya da HERE hata verirse OpenStreetMap (Nominatim) |
 | `POST /api/auth/register` `{name, email, phone, password}` | Kayıt, 1. adım: bilgiler denetlenir (e-posta/telefon kayıtlıysa `409`), e-postaya 6 haneli doğrulama kodu gider. Hesap henüz açılmaz. Kod sınırları giriş koduyla aynı |
 | `POST /api/auth/register/verify` `{email, code}` | Kayıt, 2. adım: kod doğruysa süresiz üye hesabı açılır, `{token, user}` döner |
 | `POST /api/auth/email-code` `{email, purpose?: "login"\|"reset"}` | Kayıtlı adrese 6 haneli kod gönderir (giriş ya da şifre yenileme; adres kayıtlı olmasa da cevap aynı). Aynı adrese dakikada 1, saatte 5; aynı IP'den saatte 30 istek |

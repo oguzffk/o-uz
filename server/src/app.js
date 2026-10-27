@@ -8,6 +8,7 @@ import { fixStreetSuffixes } from './turkish.js';
 import { ClosureStore } from './closures.js';
 import { PRODUCTS, UserError, normalizeEmail, normalizePhone } from './users.js';
 import { PRIVACY, TERMS, privacyHtml } from './privacy.js';
+import { searchPlaces } from './search.js';
 
 // İstanbul il sınırını kabaca kapsayan kutu (indirme betiğiyle aynı).
 export const ISTANBUL_BBOX = { minLon: 27.95, minLat: 40.78, maxLon: 29.95, maxLat: 41.6 };
@@ -240,6 +241,8 @@ export function createApp({
   users,
   mailer = { configured: false, sendLoginCode: async () => {} },
   nominatimUrl = 'https://nominatim.openstreetmap.org',
+  hereApiKey = null, // varsa adres arama HERE'den yapılır (siteler, işletmeler daha eksiksiz)
+  fetchImpl = fetch,
   now = () => Date.now(),
   revenuecat = { webhookAuth: null, allowSandbox: false },
 }) {
@@ -625,33 +628,22 @@ export function createApp({
     }
   });
 
-  // Adres arama: Nominatim, İstanbul kutusuyla sınırlı. (Prototip; yoğun kullanımda
-  // kendi geocoder'ınızı kurun — Nominatim kullanım politikası saniyede 1 istek.)
+  // Adres arama: HERE anahtarı varsa HERE, yoksa (ya da HERE hata verirse) Nominatim; İstanbul
+  // kutusuyla sınırlı. (Nominatim kullanım politikası saniyede 1 istek; yoğun kullanımda HERE.)
   app.get('/api/search', requireActive, async (req, res, next) => {
     try {
       const q = String(req.query.q ?? '').trim();
       if (q.length < 2) return res.json({ results: [] });
-      const b = ISTANBUL_BBOX;
-      const url = new URL('/search', nominatimUrl);
-      url.search = new URLSearchParams({
-        q,
-        format: 'jsonv2',
-        limit: '8',
-        bounded: '1',
-        viewbox: `${b.minLon},${b.maxLat},${b.maxLon},${b.minLat}`,
-        'accept-language': 'tr',
-      }).toString();
-      const r = await fetch(url, { headers: { 'user-agent': 'istanbul-nav-prototype/0.1' } });
-      if (!r.ok) throw new HttpError(502, `Arama servisi hatası (${r.status})`);
-      const items = await r.json();
-      res.json({
-        results: items.map((i) => ({
-          name: i.name || i.display_name.split(',')[0],
-          address: i.display_name,
-          lat: Number(i.lat),
-          lon: Number(i.lon),
-        })),
+      const { results } = await searchPlaces(q, {
+        hereApiKey,
+        nominatimUrl,
+        bbox: ISTANBUL_BBOX,
+        fetchImpl,
+        userAgent: 'istanbul-nav-prototype/0.1',
+      }).catch((err) => {
+        throw new HttpError(502, err.message);
       });
+      res.json({ results });
     } catch (err) {
       next(err);
     }

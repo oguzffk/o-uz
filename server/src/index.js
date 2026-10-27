@@ -39,6 +39,7 @@ const app = createApp({
   users,
   mailer,
   nominatimUrl: process.env.NOMINATIM_URL,
+  hereApiKey: process.env.HERE_API_KEY || null,
   // RevenueCat panelindeki webhook "Authorization header" değeri (Bearer'dan sonraki kısım)
   revenuecat: { webhookAuth: process.env.REVENUECAT_WEBHOOK_AUTH || null, allowSandbox: process.env.REVENUECAT_ALLOW_SANDBOX === '1' },
 });

@@ -944,3 +944,39 @@ test('hesabımı sil: üye şifresiyle kendi hesabını siler; sahip silemez', a
     assert.equal((await del(adminToken, 'yeni-sifre')).status, 200); // yönetici kendi hesabını silebilir
   });
 });
+
+test('adres arama: HERE anahtarı varsa HERE, hata olursa ya da anahtar yoksa OpenStreetMap', async () => {
+  const { searchPlaces } = await import('../src/search.js');
+  const bbox = { minLon: 27.95, minLat: 40.78, maxLon: 29.95, maxLat: 41.6 };
+  const calls = [];
+  const ok = (body) => ({ ok: true, status: 200, json: async () => body });
+  const here = {
+    items: [
+      { title: 'G Plus Rezidans', address: { label: 'Bağlar Mah., Bağcılar/İstanbul' }, position: { lat: 41.04, lng: 28.85 }, access: [{ lat: 41.0401, lng: 28.8502 }] },
+      { title: 'Konumsuz' },
+    ],
+  };
+  const osm = [{ name: 'Bağlar', display_name: 'Bağlar, Bağcılar, İstanbul', lat: '41.03', lon: '28.84' }];
+  const fetchImpl = async (url) => {
+    calls.push(String(url));
+    if (String(url).includes('hereapi.com')) return here === null ? { ok: false, status: 500 } : ok(here);
+    return ok(osm);
+  };
+  const opts = { nominatimUrl: 'https://nominatim.example', bbox, fetchImpl, userAgent: 'test', log: { warn() {} } };
+
+  const r1 = await searchPlaces('g plus', { ...opts, hereApiKey: 'anahtar' });
+  assert.equal(r1.source, 'here');
+  assert.deepEqual(r1.results, [{ name: 'G Plus Rezidans', address: 'Bağlar Mah., Bağcılar/İstanbul', lat: 41.0401, lon: 28.8502 }]);
+  const u = new URL(calls[0]);
+  assert.equal(u.searchParams.get('q'), 'g plus');
+  assert.equal(u.searchParams.get('in'), 'bbox:27.95,40.78,29.95,41.6');
+  assert.equal(u.searchParams.get('lang'), 'tr-TR');
+
+  const r2 = await searchPlaces('bağlar', { ...opts, hereApiKey: null });
+  assert.equal(r2.source, 'osm');
+  assert.equal(r2.results[0].name, 'Bağlar');
+
+  const failing = async (url) => (String(url).includes('hereapi.com') ? { ok: false, status: 401 } : ok(osm));
+  const r3 = await searchPlaces('bağlar', { ...opts, hereApiKey: 'yanlis', fetchImpl: failing });
+  assert.equal(r3.source, 'osm'); // HERE hata verince arama bozulmaz
+});

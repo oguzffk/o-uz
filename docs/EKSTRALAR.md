@@ -31,7 +31,11 @@ ve yön bandı görünür; "Seyri bitir" paneli görünmez):
 `adcde90d8d3393807c0e719326bd537cc5facb3c` —
 [ZIP](https://github.com/oguzffk/o-uz/archive/adcde90d8d3393807c0e719326bd537cc5facb3c.zip).
 
-Aşağıdakiler sürüm 1'den **sonra** eklendi; 5. madde sürüm 1.1'e, 6. madde sürüm 1.2'ye, 7. madde sürüm 1.3'e, 8. madde sürüm 1.4'e, 9. madde sürüm 1.5'e, 10. madde sürüm 1.6'ya girdi, 1–4 henüz APK'ya girmedi. İstendiğinde güncel
+**Sürüm 1.7** = sürüm 1.6 + **Bildir** (kullanıcı yol çalışması/kaza bildirir, yönetici kapatır):
+`1a9ffbcdefc683aafbb905bc953cac5de3f0125d` —
+[ZIP](https://github.com/oguzffk/o-uz/archive/1a9ffbcdefc683aafbb905bc953cac5de3f0125d.zip).
+
+Aşağıdakiler sürüm 1'den **sonra** eklendi; 5. madde sürüm 1.1'e, 6. madde sürüm 1.2'ye, 7. madde sürüm 1.3'e, 8. madde sürüm 1.4'e, 9. madde sürüm 1.5'e, 10. madde sürüm 1.6'ya, 11. madde sürüm 1.7'ye girdi, 1–4 henüz APK'ya girmedi. İstendiğinde güncel
 dalın ZIP'inden ([claude/istanbul-navigation-app-wkh2ta](https://github.com/oguzffk/o-uz/archive/refs/heads/claude/istanbul-navigation-app-wkh2ta.zip))
 yeni APK yapılır; hepsi birlikte gelir.
 
@@ -47,6 +51,7 @@ yeni APK yapılır; hepsi birlikte gelir.
 | 8 | **Adres aramada HERE** (sürüm 1.4'te) | Nereye / Nereden arama kutusu |
 | 9 | **Yol kapatma dokunuş düzeltmesi** (sürüm 1.5'te) | Yol kapat modunda haritaya dokunma |
 | 10 | **Seyir bitince otomatik temizleme** (sürüm 1.6'da) | ✕ → Bitir / hedefe varış |
+| 11 | **Bildir** (sürüm 1.7'de) | Seyirde varış yazısının sağında ＋; yöneticide yan panel "Bildirim" |
 
 ## 1. Kayıt ol / Giriş yap
 
@@ -140,6 +145,23 @@ yeni APK yapılır; hepsi birlikte gelir.
   paneli **gelmez**: rota, varış noktası ve ara duraklar kendiliğinden silinir, harita konuma döner.
 - Seyre başlamadan önceki rota önizlemesinde "Temizle / Başla" aynen durur.
 - Hedefe varınca sesli "Hedefinize vardınız" kesilmez.
+
+## 11. Bildir (kullanıcı bildirimi)
+
+- Seyirde varış yazısının sağında turuncu yuvarlak **＋**, altında **Bildir**.
+- Basınca: **Yol çalışması, Kaza, Yol kapalı, Araç arızası, Diğer**. Seçince kullanıcının
+  bulunduğu yer ve oradaki yolun adı gönderilir; "Bildiriminiz yöneticilere iletildi." yazar.
+- **Yol kapanmaz.** Kullanıcılar yol kapatamaz; yalnızca sahip ve yöneticiler kapatır.
+- Aynı kişi 30 saniyede bir bildirim gönderebilir (yanlışlıkla art arda basmaya karşı).
+- **Sahip / yönetici:**
+  - yeni bildirim gelince ekranda uyarı çıkar (ör. "🚧 Yeni bildirim: Yol çalışması · Halaskargazi Caddesi");
+  - yan panelde **Bildirim (sayı)** düğmesi; listede tür, yol, ne zaman ve kimin gönderdiği;
+  - haritada bildirimin yerinde işaret (🚧, 💥...);
+  - **Haritada göster:** yol kapatma açılır, harita oraya gider; gerekiyorsa yola dokunup kapatılır;
+  - **Kaldır:** bildirim listeden silinir.
+- Bildirimler 24 saat sonra kendiliğinden silinir.
+- Demo modunda bildirimler yalnızca aynı telefonda görünür; başka telefonlara gitmesi için
+  sunucu gerekir.
 
 ## Yayından önce
 

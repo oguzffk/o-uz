@@ -19,7 +19,11 @@ ve yön bandı görünür; "Seyri bitir" paneli görünmez):
 `2491cc0986a93fd7d1a2229acb4d545a419a4062` —
 [ZIP](https://github.com/oguzffk/o-uz/archive/2491cc0986a93fd7d1a2229acb4d545a419a4062.zip).
 
-Aşağıdakiler sürüm 1'den **sonra** eklendi; 5. madde sürüm 1.1'e, 6. madde sürüm 1.2'ye, 7. madde sürüm 1.3'e girdi, 1–4 henüz APK'ya girmedi. İstendiğinde güncel
+**Sürüm 1.4** = sürüm 1.3 + **adres aramada HERE** (siteler, rezidanslar, işletmeler bulunur):
+`8d20e4dade5c10697e49f5c9eaff25c2cdea24bb` —
+[ZIP](https://github.com/oguzffk/o-uz/archive/8d20e4dade5c10697e49f5c9eaff25c2cdea24bb.zip).
+
+Aşağıdakiler sürüm 1'den **sonra** eklendi; 5. madde sürüm 1.1'e, 6. madde sürüm 1.2'ye, 7. madde sürüm 1.3'e, 8. madde sürüm 1.4'e girdi, 1–4 henüz APK'ya girmedi. İstendiğinde güncel
 dalın ZIP'inden ([claude/istanbul-navigation-app-wkh2ta](https://github.com/oguzffk/o-uz/archive/refs/heads/claude/istanbul-navigation-app-wkh2ta.zip))
 yeni APK yapılır; hepsi birlikte gelir.
 
@@ -32,6 +36,7 @@ yeni APK yapılır; hepsi birlikte gelir.
 | 5 | **Kayıtlı grup arama** (sürüm 1.1'de) | Yol kapat → Gruplar |
 | 6 | **Küçük pencere düzeltmesi** (sürüm 1.2'de) | Seyirde ana ekran tuşu / Küçült |
 | 7 | **Küçük alt panel** (sürüm 1.3'te) | Seyirde ekranın altı |
+| 8 | **Adres aramada HERE** (sürüm 1.4'te) | Nereye / Nereden arama kutusu |
 
 ## 1. Kayıt ol / Giriş yap
 
@@ -99,6 +104,16 @@ yeni APK yapılır; hepsi birlikte gelir.
 - Trafik tahmini ve ücretli yol notları seyirde gösterilmez, rota önizlemesinde durur.
   ₺ işareti yok.
 - Gece modunda koyu renkli.
+
+## 8. Adres aramada HERE
+
+- Arama kutusu artık HERE'in yer veritabanını kullanır: siteler, rezidanslar, işletmeler
+  (ör. "G Plus Rezidans") OpenStreetMap'e göre çok daha çok çıkar.
+- Yerin yola bağlandığı nokta (kapısı) biliniyorsa rota oraya çizilir.
+- HERE anahtarı girilmemişse ya da HERE cevap vermezse arama eskisi gibi OpenStreetMap'ten
+  yapılır; arama hiç bozulmaz.
+- Anahtar: demo APK için expo.dev'de `EXPO_PUBLIC_HERE_API_KEY` (preview, Sensitive);
+  sunucuda `HERE_API_KEY`. Anahtar kimseyle paylaşılmaz, sohbete yazılmaz.
 
 ## Yayından önce
 

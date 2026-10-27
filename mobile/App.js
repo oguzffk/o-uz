@@ -436,10 +436,10 @@ function AppScreen() {
       requestRoute({ quiet: true });
     },
     onArrive: () => {
+      // "Seyri bitir"deki gibi yolculuk kendiliğinden temizlenir (sesli "vardınız" kesilmesin diye
+      // susturmuyoruz). Aynı karede takip kamerası da çalıştığı için bir sonraki ana erteleniyor.
       setNavigating(false);
-      // "Seyri bitir"deki gibi harita düzleşip kuzeye dönsün (sesli "vardınız" kesilmesin diye susturmuyoruz).
-      // Aynı karede takip kamerası da çalıştığı için düzleştirme bir sonraki ana erteleniyor.
-      setTimeout(() => mapRef.current?.animateCamera({ pitch: 0, heading: 0 }, { duration: 600 }), 50);
+      setTimeout(() => clearTrip({ keepSpeech: true }), 50);
       showToast('Hedefinize vardınız.');
     },
   });
@@ -539,24 +539,11 @@ function AppScreen() {
     stopSpeech();
   };
 
-  // "Seyri bitir": harita düzleşip kuzeye döner, sonra rotanın tamamını gösterecek şekilde uzaklaşır.
-  const finishNavigation = () => {
-    stopNavigation();
-    setCentered(false);
-    mapRef.current?.animateCamera({ pitch: 0, heading: 0 }, { duration: 450 });
-    if (route) {
-      setTimeout(() => {
-        mapRef.current?.fitToCoordinates(route.coordinates.map(toLatLng), {
-          edgePadding: { top: 160, right: 50, bottom: 260, left: 50 },
-          animated: true,
-        });
-      }, 480);
-    }
-  };
-
-  // "Temizle": alt panel aşağı kayarak kaybolur, ardından harita yumuşakça konuma döner.
-  const clearTrip = () => {
-    stopNavigation();
+  // "Temizle" ve "Seyri bitir": alt panel aşağı kayarak kaybolur, rota, varış ve duraklar silinir,
+  // harita yumuşakça konuma döner. Seyir bitince "Temizle / Başla" paneline dönülmez.
+  const clearTrip = ({ keepSpeech = false } = {}) => {
+    if (keepSpeech) setNavigating(false);
+    else stopNavigation();
     Animated.timing(panelExit, { toValue: 1, duration: 220, easing: Easing.in(Easing.cubic), useNativeDriver: true }).start(() => {
       setRoute(null);
       setRouteOptions([]);
@@ -1339,7 +1326,7 @@ function AppScreen() {
                   legText={toStop ? `${legIndex + 1}. DURAĞA${stops[legIndex] ? ` · ${stops[legIndex].name}` : ''}` : null}
                   duration={formatDuration(remainingSec)}
                   detail={`${formatDistance(remainingMeters)} · ${formatArrival(remainingSec)} varış${busy ? ' · güncelleniyor…' : ''}`}
-                  onEnd={finishNavigation}
+                  onEnd={() => clearTrip()}
                 />
               ) : (
                 <>
@@ -1404,7 +1391,7 @@ function AppScreen() {
                     </View>
                   )}
                   <View style={styles.actions}>
-                    <Pressable style={[styles.button, styles.secondary]} onPress={clearTrip}>
+                    <Pressable style={[styles.button, styles.secondary]} onPress={() => clearTrip()}>
                       <Text style={styles.secondaryText}>Temizle</Text>
                     </Pressable>
                     {canNavigate && (

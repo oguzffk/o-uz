@@ -27,7 +27,11 @@ ve yön bandı görünür; "Seyri bitir" paneli görünmez):
 `7d6a74ce32d31c561b9aa278f4e61b0fe241bff2` —
 [ZIP](https://github.com/oguzffk/o-uz/archive/7d6a74ce32d31c561b9aa278f4e61b0fe241bff2.zip).
 
-Aşağıdakiler sürüm 1'den **sonra** eklendi; 5. madde sürüm 1.1'e, 6. madde sürüm 1.2'ye, 7. madde sürüm 1.3'e, 8. madde sürüm 1.4'e, 9. madde sürüm 1.5'e girdi, 1–4 henüz APK'ya girmedi. İstendiğinde güncel
+**Sürüm 1.6** = sürüm 1.5 + **seyir bitince otomatik temizleme**:
+`adcde90d8d3393807c0e719326bd537cc5facb3c` —
+[ZIP](https://github.com/oguzffk/o-uz/archive/adcde90d8d3393807c0e719326bd537cc5facb3c.zip).
+
+Aşağıdakiler sürüm 1'den **sonra** eklendi; 5. madde sürüm 1.1'e, 6. madde sürüm 1.2'ye, 7. madde sürüm 1.3'e, 8. madde sürüm 1.4'e, 9. madde sürüm 1.5'e, 10. madde sürüm 1.6'ya girdi, 1–4 henüz APK'ya girmedi. İstendiğinde güncel
 dalın ZIP'inden ([claude/istanbul-navigation-app-wkh2ta](https://github.com/oguzffk/o-uz/archive/refs/heads/claude/istanbul-navigation-app-wkh2ta.zip))
 yeni APK yapılır; hepsi birlikte gelir.
 
@@ -42,6 +46,7 @@ yeni APK yapılır; hepsi birlikte gelir.
 | 7 | **Küçük alt panel** (sürüm 1.3'te) | Seyirde ekranın altı |
 | 8 | **Adres aramada HERE** (sürüm 1.4'te) | Nereye / Nereden arama kutusu |
 | 9 | **Yol kapatma dokunuş düzeltmesi** (sürüm 1.5'te) | Yol kapat modunda haritaya dokunma |
+| 10 | **Seyir bitince otomatik temizleme** (sürüm 1.6'da) | ✕ → Bitir / hedefe varış |
 
 ## 1. Kayıt ol / Giriş yap
 
@@ -128,6 +133,13 @@ yeni APK yapılır; hepsi birlikte gelir.
 - Artık dokunulan noktanın 25 m yakınında kapalı bir yol varsa o açılır. Bulvarlarda yan yana
   iki şeritten diğerini kapatmak yine mümkün (dokunduğun şerit hangisine yakınsa o).
 - Kayıtlı bir gruba ait kapalı yola dokununca yine "grubu trafiğe açın" uyarısı çıkar.
+
+## 10. Seyir bitince otomatik temizleme
+
+- Seyirde **✕ → "Seyir bitsin mi?" → Bitir**'e basınca ya da hedefe varınca, "Temizle / Başla"
+  paneli **gelmez**: rota, varış noktası ve ara duraklar kendiliğinden silinir, harita konuma döner.
+- Seyre başlamadan önceki rota önizlemesinde "Temizle / Başla" aynen durur.
+- Hedefe varınca sesli "Hedefinize vardınız" kesilmez.
 
 ## Yayından önce
 

@@ -23,7 +23,11 @@ ve yön bandı görünür; "Seyri bitir" paneli görünmez):
 `8d20e4dade5c10697e49f5c9eaff25c2cdea24bb` —
 [ZIP](https://github.com/oguzffk/o-uz/archive/8d20e4dade5c10697e49f5c9eaff25c2cdea24bb.zip).
 
-Aşağıdakiler sürüm 1'den **sonra** eklendi; 5. madde sürüm 1.1'e, 6. madde sürüm 1.2'ye, 7. madde sürüm 1.3'e, 8. madde sürüm 1.4'e girdi, 1–4 henüz APK'ya girmedi. İstendiğinde güncel
+**Sürüm 1.5** = sürüm 1.4 + **yol kapatma dokunuş düzeltmesi**:
+`7d6a74ce32d31c561b9aa278f4e61b0fe241bff2` —
+[ZIP](https://github.com/oguzffk/o-uz/archive/7d6a74ce32d31c561b9aa278f4e61b0fe241bff2.zip).
+
+Aşağıdakiler sürüm 1'den **sonra** eklendi; 5. madde sürüm 1.1'e, 6. madde sürüm 1.2'ye, 7. madde sürüm 1.3'e, 8. madde sürüm 1.4'e, 9. madde sürüm 1.5'e girdi, 1–4 henüz APK'ya girmedi. İstendiğinde güncel
 dalın ZIP'inden ([claude/istanbul-navigation-app-wkh2ta](https://github.com/oguzffk/o-uz/archive/refs/heads/claude/istanbul-navigation-app-wkh2ta.zip))
 yeni APK yapılır; hepsi birlikte gelir.
 
@@ -37,6 +41,7 @@ yeni APK yapılır; hepsi birlikte gelir.
 | 6 | **Küçük pencere düzeltmesi** (sürüm 1.2'de) | Seyirde ana ekran tuşu / Küçült |
 | 7 | **Küçük alt panel** (sürüm 1.3'te) | Seyirde ekranın altı |
 | 8 | **Adres aramada HERE** (sürüm 1.4'te) | Nereye / Nereden arama kutusu |
+| 9 | **Yol kapatma dokunuş düzeltmesi** (sürüm 1.5'te) | Yol kapat modunda haritaya dokunma |
 
 ## 1. Kayıt ol / Giriş yap
 
@@ -114,6 +119,15 @@ yeni APK yapılır; hepsi birlikte gelir.
   yapılır; arama hiç bozulmaz.
 - Anahtar: demo APK için expo.dev'de `EXPO_PUBLIC_HERE_API_KEY` (preview, Sensitive);
   sunucuda `HERE_API_KEY`. Anahtar kimseyle paylaşılmaz, sohbete yazılmaz.
+
+## 9. Yol kapatma dokunuş düzeltmesi
+
+- Bir kere dokununca yol kapanır, kapalı yola bir daha dokununca **kesin açılır**.
+- Önceden kapalı yola kavşağın dibinde ya da çizginin biraz yanına dokununca, yandaki sokak
+  "en yakın yol" sayılıyor; yol açılacağına yan sokak kapanıyordu.
+- Artık dokunulan noktanın 25 m yakınında kapalı bir yol varsa o açılır. Bulvarlarda yan yana
+  iki şeritten diğerini kapatmak yine mümkün (dokunduğun şerit hangisine yakınsa o).
+- Kayıtlı bir gruba ait kapalı yola dokununca yine "grubu trafiğe açın" uyarısı çıkar.
 
 ## Yayından önce
 

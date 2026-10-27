@@ -1,8 +1,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { ISTANBUL_BBOX, distanceMeters } from './geo';
+import { distanceMeters } from './geo';
 import { adjustedTime, trafficPeriod } from './traffic';
 import { fixStreetSuffixes } from './turkish';
 import { ApiError } from './api';
+import { searchPlaces } from './search';
 
 /**
  * Demo modu: kendi sunucumuz yerine OpenStreetMap topluluğunun herkese açık
@@ -11,7 +12,6 @@ import { ApiError } from './api';
  * Herkese açık sunucu adil kullanım içindir; sadece deneme amaçlı kullanın.
  */
 export const PUBLIC_VALHALLA_URL = 'https://valhalla1.openstreetmap.de';
-const NOMINATIM_URL = 'https://nominatim.openstreetmap.org';
 const STORAGE_KEY = 'demo-closures-v1';
 const MAX_SNAP_METERS = 40;
 // Valhalla "rota yok" hataları: 442 yol bulunamadı, 170 bağlantısız bölgeler, 171 yakında uygun yol yok.
@@ -460,28 +460,7 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL, token = null) {
 
     async search(q) {
       await requireActive();
-      const b = ISTANBUL_BBOX;
-      const params = new URLSearchParams({
-        q,
-        format: 'jsonv2',
-        limit: '8',
-        bounded: '1',
-        viewbox: `${b.minLon},${b.maxLat},${b.maxLon},${b.minLat}`,
-        'accept-language': 'tr',
-      });
-      const r = await fetch(`${NOMINATIM_URL}/search?${params}`, {
-        headers: { 'user-agent': 'istanbul-nav-prototype/0.1 (demo)' },
-      }).catch(() => null);
-      if (!r?.ok) throw new Error('Adres arama servisine ulaşılamadı.');
-      const items = await r.json();
-      return {
-        results: items.map((i) => ({
-          name: i.name || i.display_name.split(',')[0],
-          address: i.display_name,
-          lat: Number(i.lat),
-          lon: Number(i.lon),
-        })),
-      };
+      return { results: await searchPlaces(q) };
     },
 
     async toggleClosure({ lat, lon }) {

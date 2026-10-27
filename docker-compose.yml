@@ -37,6 +37,8 @@ services:
       - SMTP_USER=${SMTP_USER:-}
       - SMTP_PASS=${SMTP_PASS:-}
       - MAIL_FROM=${MAIL_FROM:-}
+      # Adres arama: HERE anahtarı (siteler ve işletmeler için; yoksa OpenStreetMap araması)
+      - HERE_API_KEY=${HERE_API_KEY:-}
       # Mağaza satın alımları: RevenueCat webhook'unun Authorization değeri
       - REVENUECAT_WEBHOOK_AUTH=${REVENUECAT_WEBHOOK_AUTH:-}
       - REVENUECAT_ALLOW_SANDBOX=${REVENUECAT_ALLOW_SANDBOX:-}

@@ -19,7 +19,11 @@ ve yön bandı görünür; "Seyri bitir" paneli görünmez):
 `2491cc0986a93fd7d1a2229acb4d545a419a4062` —
 [ZIP](https://github.com/oguzffk/o-uz/archive/2491cc0986a93fd7d1a2229acb4d545a419a4062.zip).
 
-Aşağıdakiler sürüm 1'den **sonra** eklendi; 5. madde sürüm 1.1'e, 6. madde sürüm 1.2'ye, 7. madde sürüm 1.3'e girdi, 1–4 henüz APK'ya girmedi. İstendiğinde güncel
+**Sürüm 1.4** = sürüm 1.3 + **yeniden rotada yön düzeltmesi**:
+`1c7a0354103840ea651b6c7efaec8a9ad5671191` —
+[ZIP](https://github.com/oguzffk/o-uz/archive/1c7a0354103840ea651b6c7efaec8a9ad5671191.zip).
+
+Aşağıdakiler sürüm 1'den **sonra** eklendi; 5. madde sürüm 1.1'e, 6. madde sürüm 1.2'ye, 7. madde sürüm 1.3'e, 8. madde sürüm 1.4'e girdi, 1–4 henüz APK'ya girmedi. İstendiğinde güncel
 dalın ZIP'inden ([claude/istanbul-navigation-app-wkh2ta](https://github.com/oguzffk/o-uz/archive/refs/heads/claude/istanbul-navigation-app-wkh2ta.zip))
 yeni APK yapılır; hepsi birlikte gelir.
 
@@ -32,6 +36,7 @@ yeni APK yapılır; hepsi birlikte gelir.
 | 5 | **Kayıtlı grup arama** (sürüm 1.1'de) | Yol kapat → Gruplar |
 | 6 | **Küçük pencere düzeltmesi** (sürüm 1.2'de) | Seyirde ana ekran tuşu / Küçült |
 | 7 | **Küçük alt panel** (sürüm 1.3'te) | Seyirde ekranın altı |
+| 8 | **Yeniden rotada yön düzeltmesi** (sürüm 1.4'te) | Seyirde yol kapatınca / rotadan çıkınca |
 
 ## 1. Kayıt ol / Giriş yap
 
@@ -99,6 +104,15 @@ yeni APK yapılır; hepsi birlikte gelir.
 - Trafik tahmini ve ücretli yol notları seyirde gösterilmez, rota önizlemesinde durur.
   ₺ işareti yok.
 - Gece modunda koyu renkli.
+
+## 8. Yeniden rotada yön düzeltmesi
+
+- Seyirdeyken yol kapatılınca ya da rotadan çıkılınca yeni rota hesaplanır.
+- Önceden yeni rotanın başlangıç yönü telefonun pusulasından alınıyordu; araç dururken
+  Android bunu "kuzey" bildiriyor. Bu yüzden örneğin güneye giderken durup önündeki yolu
+  kapatınca yeni rota aracı **geri döndürüyordu**.
+- Artık uygulamanın bildiği gidiş yönü kullanılıyor (rotanın bulunulan noktadaki yönü ya da
+  son hareket yönü). Yeni rota aracın gittiği yönden devam eder; gereksiz U dönüşü istemez.
 
 ## Yayından önce
 

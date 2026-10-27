@@ -832,3 +832,45 @@ test('adres arama: HERE anahtarı varsa HERE, hata olursa ya da anahtar yoksa Op
   const r3 = await searchPlaces('bağlar', { ...opts, hereApiKey: 'yanlis', fetchImpl: failing });
   assert.equal(r3.source, 'osm'); // HERE hata verince arama bozulmaz
 });
+
+test('yol kapat: kapalı yola tekrar dokununca, en yakın yol yan sokak çıksa bile o yol açılır', async () => {
+  // polyline6 kodlayıcı (yalnızca test için)
+  const enc = (coords) => {
+    let out = '', pl = 0, pn = 0;
+    const one = (v) => { let x = v < 0 ? ~(v << 1) : v << 1; let s = ''; while (x >= 0x20) { s += String.fromCharCode((0x20 | (x & 0x1f)) + 63); x >>= 5; } return s + String.fromCharCode(x + 63); };
+    for (const [la, lo] of coords) { const a = Math.round(la * 1e6), b = Math.round(lo * 1e6); out += one(a - pl) + one(b - pn); pl = a; pn = b; }
+    return out;
+  };
+  const edge = (coords, distanceMeters, name) => ({ shapeEncoded: enc(coords), coordinates: coords, wayId: 1, names: [name], distanceMeters });
+  // A: doğu-batı sokak; B: A'nın ucundaki kavşaktan kuzeye giden yan sokak; C: A'ya 15 m paralel karşı şerit
+  const A = [[41.03, 28.98], [41.03, 28.982]];
+  const B = [[41.03, 28.982], [41.032, 28.982]];
+  const C = [[41.030135, 28.98], [41.030135, 28.982]];
+  await withServer(async ({ req, valhalla }) => {
+    const tap = async (lat, lon, located) => {
+      valhalla.locateEdge = async () => located;
+      return req('/api/closures/toggle', { method: 'POST', body: { lat, lon } });
+    };
+    const closed = await tap(41.03, 28.981, edge(A, 1, 'A Sokak'));
+    assert.equal(closed.body.action, 'closed');
+
+    // Kavşağa yakın, A çizgisinin 2 m yanına dokunuldu; Valhalla en yakın olarak yan sokak B'yi (1,5 m) buldu.
+    const r = await tap(41.03002, 28.98199, edge(B, 1.5, 'B Sokak'));
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.action, 'opened');
+    assert.equal(r.body.closure.name, 'A Sokak');
+    assert.equal((await req('/api/closures')).body.closures.length, 0);
+
+    // Yan yana şerit: A kapalıyken karşı şeride (C) dokununca A açılmaz, C kapanır.
+    await tap(41.03, 28.981, edge(A, 1, 'A Sokak'));
+    const c = await tap(41.030135, 28.981, edge(C, 0.5, 'C Şerit'));
+    assert.equal(c.body.action, 'closed');
+    assert.equal(c.body.closure.name, 'C Şerit');
+    assert.equal((await req('/api/closures')).body.closures.length, 2);
+
+    // Yakında yol bulunamasa bile kapalı yolun üstüne dokunmak onu açar.
+    const far = await tap(41.03, 28.9805, { ...edge(B, 300, 'Uzak') });
+    assert.equal(far.body.action, 'opened');
+    assert.equal(far.body.closure.name, 'A Sokak');
+  });
+});

@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { EventEmitter } from 'node:events';
-import { lineLengthMeters, midpointAlong, tinySquareRing } from './geo.js';
+import { lineLengthMeters, midpointAlong, tinySquareRing, distanceToLineMeters } from './geo.js';
 
 /**
  * Kapalı yol segmentleri ve kayıtlı kapatma grupları.
@@ -203,6 +203,16 @@ export class ClosureStore extends EventEmitter {
     }
     for (const c of this.list()) if (!byId.has(c.id)) byId.set(c.id, { ...c, zoneId: null, zoneName: null });
     return [...byId.values()];
+  }
+
+  /** Noktaya en yakın kapalı segment ve uzaklığı (metre); `maxMeters` içinde yoksa null. */
+  nearestClosed(point, maxMeters) {
+    let best = null;
+    for (const c of this.effectiveClosures()) {
+      const distance = distanceToLineMeters(point, c.coordinates);
+      if (distance <= maxMeters && (!best || distance < best.distance)) best = { closure: c, distance };
+    }
+    return best;
   }
 
   /** Valhalla rota isteğine eklenecek exclude_polygons listesi. */

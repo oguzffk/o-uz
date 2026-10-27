@@ -39,6 +39,23 @@ export function haversineMeters([lat1, lon1], [lat2, lon2]) {
   return 2 * EARTH_RADIUS_M * Math.asin(Math.sqrt(a));
 }
 
+/** Noktanın çizgiye en kısa uzaklığı (metre). Kısa mesafelerde düzlem yaklaşımı yeterli. */
+export function distanceToLineMeters([lat, lon], coords) {
+  const k = Math.cos(toRad(lat));
+  let best = Infinity;
+  for (let i = 0; i < coords.length - 1; i++) {
+    const [aLat, aLon] = coords[i];
+    const [bLat, bLon] = coords[i + 1];
+    const ax = aLon * k, ay = aLat, bx = bLon * k, by = bLat, px = lon * k, py = lat;
+    const dx = bx - ax, dy = by - ay;
+    const len2 = dx * dx + dy * dy;
+    const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2));
+    best = Math.min(best, haversineMeters([lat, lon], [aLat + (bLat - aLat) * t, aLon + (bLon - aLon) * t]));
+  }
+  if (coords.length === 1) best = haversineMeters([lat, lon], coords[0]);
+  return best;
+}
+
 export function lineLengthMeters(coords) {
   let total = 0;
   for (let i = 1; i < coords.length; i++) total += haversineMeters(coords[i - 1], coords[i]);

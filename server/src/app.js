@@ -15,6 +15,10 @@ export const ISTANBUL_BBOX = { minLon: 27.95, minLat: 40.78, maxLon: 29.95, maxL
 const COSTINGS = new Set(['auto', 'motorcycle']);
 // Dokunulan nokta en yakın yoldan bundan uzaksa "yol bulunamadı" denir.
 const MAX_SNAP_METERS = 40;
+// Dokunulan nokta kapalı bir yola bu kadar yakınsa (metre) yeni yol kapatmak yerine o yol açılır;
+// bulunan en yakın yoldan en fazla BIAS kadar uzak olmalı (yan yana şeritlerde diğerini kapatabilmek için).
+const REOPEN_TAP_METERS = 25;
+const REOPEN_BIAS_METERS = 8;
 
 function parsePoint(p, label) {
   const lat = Number(p?.lat);
@@ -493,9 +497,20 @@ export function createApp({
     try {
       const point = parsePoint(req.body, 'Nokta');
       const edge = await valhalla.locateEdge(point);
-      if (!edge || edge.distanceMeters > MAX_SNAP_METERS) {
-        throw new HttpError(404, 'Dokunulan yere yakın bir araç yolu bulunamadı');
+      const edgeOk = edge && edge.distanceMeters <= MAX_SNAP_METERS;
+      // Kapalı yola tekrar dokununca kesin açılsın: en yakın yol (Valhalla) kavşakta ya da çizginin
+      // biraz yanına dokununca yandaki sokak çıkabiliyor, o zaman açmak yerine onu kapatıyordu.
+      // Dokunulan noktanın yakınında kapalı yol varsa ve bulunan yoldan belirgin uzak değilse o açılır.
+      const near = store.nearestClosed([point.lat, point.lon], REOPEN_TAP_METERS);
+      const edgeClosed = edgeOk && store.effectiveClosures().some((c) => c.id === ClosureStore.idForShape(edge.shapeEncoded));
+      if (near && !edgeClosed && (!edgeOk || near.distance <= edge.distanceMeters + REOPEN_BIAS_METERS)) {
+        const target = near.closure;
+        if (target.zoneId && !store.get(target.id)) {
+          throw new HttpError(409, `Bu yol "${target.zoneName}" grubuyla kapalı. Açmak için grubu trafiğe açın.`);
+        }
+        return res.json({ action: 'opened', closure: store.remove(target.id), version: store.version });
       }
+      if (!edgeOk) throw new HttpError(404, 'Dokunulan yere yakın bir araç yolu bulunamadı');
       const id = ClosureStore.idForShape(edge.shapeEncoded);
       const zone = store.activeZoneOf(id);
       if (zone && !store.get(id)) {

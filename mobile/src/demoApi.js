@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { distanceMeters } from './geo';
+import { distanceMeters, snapToRoute } from './geo';
 import { adjustedTime, trafficPeriod } from './traffic';
 import { fixStreetSuffixes } from './turkish';
 import { ApiError } from './api';
@@ -15,6 +15,10 @@ import { searchPlaces } from './search';
 export const PUBLIC_VALHALLA_URL = 'https://valhalla1.openstreetmap.de';
 const STORAGE_KEY = 'demo-closures-v1';
 const MAX_SNAP_METERS = 40;
+// Sunucudaki gibi: dokunulan nokta kapalı bir yola bu kadar yakınsa (metre) o yol açılır; bulunan
+// en yakın yoldan en fazla BIAS kadar uzak olmalı (yan yana şeritlerde diğerini kapatabilmek için).
+const REOPEN_TAP_METERS = 25;
+const REOPEN_BIAS_METERS = 8;
 // Valhalla "rota yok" hataları: 442 yol bulunamadı, 170 bağlantısız bölgeler, 171 yakında uygun yol yok.
 const NO_ROUTE_CODES = new Set([442, 170, 171]);
 
@@ -420,12 +424,21 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL, token = null) {
   }
 
   // Dokunulan noktadaki yol parçasını (iki kavşak arası) bulur.
-  async function locateSegment(lat, lon) {
+  // Dokunulan noktaya en yakın yol parçası ve noktanın ona uzaklığı (metre); yol yoksa null.
+  async function locateNearest(lat, lon) {
     const [result] = await valhalla('locate', { locations: [{ lat, lon }], costing: 'auto', verbose: true });
     const edge = result?.edges?.[0];
-    if (!edge?.edge_info?.shape || (edge.distance ?? 0) > MAX_SNAP_METERS) {
-      throw new Error('Dokunulan yere yakın bir araç yolu bulunamadı');
-    }
+    if (!edge?.edge_info?.shape || (edge.distance ?? 0) > MAX_SNAP_METERS) return null;
+    return { segment: segmentFromEdge(edge), distance: edge.distance ?? 0 };
+  }
+
+  async function locateSegment(lat, lon) {
+    const found = await locateNearest(lat, lon);
+    if (!found) throw new Error('Dokunulan yere yakın bir araç yolu bulunamadı');
+    return found.segment;
+  }
+
+  function segmentFromEdge(edge) {
     const shape = edge.edge_info.shape;
     const coordinates = decodePolyline(shape);
     return {
@@ -498,9 +511,29 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL, token = null) {
 
     async toggleClosure({ lat, lon }) {
       await requireStaff();
-      const closure = await locateSegment(lat, lon);
-      const { id } = closure;
       const current = await load();
+      const located = await locateNearest(lat, lon);
+      // Kapalı yola tekrar dokununca kesin açılsın (sunucudaki gibi): en yakın yol kavşakta ya da
+      // çizginin biraz yanına dokununca yandaki sokak çıkabiliyor, açmak yerine onu kapatıyordu.
+      const all = effective(current);
+      const edgeClosed = located && all.some((c) => c.id === located.segment.id);
+      let near = null;
+      for (const c of all) {
+        const distance = snapToRoute([lat, lon], c.coordinates).distance;
+        if (distance <= REOPEN_TAP_METERS && (!near || distance < near.distance)) near = { closure: c, distance };
+      }
+      if (near && !edgeClosed && (!located || near.distance <= located.distance + REOPEN_BIAS_METERS)) {
+        const target = near.closure;
+        if (target.zoneId && !current.closures.some((c) => c.id === target.id)) {
+          throw new Error(`Bu yol "${target.zoneName}" grubuyla kapalı. Açmak için grubu trafiğe açın.`);
+        }
+        const opened = current.closures.find((c) => c.id === target.id);
+        await update((st) => ({ ...st, closures: st.closures.filter((c) => c.id !== target.id) }));
+        return { action: 'opened', closure: opened, version: state.version };
+      }
+      if (!located) throw new Error('Dokunulan yere yakın bir araç yolu bulunamadı');
+      const closure = located.segment;
+      const { id } = closure;
       const zone = current.zones.find((z) => z.active && z.segments.some((seg) => seg.id === id));
       const existing = current.closures.find((c) => c.id === id);
       if (zone && !existing) throw new Error(`Bu yol "${zone.name}" grubuyla kapalı. Açmak için grubu trafiğe açın.`);

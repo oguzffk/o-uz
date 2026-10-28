@@ -39,7 +39,11 @@ ve yön bandı görünür; "Seyri bitir" paneli görünmez):
 `e87cc88b0bd9e3209903af93e3408925e5a8e063` —
 [ZIP](https://github.com/oguzffk/o-uz/archive/e87cc88b0bd9e3209903af93e3408925e5a8e063.zip).
 
-Aşağıdakiler sürüm 1'den **sonra** eklendi; 5. madde sürüm 1.1'e, 6. madde sürüm 1.2'ye, 7. madde sürüm 1.3'e, 8. madde sürüm 1.4'e, 9. madde sürüm 1.5'e, 10. madde sürüm 1.6'ya, 11. madde sürüm 1.7'ye, 12. madde sürüm 1.8'e girdi, 1–4 henüz APK'ya girmedi. İstendiğinde güncel
+**Sürüm 1.9** = sürüm 1.8 + **aramada en yakın sonuç üstte, kısa adres**:
+`18d11a0b7c68c09a413b35df401d118891879e0f` —
+[ZIP](https://github.com/oguzffk/o-uz/archive/18d11a0b7c68c09a413b35df401d118891879e0f.zip).
+
+Aşağıdakiler sürüm 1'den **sonra** eklendi; 5. madde sürüm 1.1'e, 6. madde sürüm 1.2'ye, 7. madde sürüm 1.3'e, 8. madde sürüm 1.4'e, 9. madde sürüm 1.5'e, 10. madde sürüm 1.6'ya, 11. madde sürüm 1.7'ye, 12. madde sürüm 1.8'e, 13. madde sürüm 1.9'a girdi, 1–4 henüz APK'ya girmedi. İstendiğinde güncel
 dalın ZIP'inden ([claude/istanbul-navigation-app-wkh2ta](https://github.com/oguzffk/o-uz/archive/refs/heads/claude/istanbul-navigation-app-wkh2ta.zip))
 yeni APK yapılır; hepsi birlikte gelir.
 
@@ -57,6 +61,7 @@ yeni APK yapılır; hepsi birlikte gelir.
 | 10 | **Seyir bitince otomatik temizleme** (sürüm 1.6'da) | ✕ → Bitir / hedefe varış |
 | 11 | **Bildir** (sürüm 1.7'de) | Seyirde varış yazısının sağında ＋; yöneticide yan panel "Bildirim" |
 | 12 | **Adres arama yalnızca HERE** (sürüm 1.8'de) | Nereye / Nereden arama kutusu |
+| 13 | **Aramada en yakın sonuç üstte, kısa adres** (sürüm 1.9'da) | Nereye / Nereden arama kutusu, son aramalar |
 
 ## 1. Kayıt ol / Giriş yap
 
@@ -181,6 +186,15 @@ yeni APK yapılır; hepsi birlikte gelir.
   `GOOGLE_MAPS_API_KEY` da yerinde kalmalı; silinirse uygulama açılmaz.
 - Haritanın altındaki "© OpenStreetMap katkıcıları" yazısı kalır: rotalar OpenStreetMap
   yol verisiyle hesaplanıyor, bu yazı zorunlu.
+
+## 13. Aramada en yakın sonuç üstte, kısa adres
+
+- Konum biliniyorsa aramada HERE'e gönderilir; sonuçlar **yakından uzağa** sıralanır.
+  Ör. "Bilal Habeşi Cami" yazınca Bağcılar'daysanız Bağcılar'daki en üstte çıkar.
+- İstanbul dışındaki sonuçlar gösterilmez. Konum izni yoksa arama eskisi gibi çalışır.
+- Sonucun alt satırında yalnızca **"Cadde No İlçe İstanbul"** yazar
+  (ör. "Veysel Karani Caddesi 136 Bağcılar İstanbul"): yerin adı tekrar yazılmaz, posta kodu
+  ve "Türkiye" yok. Eski son aramalar da bu şekilde kısa görünür.
 
 ## Yayından önce
 

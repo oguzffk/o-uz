@@ -244,7 +244,6 @@ export function createApp({
   store,
   users,
   mailer = { configured: false, sendLoginCode: async () => {} },
-  nominatimUrl = 'https://nominatim.openstreetmap.org',
   hereApiKey = null, // varsa adres arama HERE'den yapılır (siteler, işletmeler daha eksiksiz)
   reports = null, // kullanıcı bildirimleri (ReportStore); verilmezse bildirim uçları kapalı
   fetchImpl = fetch,
@@ -671,20 +670,17 @@ export function createApp({
     }
   });
 
-  // Adres arama: HERE anahtarı varsa HERE, yoksa (ya da HERE hata verirse) Nominatim; İstanbul
-  // kutusuyla sınırlı. (Nominatim kullanım politikası saniyede 1 istek; yoğun kullanımda HERE.)
+  // Adres arama: yalnızca HERE (HERE_API_KEY), İstanbul kutusuyla sınırlı.
   app.get('/api/search', requireActive, async (req, res, next) => {
     try {
       const q = String(req.query.q ?? '').trim();
       if (q.length < 2) return res.json({ results: [] });
       const { results } = await searchPlaces(q, {
         hereApiKey,
-        nominatimUrl,
         bbox: ISTANBUL_BBOX,
         fetchImpl,
-        userAgent: 'istanbul-nav-prototype/0.1',
       }).catch((err) => {
-        throw new HttpError(502, err.message);
+        throw new HttpError(hereApiKey ? 502 : 503, err.message);
       });
       res.json({ results });
     } catch (err) {

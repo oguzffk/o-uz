@@ -1,12 +1,10 @@
-// Adres ve yer arama (demo modu). Sunucudaki server/src/search.js ile aynı mantık: HERE anahtarı
-// (EXPO_PUBLIC_HERE_API_KEY, EAS ortam değişkeni) varsa HERE'in yer veritabanı kullanılır —
-// site, rezidans ve işletmelerde OpenStreetMap'ten çok daha eksiksiz. Anahtar yoksa ya da HERE
-// cevap vermezse OpenStreetMap araması (Nominatim). Sonuçlar İstanbul kutusuyla sınırlıdır.
+// Adres ve yer arama (demo modu). Sunucudaki server/src/search.js ile aynı mantık: yalnızca HERE
+// (anahtar: EXPO_PUBLIC_HERE_API_KEY, EAS ortam değişkeni). OpenStreetMap araması kullanılmaz;
+// HERE çalışmazsa sebebi ekranda yazar. Sonuçlar İstanbul kutusuyla sınırlıdır.
 import { ISTANBUL_BBOX } from './geo';
 
 const HERE_API_KEY = process.env.EXPO_PUBLIC_HERE_API_KEY || null;
 const HERE_DISCOVER_URL = 'https://discover.search.hereapi.com/v1/discover';
-const NOMINATIM_URL = 'https://nominatim.openstreetmap.org';
 const b = ISTANBUL_BBOX;
 
 async function hereSearch(q) {
@@ -17,7 +15,12 @@ async function hereSearch(q) {
     limit: '8',
     apiKey: HERE_API_KEY,
   });
-  const r = await fetch(`${HERE_DISCOVER_URL}?${params}`);
+  const r = await fetch(`${HERE_DISCOVER_URL}?${params}`).catch(() => null);
+  if (!r) throw new Error('HERE arama servisine ulaşılamadı. İnternet bağlantınızı kontrol edin.');
+  if (r.status === 401 || r.status === 403) {
+    throw new Error(`HERE anahtarı geçersiz ya da arama izni yok (${r.status}). Anahtarı kontrol edin.`);
+  }
+  if (r.status === 429) throw new Error('HERE arama kotası doldu (429). Biraz sonra tekrar deneyin.');
   if (!r.ok) throw new Error(`HERE arama hatası (${r.status})`);
   const data = await r.json();
   return (data.items ?? [])
@@ -30,36 +33,10 @@ async function hereSearch(q) {
     .filter(Boolean);
 }
 
-async function nominatimSearch(q) {
-  const params = new URLSearchParams({
-    q,
-    format: 'jsonv2',
-    limit: '8',
-    bounded: '1',
-    viewbox: `${b.minLon},${b.maxLat},${b.maxLon},${b.minLat}`,
-    'accept-language': 'tr',
-  });
-  const r = await fetch(`${NOMINATIM_URL}/search?${params}`, {
-    headers: { 'user-agent': 'istanbul-nav-prototype/0.1 (demo)' },
-  }).catch(() => null);
-  if (!r?.ok) throw new Error('Adres arama servisine ulaşılamadı.');
-  const items = await r.json();
-  return items.map((i) => ({
-    name: i.name || i.display_name.split(',')[0],
-    address: i.display_name,
-    lat: Number(i.lat),
-    lon: Number(i.lon),
-  }));
-}
-
-/** HERE varsa önce HERE; hata olursa ya da anahtar yoksa OpenStreetMap. */
+/** Yalnızca HERE. Anahtar APK'ya girmemişse bunu açıkça söyler. */
 export async function searchPlaces(q) {
-  if (HERE_API_KEY) {
-    try {
-      return await hereSearch(q);
-    } catch {
-      // HERE'e ulaşılamazsa arama bozulmasın
-    }
+  if (!HERE_API_KEY) {
+    throw new Error("Adres arama için HERE anahtarı bu uygulamada yok. expo.dev'de EXPO_PUBLIC_HERE_API_KEY (preview) ekleyip APK'yı yeniden yapın.");
   }
-  return nominatimSearch(q);
+  return hereSearch(q);
 }

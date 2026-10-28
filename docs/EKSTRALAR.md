@@ -35,7 +35,11 @@ ve yön bandı görünür; "Seyri bitir" paneli görünmez):
 `1a9ffbcdefc683aafbb905bc953cac5de3f0125d` —
 [ZIP](https://github.com/oguzffk/o-uz/archive/1a9ffbcdefc683aafbb905bc953cac5de3f0125d.zip).
 
-Aşağıdakiler sürüm 1'den **sonra** eklendi; 5. madde sürüm 1.1'e, 6. madde sürüm 1.2'ye, 7. madde sürüm 1.3'e, 8. madde sürüm 1.4'e, 9. madde sürüm 1.5'e, 10. madde sürüm 1.6'ya, 11. madde sürüm 1.7'ye girdi, 1–4 henüz APK'ya girmedi. İstendiğinde güncel
+**Sürüm 1.8** = sürüm 1.7 + **adres arama yalnızca HERE** (OpenStreetMap araması yok):
+`e87cc88b0bd9e3209903af93e3408925e5a8e063` —
+[ZIP](https://github.com/oguzffk/o-uz/archive/e87cc88b0bd9e3209903af93e3408925e5a8e063.zip).
+
+Aşağıdakiler sürüm 1'den **sonra** eklendi; 5. madde sürüm 1.1'e, 6. madde sürüm 1.2'ye, 7. madde sürüm 1.3'e, 8. madde sürüm 1.4'e, 9. madde sürüm 1.5'e, 10. madde sürüm 1.6'ya, 11. madde sürüm 1.7'ye, 12. madde sürüm 1.8'e girdi, 1–4 henüz APK'ya girmedi. İstendiğinde güncel
 dalın ZIP'inden ([claude/istanbul-navigation-app-wkh2ta](https://github.com/oguzffk/o-uz/archive/refs/heads/claude/istanbul-navigation-app-wkh2ta.zip))
 yeni APK yapılır; hepsi birlikte gelir.
 
@@ -52,6 +56,7 @@ yeni APK yapılır; hepsi birlikte gelir.
 | 9 | **Yol kapatma dokunuş düzeltmesi** (sürüm 1.5'te) | Yol kapat modunda haritaya dokunma |
 | 10 | **Seyir bitince otomatik temizleme** (sürüm 1.6'da) | ✕ → Bitir / hedefe varış |
 | 11 | **Bildir** (sürüm 1.7'de) | Seyirde varış yazısının sağında ＋; yöneticide yan panel "Bildirim" |
+| 12 | **Adres arama yalnızca HERE** (sürüm 1.8'de) | Nereye / Nereden arama kutusu |
 
 ## 1. Kayıt ol / Giriş yap
 
@@ -164,6 +169,18 @@ yeni APK yapılır; hepsi birlikte gelir.
 - Bildirimler 24 saat sonra kendiliğinden silinir.
 - Demo modunda bildirimler yalnızca aynı telefonda görünür; başka telefonlara gitmesi için
   sunucu gerekir.
+
+## 12. Adres arama yalnızca HERE
+
+- Arama artık **yalnızca HERE**'den yapılır; OpenStreetMap araması kaldırıldı.
+- HERE çalışmazsa sessizce başka yere geçmez, sebebi ekranda yazar:
+  - anahtar APK'da yoksa: "Adres arama için HERE anahtarı bu uygulamada yok…";
+  - anahtar yanlışsa: "HERE anahtarı geçersiz ya da arama izni yok (401)";
+  - kota dolduysa: "HERE arama kotası doldu (429)".
+- Anahtar: expo.dev → Environment variables → `EXPO_PUBLIC_HERE_API_KEY` (preview, Sensitive).
+  `GOOGLE_MAPS_API_KEY` da yerinde kalmalı; silinirse uygulama açılmaz.
+- Haritanın altındaki "© OpenStreetMap katkıcıları" yazısı kalır: rotalar OpenStreetMap
+  yol verisiyle hesaplanıyor, bu yazı zorunlu.
 
 ## Yayından önce
 

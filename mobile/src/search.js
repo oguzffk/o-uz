@@ -21,7 +21,9 @@ export function shortAddress(name, label, fields = {}) {
     .map((x) => x.trim())
     .filter(Boolean);
   if (parts.length && name && parts[0] === String(name).trim()) parts.shift();
-  const rest = parts.filter((x) => !/^\d{5}$/.test(x) && !/^(Türkiye|Turkey)$/i.test(x));
+  const rest = parts
+    .map((x) => x.replace(/^\d{5}\s+/, '')) // "34200 Bağcılar/İstanbul" gibi bitişik posta kodu
+    .filter((x) => !/^\d{5}$/.test(x) && !/^(Türkiye|Turkey)$/i.test(x));
   const regionPart = rest.find((x) => x.includes('/'));
   const region = regionPart ? regionPart.split('/').map((x) => x.trim()).join(' ') : '';
   const street = fields.street

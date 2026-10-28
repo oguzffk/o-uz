@@ -993,6 +993,7 @@ test('adres arama: konum gelince en yakın sonuç üstte; alt satırda yalnızca
     '1486. Sokak 39 Bağcılar İstanbul',
   );
   assert.equal(shortAddress('x', 'Veysel Karani Caddesi 136 Bağcılar İstanbul'), 'Veysel Karani Caddesi 136 Bağcılar İstanbul'); // zaten kısa
+  assert.equal(shortAddress('G Plus', 'G Plus, Bağlar Mah., 34200 Bağcılar/İstanbul, Türkiye'), 'Bağlar Mah. Bağcılar İstanbul');
 
   const item = (title, ilce, lat, lng, distance) => ({
     title,

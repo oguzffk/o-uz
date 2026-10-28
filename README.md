@@ -193,7 +193,7 @@ Uygulama RevenueCat'e kullanıcıyı sunucudaki kullanıcı kimliğiyle tanıtı
 | `POST /api/closures/open-all` 🔒 | Tüm yolları trafiğe açar: kaydedilmemiş kapatmalar silinir, gruplar silinmez ama açılır |
 | `POST /api/reports` `{type, lat, lon}` | Kullanıcı bildirimi (`roadwork` yol çalışması, `accident` kaza, `closed` yol kapalı, `breakdown` araç arızası, `other` diğer). Yol **kapanmaz**; en yakın yolun adı eklenip yöneticilere iletilir. Aynı kullanıcı 30 sn'de bir gönderebilir (`429`) |
 | `GET /api/reports` 🔒 · `DELETE /api/reports/:id` 🔒 | Son 24 saatin bildirimleri (en yenisi başta) · bildirimi kaldırır. Gerekirse yolu yönetici `POST /api/closures/toggle` ile kendisi kapatır |
-| `GET /api/search?q=` | İstanbul ile sınırlı adres ve yer arama. `HERE_API_KEY` varsa HERE (Discover; site, rezidans ve işletmelerde çok daha eksiksiz, binanın yola bağlandığı nokta döner), yoksa ya da HERE hata verirse OpenStreetMap (Nominatim) |
+| `GET /api/search?q=` | İstanbul ile sınırlı adres ve yer arama. Yalnızca HERE (Discover; `HERE_API_KEY` gerekli). Binanın yola bağlandığı nokta döner. Anahtar yoksa `503`, HERE hata verirse `502` ve sebebi (ör. anahtar geçersiz, kota doldu) |
 | `POST /api/auth/email-code` `{email}` | Kayıtlı adrese 6 haneli giriş kodu gönderir (adres kayıtlı olmasa da cevap aynı). Aynı adrese dakikada 1, saatte 5; aynı IP'den saatte 30 istek |
 | `POST /api/auth/email-login` `{email, code}` | Kod doğruysa oturum açar: `{token, user}`. Kod 10 dakika ve 5 deneme geçerli, tek kullanımlık. Aynı hesabın önceki oturumu kapanır |
 | `POST /api/auth/login` `{phone, password}` | Yedek giriş (yalnızca sahip ve yönetici). Aynı telefona 5, aynı IP'den 20 hatalı denemede 15 dakika kilit |
@@ -219,7 +219,7 @@ cd server && npm test
 - **Kapatma sayısı:** Valhalla'nın varsayılan `max_exclude_polygons_length` (10 km) sınırıyla yaklaşık 2.500 eşzamanlı kapalı segment desteklenir; daha fazlası için Valhalla yapılandırmasında bu sınır artırılmalı.
 - **Kapatmalar** `server/data/closures.json` dosyasında tutulur; çok sunuculu kurulumda PostgreSQL/Redis'e taşınmalı.
 - **Hesaplar** `server/data/users.json` dosyasında tutulur; yedeklenmesi gerekir (kapatmalar dosyasıyla birlikte). Satın alma geçmişi de bu dosyadadır (`purchases`).
-- **Harita karoları ve arama** OpenStreetMap'in ücretsiz sunucularından gelir (`tile.openstreetmap.org`, Nominatim). Bunlar yoğun kullanım için değildir; yayına çıkmadan önce kendi karo sunucunuzu / ticari bir sağlayıcıyı ve kendi geocoder'ınızı kullanın.
+- **Harita karoları** OpenStreetMap'in ücretsiz sunucularından gelir (`tile.openstreetmap.org`); yoğun kullanım için değildir. **Adres arama** yalnızca HERE'den yapılır (`HERE_API_KEY` / demo APK'da `EXPO_PUBLIC_HERE_API_KEY`).
 - **Canlı trafik verisi yok:** Süreler, İstanbul'un saate ve güne göre tipik yoğunluğuyla tahmin edilir (`server/src/traffic.js`: hafta içi 07–10 ve 17–20:30 yoğun saat; hızlı yollar en çok yavaşlar). Gerçek trafik için HERE/TomTom gibi bir kaynak eklenebilir.
 - Expo Go yerine kalıcı bir uygulama için `npx expo run:android|ios` veya EAS Build ile development build alın. Üretimde API HTTPS arkasında olmalı (iOS/Android düz HTTP'yi engeller).
 - OSM verisini güncellemek için betiği tekrar çalıştırın, ardından `force_rebuild=True` ile Valhalla'yı bir kez yeniden başlatın.

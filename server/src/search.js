@@ -1,8 +1,7 @@
 /**
- * Adres ve yer arama. HERE anahtarı (HERE_API_KEY) varsa HERE'in yer veritabanı kullanılır:
- * site, rezidans ve işletmelerde OpenStreetMap'ten çok daha eksiksiz. Anahtar yoksa ya da HERE
- * cevap vermezse OpenStreetMap'in arama servisi (Nominatim) kullanılır. Sonuçlar İstanbul
- * kutusuyla sınırlıdır. Aynı mantık mobile/src/search.js'te de var (demo modu).
+ * Adres ve yer arama: yalnızca HERE (HERE_API_KEY). OpenStreetMap araması kullanılmaz; HERE
+ * çalışmazsa sebebi hata olarak döner. Sonuçlar İstanbul kutusuyla sınırlıdır. Aynı mantık
+ * mobile/src/search.js'te de var (demo modu).
  */
 
 const HERE_DISCOVER_URL = 'https://discover.search.hereapi.com/v1/discover';
@@ -17,7 +16,10 @@ export async function hereSearch(q, { apiKey, bbox, fetchImpl = fetch, limit = 8
     limit: String(limit),
     apiKey,
   }).toString();
-  const r = await fetchImpl(url);
+  const r = await fetchImpl(url).catch(() => null);
+  if (!r) throw new Error('HERE arama servisine ulaşılamadı');
+  if (r.status === 401 || r.status === 403) throw new Error(`HERE anahtarı geçersiz ya da arama izni yok (${r.status})`);
+  if (r.status === 429) throw new Error('HERE arama kotası doldu (429)');
   if (!r.ok) throw new Error(`HERE arama hatası (${r.status})`);
   const data = await r.json();
   return (data.items ?? [])
@@ -30,35 +32,8 @@ export async function hereSearch(q, { apiKey, bbox, fetchImpl = fetch, limit = 8
     .filter(Boolean);
 }
 
-export async function nominatimSearch(q, { baseUrl, bbox, fetchImpl = fetch, limit = 8, userAgent }) {
-  const url = new URL('/search', baseUrl);
-  url.search = new URLSearchParams({
-    q,
-    format: 'jsonv2',
-    limit: String(limit),
-    bounded: '1',
-    viewbox: `${bbox.minLon},${bbox.maxLat},${bbox.maxLon},${bbox.minLat}`,
-    'accept-language': 'tr',
-  }).toString();
-  const r = await fetchImpl(url, { headers: { 'user-agent': userAgent } });
-  if (!r.ok) throw new Error(`Arama servisi hatası (${r.status})`);
-  const items = await r.json();
-  return items.map((i) => ({
-    name: i.name || i.display_name.split(',')[0],
-    address: i.display_name,
-    lat: Number(i.lat),
-    lon: Number(i.lon),
-  }));
-}
-
-/** HERE varsa önce HERE; hata olursa ya da anahtar yoksa Nominatim. */
-export async function searchPlaces(q, { hereApiKey, nominatimUrl, bbox, fetchImpl = fetch, userAgent, log = console }) {
-  if (hereApiKey) {
-    try {
-      return { results: await hereSearch(q, { apiKey: hereApiKey, bbox, fetchImpl }), source: 'here' };
-    } catch (err) {
-      log.warn?.(`HERE arama başarısız, OpenStreetMap'e geçiliyor: ${err.message}`);
-    }
-  }
-  return { results: await nominatimSearch(q, { baseUrl: nominatimUrl, bbox, fetchImpl, userAgent }), source: 'osm' };
+/** Yalnızca HERE; anahtar yoksa hata. */
+export async function searchPlaces(q, { hereApiKey, bbox, fetchImpl = fetch }) {
+  if (!hereApiKey) throw new Error('Adres arama için HERE anahtarı (HERE_API_KEY) tanımlı değil');
+  return { results: await hereSearch(q, { apiKey: hereApiKey, bbox, fetchImpl }), source: 'here' };
 }

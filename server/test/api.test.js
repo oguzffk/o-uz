@@ -817,7 +817,7 @@ test('adres arama: yalnızca HERE; anahtar yoksa ya da HERE hata verirse sebebi 
 
   const r1 = await searchPlaces('g plus', { hereApiKey: 'anahtar', bbox, fetchImpl });
   assert.equal(r1.source, 'here');
-  assert.deepEqual(r1.results, [{ name: 'G Plus Rezidans', address: 'Bağlar Mah., Bağcılar/İstanbul', lat: 41.0401, lon: 28.8502 }]);
+  assert.deepEqual(r1.results, [{ name: 'G Plus Rezidans', address: 'Bağlar Mah. Bağcılar İstanbul', lat: 41.0401, lon: 28.8502 }]);
   const u = new URL(calls[0]);
   assert.equal(u.hostname, 'discover.search.hereapi.com');
   assert.equal(u.searchParams.get('q'), 'g plus');
@@ -830,6 +830,55 @@ test('adres arama: yalnızca HERE; anahtar yoksa ya da HERE hata verirse sebebi 
   await assert.rejects(searchPlaces('bağlar', { hereApiKey: 'x', bbox, fetchImpl: status(429) }), /kotası doldu/);
   await assert.rejects(searchPlaces('bağlar', { hereApiKey: 'x', bbox, fetchImpl: async () => { throw new Error('ağ'); } }), /ulaşılamadı/);
   assert.equal(calls.filter((c) => !c.includes('hereapi.com')).length, 0); // OpenStreetMap'e hiç gidilmedi
+});
+
+test('adres arama: konum gelince en yakın sonuç üstte; alt satırda yalnızca "Cadde No İlçe İstanbul"', async () => {
+  const { searchPlaces, shortAddress } = await import('../src/search.js');
+  const bbox = { minLon: 27.95, minLat: 40.78, maxLon: 29.95, maxLat: 41.6 };
+  // HERE'in Türkiye adres satırları: ad, posta kodu ve "Türkiye" yazılmaz
+  assert.equal(
+    shortAddress('Kılıç Oto Yıkama.', 'Kılıç Oto Yıkama., Veysel Karani Caddesi 136, 34791, Yenimahalle, Bağcılar/İstanbul, Türkiye'),
+    'Veysel Karani Caddesi 136 Bağcılar İstanbul',
+  );
+  assert.equal(
+    shortAddress('Bilal Habeşi Cami', 'Bilal Habeşi Cami, 1486. Sokak 39, 34212, 15 Temmuz, Bağcılar/İstanbul, Türkiye', { street: '1486. Sokak', houseNumber: '39' }),
+    '1486. Sokak 39 Bağcılar İstanbul',
+  );
+  assert.equal(shortAddress('x', 'Veysel Karani Caddesi 136 Bağcılar İstanbul'), 'Veysel Karani Caddesi 136 Bağcılar İstanbul'); // zaten kısa
+  assert.equal(shortAddress('G Plus', 'G Plus, Bağlar Mah., 34200 Bağcılar/İstanbul, Türkiye'), 'Bağlar Mah. Bağcılar İstanbul');
+
+  const item = (title, ilce, lat, lng, distance) => ({
+    title,
+    address: { label: `${title}, Cami Sokak 1, 34000, Merkez, ${ilce}/İstanbul, Türkiye`, street: 'Cami Sokak', houseNumber: '1' },
+    position: { lat, lng },
+    distance,
+  });
+  let url;
+  const fetchImpl = async (u) => {
+    url = new URL(String(u));
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        items: [
+          item('Bilal-i Habeşi Camii', 'Üsküdar', 41.02, 29.02, 15000),
+          item('Bilal-i Habeşi Camii', 'Bağcılar', 41.04, 28.85, 900),
+          item('Bilal-i Habeşi Camii', 'Ankara', 39.9, 32.8, 350000), // İstanbul dışı: atılır
+          item('Bilal-i Habeşi Camii', 'Esenler', 41.04, 28.88, 2500),
+        ],
+      }),
+    };
+  };
+  const near = { lat: 41.041, lon: 28.851 };
+  const r = await searchPlaces('bilal habeşi', { hereApiKey: 'x', bbox, near, fetchImpl });
+  assert.equal(url.searchParams.get('at'), '41.041,28.851');
+  assert.equal(url.searchParams.get('in'), 'countryCode:TUR');
+  assert.deepEqual(r.results.map((x) => x.address), ['Cami Sokak 1 Bağcılar İstanbul', 'Cami Sokak 1 Esenler İstanbul', 'Cami Sokak 1 Üsküdar İstanbul']);
+
+  // Konum yoksa eskisi gibi İstanbul kutusu
+  await searchPlaces('bilal habeşi', { hereApiKey: 'x', bbox, fetchImpl });
+  assert.equal(url.searchParams.get('at'), null);
+  assert.equal(url.searchParams.get('in'), 'bbox:27.95,40.78,29.95,41.6');
 });
 
 test('yol kapat: kapalı yola tekrar dokununca, en yakın yol yan sokak çıksa bile o yol açılır', async () => {

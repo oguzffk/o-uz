@@ -51,7 +51,8 @@ export function createApi(baseUrl, token) {
     closures: () => request('/api/closures'),
     route: ({ from, to, via, costing, heading, alternatives, avoidTolls }) =>
       request('/api/route', { method: 'POST', body: { from, to, via, costing, heading, alternatives, avoidTolls } }),
-    search: (q) => request(`/api/search?q=${encodeURIComponent(q)}`),
+    search: (q, near) =>
+      request(`/api/search?q=${encodeURIComponent(q)}${near ? `&lat=${near.lat}&lon=${near.lon}` : ''}`),
 
     // Bildirimler: herkes gönderir (yol kapanmaz), sahip + yönetici görür ve kaldırır
     sendReport: ({ type, lat, lon }) => request('/api/reports', { method: 'POST', body: { type, lat, lon } }),

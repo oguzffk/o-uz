@@ -670,14 +670,24 @@ export function createApp({
     }
   });
 
-  // Adres arama: yalnızca HERE (HERE_API_KEY), İstanbul kutusuyla sınırlı.
+  // Adres arama: yalnızca HERE (HERE_API_KEY), İstanbul kutusuyla sınırlı. lat/lon (kullanıcının
+  // konumu) gelirse en yakın sonuçlar üstte; geçersiz ya da İstanbul dışıysa konumsuz aranır.
   app.get('/api/search', requireActive, async (req, res, next) => {
     try {
       const q = String(req.query.q ?? '').trim();
       if (q.length < 2) return res.json({ results: [] });
+      let near = null;
+      if (req.query.lat != null && req.query.lon != null) {
+        try {
+          near = parsePoint({ lat: req.query.lat, lon: req.query.lon }, 'Konum');
+        } catch {
+          near = null;
+        }
+      }
       const { results } = await searchPlaces(q, {
         hereApiKey,
         bbox: ISTANBUL_BBOX,
+        near,
         fetchImpl,
       }).catch((err) => {
         throw new HttpError(hereApiKey ? 502 : 503, err.message);

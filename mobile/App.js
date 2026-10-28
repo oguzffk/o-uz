@@ -49,6 +49,7 @@ import SettingsSheet from './src/SettingsSheet';
 import { LaneStrip, ManeuverIcon } from './src/TurnIcons';
 import { enterPip, pipSupported, setAutoPip, usePipMode } from './src/pip';
 import ZonesSheet from './src/ZonesSheet';
+import { shortAddress } from './src/search';
 import { ReportSheet, ReportsSheet, reportIcon } from './src/ReportSheets';
 
 const SETTINGS_KEY = 'nav-settings-v1';
@@ -637,7 +638,8 @@ function AppScreen() {
     const seq = ++searchSeq.current;
     setSearching(true);
     try {
-      const { results: r } = await api.search(q);
+      // Konum biliniyorsa en yakın sonuçlar üstte çıkar.
+      const { results: r } = await api.search(q, location ? { lat: location.lat, lon: location.lon } : null);
       if (seq !== searchSeq.current) return;
       setResults(r);
       if (!r.length && !auto) showToast(`"${q}" için İstanbul'da sonuç bulunamadı.`);
@@ -1300,7 +1302,7 @@ function AppScreen() {
                             </Text>
                             {!!item.address && (
                               <Text style={styles.resultAddr} numberOfLines={1}>
-                                {item.address}
+                                {shortAddress(item.name, item.address)}
                               </Text>
                             )}
                           </View>

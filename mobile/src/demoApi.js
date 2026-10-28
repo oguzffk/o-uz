@@ -524,9 +524,9 @@ export function createDemoApi(valhallaUrl = PUBLIC_VALHALLA_URL, token = null) {
       return { closuresVersion: version, costing, avoidTolls, snappedToRoad, traffic, ...routes[0], routes };
     },
 
-    async search(q) {
+    async search(q, near) {
       await requireActive();
-      return { results: await searchPlaces(q) };
+      return { results: await searchPlaces(q, near) };
     },
 
     // Bildirimler yalnızca bu telefonda tutulur (demo); gerçek sunucuda yöneticilere gider.

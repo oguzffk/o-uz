@@ -6,8 +6,8 @@
 // değişirse ilgili maddeleri güncelle (README → Yayın öncesi kontrol listesi).
 export const PRIVACY = {
   id: 'gizlilik',
-  version: '1.0',
-  updated: '25 Ekim 2026',
+  version: '1.1',
+  updated: '28 Ekim 2026',
   title: 'Gizlilik Politikası ve KVKK Aydınlatma Metni',
   intro:
     'HERMAPS ("Uygulama") İstanbul için kapalı yolları dikkate alan bir navigasyon uygulamasıdır. Bu metin, 6698 sayılı Kişisel Verilerin Korunması Kanunu ("KVKK") kapsamında hangi kişisel verilerinizi, hangi amaçla ve nasıl işlediğimizi ve haklarınızı açıklar.',
@@ -50,7 +50,7 @@ export const PRIVACY = {
     {
       title: '5. Aktarım',
       body: [
-        'Verileriniz yalnızca hizmeti sunmak için gerekli olduğu ölçüde şu hizmet sağlayıcılarla paylaşılır: sunucu barındırma hizmeti; e-posta gönderim hizmeti (doğrulama ve giriş kodları için); ödeme altyapısı olarak Apple App Store, Google Play ve satın alma doğrulama hizmeti RevenueCat; harita görüntüsü için Google Haritalar (Android) / Apple Haritalar (iOS); adres arama için OpenStreetMap tabanlı arama hizmeti.',
+        'Verileriniz yalnızca hizmeti sunmak için gerekli olduğu ölçüde şu hizmet sağlayıcılarla paylaşılır: sunucu barındırma hizmeti; e-posta gönderim hizmeti (doğrulama ve giriş kodları için); ödeme altyapısı olarak Apple App Store, Google Play ve satın alma doğrulama hizmeti RevenueCat; harita görüntüsü için Google Haritalar (Android) / Apple Haritalar (iOS); adres arama için HERE Technologies.',
         'Bu sağlayıcıların bir kısmının sunucuları yurt dışındadır; yurt dışına aktarım KVKK m.9\'daki şartlara uygun olarak yapılır.',
         'Verileriniz reklam amacıyla kullanılmaz ve satılmaz. Yetkili kamu kurumlarının kanuna dayalı talepleri halinde ilgili mevzuat çerçevesinde paylaşılabilir.',
       ],

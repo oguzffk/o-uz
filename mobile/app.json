@@ -23,6 +23,52 @@
       "permissions": [
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION"
+      ],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ],
+          "data": [
+            {
+              "scheme": "geo"
+            }
+          ]
+        },
+        {
+          "action": "VIEW",
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ],
+          "data": [
+            {
+              "scheme": "https",
+              "host": "maps.google.com"
+            },
+            {
+              "scheme": "https",
+              "host": "www.google.com",
+              "pathPrefix": "/maps"
+            },
+            {
+              "scheme": "https",
+              "host": "google.com",
+              "pathPrefix": "/maps"
+            },
+            {
+              "scheme": "https",
+              "host": "maps.app.goo.gl"
+            },
+            {
+              "scheme": "https",
+              "host": "goo.gl",
+              "pathPrefix": "/maps"
+            }
+          ]
+        }
       ]
     },
     "web": {
@@ -56,6 +102,14 @@
             "extraProguardRules": "-keep class * extends androidx.room.RoomDatabase { <init>(); }\n-keep class androidx.work.impl.** { *; }"
           }
         }
+      ],
+      [
+        "expo-share-intent",
+        {
+          "androidIntentFilters": [
+            "text/*"
+          ]
+        }
       ]
     ],
     "owner": "zalimusta",
@@ -63,6 +117,7 @@
       "eas": {
         "projectId": "36b0f2fa-3769-4fb9-b0dd-3a17e6452bfa"
       }
-    }
+    },
+    "scheme": "hermaps"
   }
 }

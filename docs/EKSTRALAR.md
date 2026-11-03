@@ -43,7 +43,11 @@ ve yön bandı görünür; "Seyri bitir" paneli görünmez):
 `18d11a0b7c68c09a413b35df401d118891879e0f` —
 [ZIP](https://github.com/oguzffk/o-uz/archive/18d11a0b7c68c09a413b35df401d118891879e0f.zip).
 
-Aşağıdakiler sürüm 1'den **sonra** eklendi; 5. madde sürüm 1.1'e, 6. madde sürüm 1.2'ye, 7. madde sürüm 1.3'e, 8. madde sürüm 1.4'e, 9. madde sürüm 1.5'e, 10. madde sürüm 1.6'ya, 11. madde sürüm 1.7'ye, 12. madde sürüm 1.8'e, 13. madde sürüm 1.9'a girdi, 1–4 henüz APK'ya girmedi. İstendiğinde güncel
+**Sürüm 1.10** = sürüm 1.9 + **WhatsApp konumu HERMAPS'te açılır, 3 boyutlu binalar kapalı**:
+`23f8c1920af329a2fd38b2cbd2727244b3495316` —
+[ZIP](https://github.com/oguzffk/o-uz/archive/23f8c1920af329a2fd38b2cbd2727244b3495316.zip).
+
+Aşağıdakiler sürüm 1'den **sonra** eklendi; 5. madde sürüm 1.1'e, 6. madde sürüm 1.2'ye, 7. madde sürüm 1.3'e, 8. madde sürüm 1.4'e, 9. madde sürüm 1.5'e, 10. madde sürüm 1.6'ya, 11. madde sürüm 1.7'ye, 12. madde sürüm 1.8'e, 13. madde sürüm 1.9'a, 14. madde sürüm 1.10'a girdi, 1–4 henüz APK'ya girmedi. İstendiğinde güncel
 dalın ZIP'inden ([claude/istanbul-navigation-app-wkh2ta](https://github.com/oguzffk/o-uz/archive/refs/heads/claude/istanbul-navigation-app-wkh2ta.zip))
 yeni APK yapılır; hepsi birlikte gelir.
 
@@ -62,6 +66,7 @@ yeni APK yapılır; hepsi birlikte gelir.
 | 11 | **Bildir** (sürüm 1.7'de) | Seyirde varış yazısının sağında ＋; yöneticide yan panel "Bildirim" |
 | 12 | **Adres arama yalnızca HERE** (sürüm 1.8'de) | Nereye / Nereden arama kutusu |
 | 13 | **Aramada en yakın sonuç üstte, kısa adres** (sürüm 1.9'da) | Nereye / Nereden arama kutusu, son aramalar |
+| 14 | **WhatsApp konumu HERMAPS'te açılır, 3 boyutlu binalar kapalı** (sürüm 1.10'da) | WhatsApp konumu / Paylaş, harita |
 
 ## 1. Kayıt ol / Giriş yap
 
@@ -195,6 +200,21 @@ yeni APK yapılır; hepsi birlikte gelir.
 - Sonucun alt satırında yalnızca **"Cadde No İlçe İstanbul"** yazar
   (ör. "Veysel Karani Caddesi 136 Bağcılar İstanbul"): yerin adı tekrar yazılmaz, posta kodu
   ve "Türkiye" yok. Eski son aramalar da bu şekilde kısa görünür.
+
+## 14. WhatsApp konumu HERMAPS'te açılır, 3 boyutlu binalar kapalı
+
+- HERMAPS, Android'e "konum açabilen uygulama" olarak tanıtıldı. WhatsApp'ta konuma basınca
+  açılan "Hangi uygulamayla?" listesinde HERMAPS çıkar; "Her zaman" denirse hep HERMAPS açılır.
+- Google Maps varsayılan yapılmışsa liste çıkmaz. Bir kere: Ayarlar → Uygulamalar →
+  Google Maps → Varsayılan olarak aç → **Varsayılanları temizle** (varsa "Desteklenen
+  bağlantıları aç"ı kapatın).
+- Ayara gerek kalmayan yol: Google Maps'te **Paylaş → HERMAPS**.
+- Gelen konum **varış noktası** olur, rota çizilir; "Başla" demek yeterli. Kısa
+  `maps.app.goo.gl` linkleri de açılır; adres yazılı linkler HERE'de aranır.
+- İstanbul dışı konumda uyarı çıkar. Seyir sürerken gelen konum, seyir bitince açılır.
+- Haritada **3 boyutlu binalar gösterilmez.**
+- iPhone'da WhatsApp yalnızca kendi seçtiği harita uygulamalarını gösterir; orada Paylaş yolu
+  ayrıca denenecek.
 
 ## Yayından önce
 

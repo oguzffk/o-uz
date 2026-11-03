@@ -6,6 +6,7 @@ import {
   FlatList,
   Image,
   Keyboard,
+  Linking,
   PanResponder,
   Pressable,
   StyleSheet,
@@ -50,6 +51,8 @@ import { LaneStrip, ManeuverIcon } from './src/TurnIcons';
 import { enterPip, pipSupported, setAutoPip, usePipMode } from './src/pip';
 import ZonesSheet from './src/ZonesSheet';
 import { shortAddress } from './src/search';
+import { looksLikeLocation, placeFromText } from './src/placeLink';
+import { useShareIntent } from 'expo-share-intent';
 import { ReportSheet, ReportsSheet, reportIcon } from './src/ReportSheets';
 
 const SETTINGS_KEY = 'nav-settings-v1';
@@ -687,6 +690,77 @@ function AppScreen() {
     requestRoute({ to: place });
   };
 
+  // --- Dışarıdan gelen konum (WhatsApp vb.): "geo:" / Google Haritalar linki ya da "Paylaş" ---
+  // Varış noktası yapılır ve rota çizilir. Oturum, konum ya da seyir yüzünden hemen açılamazsa
+  // bekletilir: giriş yapılınca / konum bulununca / seyir bitince açılır.
+  const pendingLink = useRef(null);
+  const navigatingRef = useRef(navigating);
+  const [linkTick, setLinkTick] = useState(0);
+  useEffect(() => {
+    navigatingRef.current = navigating;
+  }, [navigating]);
+  const receiveLink = useCallback(
+    (text, { fromShare = false } = {}) => {
+      if (!text || (!fromShare && !looksLikeLocation(text))) return;
+      pendingLink.current = { text, fromShare };
+      setLinkTick((n) => n + 1);
+      if (navigatingRef.current) showToast('Gelen konum, seyir bitince açılacak.');
+    },
+    [showToast],
+  );
+  useEffect(() => {
+    Linking.getInitialURL()
+      .then((url) => receiveLink(url))
+      .catch(() => {});
+    const sub = Linking.addEventListener('url', ({ url }) => receiveLink(url));
+    return () => sub.remove();
+  }, [receiveLink]);
+  const { hasShareIntent, shareIntent, resetShareIntent } = useShareIntent();
+  useEffect(() => {
+    if (!hasShareIntent) return;
+    const text = shareIntent.text || shareIntent.webUrl;
+    if (text) pendingLink.current = { text, fromShare: true }; // aşağıdaki efekt açar
+    resetShareIntent();
+  }, [hasShareIntent, shareIntent, resetShareIntent]);
+
+  const openSharedLocation = async ({ text, fromShare }) => {
+    try {
+      const found = await placeFromText(text);
+      if (!found) {
+        if (fromShare) showToast('Paylaşılan içerikte konum bulunamadı.', 'error');
+        return;
+      }
+      let place;
+      if (found.query) {
+        // Konum yerine adres yazılı link: HERE'de aranır, en yakın sonuç alınır.
+        const { results: r } = await api.search(found.query, location ? { lat: location.lat, lon: location.lon } : null);
+        if (!r.length) return showToast(`"${found.query}" için İstanbul'da sonuç bulunamadı.`, 'error');
+        place = r[0];
+      } else {
+        if (!inIstanbul(found)) return showToast('Gelen konum İstanbul dışında. HERMAPS yalnızca İstanbul içinde rota çizer.', 'error');
+        place = { lat: found.lat, lon: found.lon, name: found.name || 'Paylaşılan konum', address: '' };
+      }
+      setResults([]);
+      setActiveField('to');
+      skipAutoSearch.current = true;
+      Keyboard.dismiss();
+      addRecent(place);
+      setQuery(place.name);
+      setDestination(place);
+      requestRoute({ to: place });
+    } catch (err) {
+      if (!onApiError.current(err)) showToast(err.message, 'error');
+    }
+  };
+  const linkReady = Boolean(session && user && !user.mustChangePassword && !expired && !navigating && origin);
+  useEffect(() => {
+    const item = pendingLink.current;
+    if (!item || !linkReady) return;
+    pendingLink.current = null;
+    openSharedLocation(item);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linkTick, linkReady, hasShareIntent]);
+
   const addStop = (place) => {
     const next = [...stops, place].slice(0, MAX_STOPS);
     setStops(next);
@@ -982,6 +1056,8 @@ function AppScreen() {
           showsUserLocation={!navigating}
           showsMyLocationButton={false}
           showsCompass={false}
+          // 3 boyutlu binalar gösterilmez (yollar ve oklar daha net görünür).
+          showsBuildings={false}
         // Android: işaretçiye (girilmez levhası) dokununca harita oraya kaymasın.
         moveOnMarkerPress={false}
           toolbarEnabled={false}
